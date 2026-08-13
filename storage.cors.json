@@ -5,6 +5,7 @@
       "http://localhost:4173",
       "http://127.0.0.1:5173",
       "http://127.0.0.1:4173",
+      "https://consorcio-selva-mdd.vercel.app",
       "https://consorcio-selva-mdd.web.app",
       "https://consorcio-selva-mdd.firebaseapp.com"
     ],
@@ -14,6 +15,7 @@
       "Content-Type",
       "Authorization",
       "Content-Length",
+      "User-Agent",
       "x-goog-resumable",
       "x-goog-meta-*",
       "x-firebase-storage-download-tokens"

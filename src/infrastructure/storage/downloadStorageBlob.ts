@@ -8,8 +8,9 @@ import { loadFirebaseConfig } from '@/infrastructure/firebase/firebaseConfig'
 
 /**
  * Descarga un objeto de Storage con la sesión actual.
- * - En desarrollo: proxy Vite (`/__firebase_storage`) + Bearer token → sin CORS.
- * - En producción: SDK `getBlob` (requiere CORS del bucket).
+ * - DEV: proxy Vite (`/__firebase_storage`) + Bearer → sin CORS.
+ * - PROD (Vercel): proxy `/api/storage` + Bearer → sin CORS.
+ * - Fallback: SDK `getBlob` (requiere CORS del bucket).
  */
 export async function downloadStorageBlob(storagePath: string): Promise<Blob> {
   const path = storagePath.trim()
@@ -22,8 +23,9 @@ export async function downloadStorageBlob(storagePath: string): Promise<Blob> {
     throw new DomainError('Debes iniciar sesión para leer archivos')
   }
 
+  const token = await user.getIdToken()
+
   if (import.meta.env.DEV) {
-    const token = await user.getIdToken()
     const { storageBucket } = loadFirebaseConfig()
     const objectPath = encodeURIComponent(path)
     const response = await fetch(
@@ -42,6 +44,24 @@ export async function downloadStorageBlob(storagePath: string): Promise<Blob> {
     }
 
     return response.blob()
+  }
+
+  // Producción en Vercel: evita CORS del bucket.
+  try {
+    const response = await fetch(
+      `/api/storage?path=${encodeURIComponent(path)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    if (response.ok) {
+      return response.blob()
+    }
+  } catch {
+    // Continúa con getBlob si el proxy no está disponible.
   }
 
   try {
