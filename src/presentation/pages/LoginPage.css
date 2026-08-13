@@ -1,0 +1,128 @@
+.login-page {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  overflow: hidden;
+}
+
+.login-page--plain {
+  background:
+    radial-gradient(circle at top left, rgba(30, 136, 229, 0.12), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(67, 160, 71, 0.12), transparent 35%),
+    var(--surface-soft);
+}
+
+.pdf-name-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-muted, #6b7385);
+}
+
+.login-page__backdrop {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.02);
+}
+
+.login-page__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(8, 18, 32, 0.72) 10%,
+      rgba(13, 71, 161, 0.45) 48%,
+      rgba(27, 94, 32, 0.5) 100%
+    );
+}
+
+.login-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 460px);
+  padding: 2rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: card-rise 0.55s ease both;
+}
+
+.login-card__brand {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.75rem;
+}
+
+.login-card__logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 16px rgba(30, 136, 229, 0.35));
+}
+
+.login-card__eyebrow {
+  color: var(--brand-blue-deep);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.35rem;
+}
+
+.login-card h1 {
+  font-size: clamp(1.35rem, 2vw, 1.7rem);
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.login-card__subtitle {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.login-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.login-card__footer {
+  margin-top: 1.4rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 560px) {
+  .login-card {
+    padding: 1.4rem;
+  }
+
+  .login-card__brand {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+}

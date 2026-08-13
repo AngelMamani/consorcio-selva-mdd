@@ -7,12 +7,23 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies / build
 node_modules
 dist
 dist-ssr
-*.local
+.firebase
+.vercel
 
-# Editor directories and files
+# Env y secretos (NUNCA subir .env real)
+*.local
+.env
+.env.*
+!.env.example
+**/serviceAccount*.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -22,3 +33,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Cloud Functions
+functions/lib
+functions/node_modules
+
+# Flutter (la app en /consorcio tiene su propio .gitignore)
+consorcio/.dart_tool/
+consorcio/.packages
+consorcio/.pub-cache/
+consorcio/.pub/
+consorcio/build/
+consorcio/.flutter-plugins
+consorcio/.flutter-plugins-dependencies

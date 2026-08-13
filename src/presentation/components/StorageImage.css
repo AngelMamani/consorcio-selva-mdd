@@ -1,0 +1,32 @@
+.storage-image--loading,
+.storage-image--failed {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  width: 100%;
+  background: var(--sidebar-hover, #eef2f6);
+  color: var(--muted, #6b7385);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.storage-image__spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--line, #d5dde8);
+  border-top-color: var(--brand-blue, #1e88e5);
+  animation: storage-image-spin 0.75s linear infinite;
+}
+
+.storage-image__link {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes storage-image-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

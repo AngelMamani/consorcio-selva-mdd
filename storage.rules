@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAllowedImage() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png|webp|gif|heic|heif)')
+        && request.resource.size > 0
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /folders/{folderId}/{allPaths=**} {
+      // Auth obligatoria. El aislamiento por carpeta/rol se aplica en Firestore y en la app.
+      // Evita 403 de getBlob/getDownloadURL por firestore.get inestable en Storage rules.
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAllowedImage();
+      allow delete: if isSignedIn();
+    }
+  }
+}

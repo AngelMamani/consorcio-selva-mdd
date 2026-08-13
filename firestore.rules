@@ -1,0 +1,156 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function userDoc() {
+      return get(userPath()).data;
+    }
+
+    function isActiveUser() {
+      return isSignedIn()
+        && exists(userPath())
+        && userDoc().active == true;
+    }
+
+    function isAdmin() {
+      return isActiveUser() && userDoc().role == 'ADMINISTRADOR';
+    }
+
+    function folderPath(folderId) {
+      return /databases/$(database)/documents/folders/$(folderId);
+    }
+
+    function folderData(folderId) {
+      return get(folderPath(folderId)).data;
+    }
+
+    function canAccessFolder(folderId) {
+      return isActiveUser()
+        && exists(folderPath(folderId))
+        && (isAdmin() || folderData(folderId).ownerId == request.auth.uid);
+    }
+
+    function unchangedKeys(keys) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+
+      // Alta de usuarios solo vía Admin SDK / Cloud Functions.
+      allow create: if false;
+
+      allow update: if isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.uid == userId
+          && (
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['theme', 'updatedAt'])
+              && request.resource.data.theme in ['light', 'dark']
+            )
+            || (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'updatedAt'])
+              && resource.data.mustChangePassword == true
+              && request.resource.data.mustChangePassword == false
+            )
+          )
+          && unchangedKeys(['email', 'role', 'active', 'displayName', 'createdAt'])
+        );
+
+      allow delete: if false;
+    }
+
+    match /folders/{folderId} {
+      allow read: if isActiveUser() && (
+        isAdmin() || resource.data.ownerId == request.auth.uid
+      );
+
+      allow create: if isActiveUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerName is string
+        && request.resource.data.ownerName.size() > 0
+        && request.resource.data.ownerName.size() <= 120
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.imageCount == 0
+        && (!('latitude' in request.resource.data)
+          || (request.resource.data.latitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90))
+        && (!('longitude' in request.resource.data)
+          || (request.resource.data.longitude is number
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180))
+        && (!('locationAccuracy' in request.resource.data)
+          || request.resource.data.locationAccuracy is number)
+        && (!('locationCapturedAt' in request.resource.data)
+          || request.resource.data.locationCapturedAt is timestamp)
+        && request.resource.data.keys().hasOnly([
+          'name', 'description', 'ownerId', 'ownerName',
+          'imageCount', 'createdAt', 'updatedAt',
+          'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt'
+        ]);
+
+      allow update: if isActiveUser()
+        && (isAdmin() || resource.data.ownerId == request.auth.uid)
+        && unchangedKeys(['ownerId', 'createdAt'])
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.imageCount is int
+        && request.resource.data.imageCount >= 0;
+
+      allow delete: if isAdmin();
+    }
+
+    match /folderImages/{imageId} {
+      allow read: if canAccessFolder(resource.data.folderId);
+
+      allow create: if isActiveUser()
+        && request.resource.data.uploadedById == request.auth.uid
+        && request.resource.data.folderId is string
+        && canAccessFolder(request.resource.data.folderId)
+        && request.resource.data.storagePath is string
+        && request.resource.data.downloadUrl is string
+        && request.resource.data.contentType.matches('image/.*')
+        && request.resource.data.sizeBytes is int
+        && request.resource.data.sizeBytes > 0
+        && request.resource.data.sizeBytes <= 10 * 1024 * 1024
+        && (!('latitude' in request.resource.data)
+          || (request.resource.data.latitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90))
+        && (!('longitude' in request.resource.data)
+          || (request.resource.data.longitude is number
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180))
+        && (!('locationAccuracy' in request.resource.data)
+          || request.resource.data.locationAccuracy is number)
+        && (!('locationCapturedAt' in request.resource.data)
+          || request.resource.data.locationCapturedAt is timestamp);
+
+      allow delete: if isAdmin()
+        || (
+          isActiveUser()
+          && canAccessFolder(resource.data.folderId)
+          && resource.data.uploadedById == request.auth.uid
+        );
+
+      allow update: if false;
+    }
+  }
+}

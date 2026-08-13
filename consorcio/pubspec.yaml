@@ -1,0 +1,49 @@
+name: consorcio
+description: App móvil para técnicos de Consorcio Selva MDD
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.5.7
+  cloud_firestore: ^6.8.0
+  firebase_storage: ^13.4.6
+  image_picker: ^1.2.2
+  geolocator: ^14.0.2
+  uuid: ^4.6.0
+  provider: ^6.1.5+1
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/logo.png
+  min_sdk_android: 21
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: assets/logo.png
+  adaptive_icon_foreground_inset: 16
+  remove_alpha_ios: true
+  web:
+    generate: false
+  windows:
+    generate: true
+    icon_size: 256
+  macos:
+    generate: true
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
