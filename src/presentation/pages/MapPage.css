@@ -9,7 +9,7 @@
 
 .map-page__bar {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
   flex-shrink: 0;
@@ -20,6 +20,13 @@
   font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+.map-page__subtitle {
+  margin: 0.2rem 0 0;
+  max-width: 36rem;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .map-page__count {
@@ -70,32 +77,22 @@
   color: var(--muted);
 }
 
-.map-tech-marker {
+.map-route-marker {
   background: transparent;
   border: 0;
 }
 
-.map-tech-marker__pin {
+.map-route-marker__pin {
   display: block;
   width: 28px;
   height: 42px;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
 }
 
-.map-tech-marker__pin svg {
+.map-route-marker__pin svg {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-.map-popup__swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 6px;
-  border-radius: 999px;
-  vertical-align: middle;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
 @media (max-width: 720px) {

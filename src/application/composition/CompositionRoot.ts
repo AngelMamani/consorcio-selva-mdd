@@ -7,6 +7,7 @@ import { LogoutUseCase } from '@/domain/usecases/auth/LogoutUseCase'
 import { ObserveSessionUseCase } from '@/domain/usecases/auth/ObserveSessionUseCase'
 import { CreateUserUseCase } from '@/domain/usecases/users/CreateUserUseCase'
 import { ListUsersUseCase } from '@/domain/usecases/users/ListUsersUseCase'
+import { ListTechniciansUseCase } from '@/domain/usecases/users/ListTechniciansUseCase'
 import { UpdateUserUseCase } from '@/domain/usecases/users/UpdateUserUseCase'
 import { UpdateOwnThemeUseCase } from '@/domain/usecases/users/UpdateOwnThemeUseCase'
 import { ChangeOwnPasswordUseCase } from '@/domain/usecases/users/ChangeOwnPasswordUseCase'
@@ -20,7 +21,39 @@ import { UploadFolderImageUseCase } from '@/domain/usecases/folders/UploadFolder
 import { ListFolderImagesUseCase } from '@/domain/usecases/folders/ListFolderImagesUseCase'
 import { DeleteFolderImageUseCase } from '@/domain/usecases/folders/DeleteFolderImageUseCase'
 import { ExportFolderImagesToPdfUseCase } from '@/domain/usecases/folders/ExportFolderImagesToPdfUseCase'
+import {
+  ListAreasUseCase,
+  GetAreaUseCase,
+  CreateAreaUseCase,
+  UpdateAreaUseCase,
+  DeleteAreaUseCase,
+  EnsureDefaultNotificationsAreaUseCase,
+} from '@/domain/usecases/areas/AreaUseCases'
+import {
+  ListDocumentationTypesUseCase,
+  GetDocumentationTypeUseCase,
+  CreateDocumentationTypeUseCase,
+  UpdateDocumentationTypeUseCase,
+  DeleteDocumentationTypeUseCase,
+} from '@/domain/usecases/documentation/DocumentationTypeUseCases'
+import { SaveDocumentationColumnsUseCase } from '@/domain/usecases/documentation/SaveDocumentationColumnsUseCase'
+import {
+  ListDocumentationRowsUseCase,
+  CreateDocumentationRowUseCase,
+  UpdateDocumentationRowUseCase,
+  DeleteDocumentationRowUseCase,
+} from '@/domain/usecases/documentation/DocumentationRowUseCases'
+import {
+  ImportDocumentationFromExcelUseCase,
+  DownloadDocumentationExcelTemplateUseCase,
+  ExportDocumentationToWordUseCase,
+  UploadDocumentationCellImageUseCase,
+} from '@/domain/usecases/documentation/DocumentationImportExportUseCases'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
+import { FirebaseDocumentationRepository } from '@/infrastructure/firestore/FirebaseDocumentationRepository'
+import { FirebaseAreaRepository } from '@/infrastructure/firestore/FirebaseAreaRepository'
+import { XlsxDocumentationExcelService } from '@/infrastructure/excel/XlsxDocumentationExcelService'
+import { DocxDocumentationWordExportService } from '@/infrastructure/word/DocxDocumentationWordExportService'
 
 export interface AppDependencies {
   loginUseCase: LoginUseCase
@@ -28,6 +61,7 @@ export interface AppDependencies {
   observeSessionUseCase: ObserveSessionUseCase
   createUserUseCase: CreateUserUseCase
   listUsersUseCase: ListUsersUseCase
+  listTechniciansUseCase: ListTechniciansUseCase
   updateUserUseCase: UpdateUserUseCase
   updateOwnThemeUseCase: UpdateOwnThemeUseCase
   changeOwnPasswordUseCase: ChangeOwnPasswordUseCase
@@ -41,6 +75,26 @@ export interface AppDependencies {
   listFolderImagesUseCase: ListFolderImagesUseCase
   deleteFolderImageUseCase: DeleteFolderImageUseCase
   exportFolderImagesToPdfUseCase: ExportFolderImagesToPdfUseCase
+  listAreasUseCase: ListAreasUseCase
+  getAreaUseCase: GetAreaUseCase
+  createAreaUseCase: CreateAreaUseCase
+  updateAreaUseCase: UpdateAreaUseCase
+  deleteAreaUseCase: DeleteAreaUseCase
+  ensureDefaultNotificationsAreaUseCase: EnsureDefaultNotificationsAreaUseCase
+  listDocumentationTypesUseCase: ListDocumentationTypesUseCase
+  getDocumentationTypeUseCase: GetDocumentationTypeUseCase
+  createDocumentationTypeUseCase: CreateDocumentationTypeUseCase
+  updateDocumentationTypeUseCase: UpdateDocumentationTypeUseCase
+  deleteDocumentationTypeUseCase: DeleteDocumentationTypeUseCase
+  saveDocumentationColumnsUseCase: SaveDocumentationColumnsUseCase
+  listDocumentationRowsUseCase: ListDocumentationRowsUseCase
+  createDocumentationRowUseCase: CreateDocumentationRowUseCase
+  updateDocumentationRowUseCase: UpdateDocumentationRowUseCase
+  deleteDocumentationRowUseCase: DeleteDocumentationRowUseCase
+  importDocumentationFromExcelUseCase: ImportDocumentationFromExcelUseCase
+  downloadDocumentationExcelTemplateUseCase: DownloadDocumentationExcelTemplateUseCase
+  exportDocumentationToWordUseCase: ExportDocumentationToWordUseCase
+  uploadDocumentationCellImageUseCase: UploadDocumentationCellImageUseCase
 }
 
 export function createAppDependencies(): AppDependencies {
@@ -48,7 +102,12 @@ export function createAppDependencies(): AppDependencies {
   const userRepository = new FirebaseUserRepository()
   const folderRepository = new FirebaseImageFolderRepository()
   const imageRepository = new FirebaseFolderImageRepository()
+  const areaRepository = new FirebaseAreaRepository()
   const pdfExportService = new JsPdfExportService()
+  const documentationRepository = new FirebaseDocumentationRepository()
+  const documentationExcelService = new XlsxDocumentationExcelService()
+  const documentationWordExportService =
+    new DocxDocumentationWordExportService()
 
   return {
     loginUseCase: new LoginUseCase(authRepository, userRepository),
@@ -59,6 +118,7 @@ export function createAppDependencies(): AppDependencies {
     ),
     createUserUseCase: new CreateUserUseCase(authRepository, userRepository),
     listUsersUseCase: new ListUsersUseCase(userRepository),
+    listTechniciansUseCase: new ListTechniciansUseCase(userRepository),
     updateUserUseCase: new UpdateUserUseCase(authRepository, userRepository),
     updateOwnThemeUseCase: new UpdateOwnThemeUseCase(userRepository),
     changeOwnPasswordUseCase: new ChangeOwnPasswordUseCase(
@@ -69,8 +129,15 @@ export function createAppDependencies(): AppDependencies {
       authRepository,
       userRepository,
     ),
-    createFolderUseCase: new CreateFolderUseCase(folderRepository),
-    updateFolderUseCase: new UpdateFolderUseCase(folderRepository),
+    createFolderUseCase: new CreateFolderUseCase(
+      folderRepository,
+      areaRepository,
+      userRepository,
+    ),
+    updateFolderUseCase: new UpdateFolderUseCase(
+      folderRepository,
+      userRepository,
+    ),
     listFoldersUseCase: new ListFoldersUseCase(folderRepository),
     getFolderUseCase: new GetFolderUseCase(folderRepository),
     deleteFolderUseCase: new DeleteFolderUseCase(
@@ -94,5 +161,63 @@ export function createAppDependencies(): AppDependencies {
       imageRepository,
       pdfExportService,
     ),
+    listAreasUseCase: new ListAreasUseCase(areaRepository),
+    getAreaUseCase: new GetAreaUseCase(areaRepository),
+    createAreaUseCase: new CreateAreaUseCase(areaRepository),
+    updateAreaUseCase: new UpdateAreaUseCase(areaRepository),
+    deleteAreaUseCase: new DeleteAreaUseCase(
+      areaRepository,
+      folderRepository,
+    ),
+    ensureDefaultNotificationsAreaUseCase:
+      new EnsureDefaultNotificationsAreaUseCase(
+        areaRepository,
+        folderRepository,
+      ),
+    listDocumentationTypesUseCase: new ListDocumentationTypesUseCase(
+      documentationRepository,
+    ),
+    getDocumentationTypeUseCase: new GetDocumentationTypeUseCase(
+      documentationRepository,
+    ),
+    createDocumentationTypeUseCase: new CreateDocumentationTypeUseCase(
+      documentationRepository,
+    ),
+    updateDocumentationTypeUseCase: new UpdateDocumentationTypeUseCase(
+      documentationRepository,
+    ),
+    deleteDocumentationTypeUseCase: new DeleteDocumentationTypeUseCase(
+      documentationRepository,
+    ),
+    saveDocumentationColumnsUseCase: new SaveDocumentationColumnsUseCase(
+      documentationRepository,
+    ),
+    listDocumentationRowsUseCase: new ListDocumentationRowsUseCase(
+      documentationRepository,
+    ),
+    createDocumentationRowUseCase: new CreateDocumentationRowUseCase(
+      documentationRepository,
+    ),
+    updateDocumentationRowUseCase: new UpdateDocumentationRowUseCase(
+      documentationRepository,
+    ),
+    deleteDocumentationRowUseCase: new DeleteDocumentationRowUseCase(
+      documentationRepository,
+    ),
+    importDocumentationFromExcelUseCase: new ImportDocumentationFromExcelUseCase(
+      documentationRepository,
+      documentationExcelService,
+    ),
+    downloadDocumentationExcelTemplateUseCase:
+      new DownloadDocumentationExcelTemplateUseCase(
+        documentationRepository,
+        documentationExcelService,
+      ),
+    exportDocumentationToWordUseCase: new ExportDocumentationToWordUseCase(
+      documentationRepository,
+      documentationWordExportService,
+    ),
+    uploadDocumentationCellImageUseCase:
+      new UploadDocumentationCellImageUseCase(documentationRepository),
   }
 }

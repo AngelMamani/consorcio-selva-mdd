@@ -21,7 +21,7 @@ class GetFolderDetailUseCase {
     if (folder == null) {
       throw DomainException('Carpeta no encontrada');
     }
-    if (folder.ownerId != actor.id) {
+    if (!folder.canBeAccessedBy(actor.id)) {
       throw DomainException('No tienes acceso a esta carpeta');
     }
 

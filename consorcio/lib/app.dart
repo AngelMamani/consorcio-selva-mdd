@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'domain/value_objects/theme_preference.dart';
+import 'presentation/pages/areas_page.dart';
 import 'presentation/pages/change_password_page.dart';
-import 'presentation/pages/folders_page.dart';
 import 'presentation/pages/login_page.dart';
 import 'presentation/state/session_controller.dart';
 import 'presentation/theme/app_theme.dart';
@@ -34,7 +34,7 @@ class ConsorcioApp extends StatelessWidget {
                 if (session.mustChangePassword) {
                   return const ChangePasswordPage();
                 }
-                return const FoldersPage();
+                return const AreasPage();
               }
               return const LoginPage();
             },

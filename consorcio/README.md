@@ -1,35 +1,41 @@
 # App móvil técnicos — Consorcio Selva MDD
 
-App Flutter **solo para técnicos** en campo (celular). Comparte el mismo Firebase del panel web.
+App Flutter **solo para técnicos** en campo. Comparte el mismo Firebase del panel web.
 
-## Qué puede hacer el técnico
+## Compartir con técnicos (APK Android)
 
-1. Iniciar sesión
-2. **Si la cuenta es nueva o le restablecieron la clave**, cambiar la contraseña temporal (obligatorio) antes de continuar
-3. Ver **sus** carpetas
-4. Crear carpeta + fotos (cámara o galería)
-5. Abrir carpeta y seguir subiendo fotos
-6. Editar nombre/descripción
+### 1. Generar el APK
 
-No incluye módulo de usuarios ni funciones de administrador.
-
-## Calidad (ISO/IEC 25010)
-
-Los requisitos no funcionales del sistema completo (web + móvil) están en la raíz del monorepo:
-
-→ [`../REQUISITOS_NO_FUNCIONALES_ISO25010.md`](../REQUISITOS_NO_FUNCIONALES_ISO25010.md)
-
-## Estructura (Clean Architecture)
-
-```
-lib/
-  domain/           # entidades, repos, casos de uso
-  application/      # composition root (DI)
-  infrastructure/   # Firebase Auth / Firestore / Storage
-  presentation/     # pantallas móviles grandes y simples
+```bash
+cd consorcio
+flutter pub get
+flutter build apk --release
 ```
 
-## Arranque
+El archivo queda en:
+
+`build/app/outputs/flutter-apk/app-release.apk`
+
+También se copia a:
+
+`../releases/ConsorcioTecnico-1.0.0.apk` (si ejecutas el script de build abajo).
+
+### 2. Cómo instalarlo en el celular
+
+1. Envía el APK por WhatsApp, Drive o USB.
+2. En el teléfono: **Permitir instalar apps de origen desconocido** (para Chrome/WhatsApp/Archivos).
+3. Abrir el APK → Instalar.
+4. Abrir **Consorcio Técnico** e iniciar sesión con el correo del técnico.
+
+### 3. Cuenta del técnico
+
+Créala desde el panel web (Administrador → Usuarios → Técnico).  
+Clave temporal: `87654321` (debe cambiarla al primer ingreso).
+
+> Nota: este APK usa firma de depuración (ideal para compartir interno).  
+> Para Play Store habría que crear un keystore de release.
+
+## Arranque en desarrollo
 
 ```bash
 cd consorcio
@@ -37,30 +43,27 @@ flutter pub get
 flutter run
 ```
 
-APK release:
+## Qué puede hacer el técnico
 
-```bash
-flutter build apk --release
+1. Iniciar sesión / cambiar clave temporal
+2. Ver y buscar **sus** carpetas
+3. Crear carpeta con GPS + fotos
+4. Subir más fotos (GPS al subir)
+5. Modo oscuro propio
+6. App solo en vertical
+
+## Firebase Android
+
+Package name: `com.consorcioselvamdd.tecnico`
+
+Recomendado: Firebase Console → agregar app Android → `google-services.json` en `android/app/`.
+
+## Estructura
+
 ```
-
-El APK queda en `build/app/outputs/flutter-apk/app-release.apk`.
-
-Ícono de la app: se genera desde `assets/logo.png` con:
-
-```bash
-dart run flutter_launcher_icons
+lib/
+  domain/
+  application/
+  infrastructure/
+  presentation/
 ```
-
-## Firebase Android (recomendado)
-
-1. Firebase Console → agregar app Android
-2. Package name: `com.consorcioselvamdd.tecnico`
-3. Descargar `google-services.json` en `android/app/`
-4. Actualizar `appId` en `lib/firebase_options.dart`
-
-Mientras tanto la app inicializa Firebase con las opciones del proyecto `consorcio-selva-mdd`.
-
-## Cuenta de prueba técnico
-
-Crea el técnico desde el panel web (Administrador → Usuarios → rol Técnico).
-Luego inicia sesión en el celular con ese correo/contraseña.

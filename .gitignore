@@ -20,7 +20,6 @@ dist-ssr
 .env.*
 !.env.example
 **/serviceAccount*.json
-**/google-services.json
 **/GoogleService-Info.plist
 
 # Editor
@@ -46,3 +45,9 @@ consorcio/.pub/
 consorcio/build/
 consorcio/.flutter-plugins
 consorcio/.flutter-plugins-dependencies
+
+# APKs listos para compartir (no versionar binarios)
+releases/
+*.apk
+*.aab
+*.ipa

@@ -29,11 +29,10 @@ class DefaultFirebaseOptions {
     storageBucket: 'consorcio-selva-mdd.firebasestorage.app',
   );
 
-  // Usa el mismo proyecto. Recomendado: registrar app Android en Firebase
-  // y reemplazar appId por el ID Android real.
+  // App Android registrada en Firebase Console.
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAhPO4kDvp06DVwLI9TA1u5ce1N-zimEgs',
-    appId: '1:942360682235:web:917154f7502a11144a9a5e',
+    apiKey: 'AIzaSyBZLEA1nZ4R-iSQVOMFAiMiOX3EGkNHXSg',
+    appId: '1:942360682235:android:16121536c25e613e4a9a5e',
     messagingSenderId: '942360682235',
     projectId: 'consorcio-selva-mdd',
     storageBucket: 'consorcio-selva-mdd.firebasestorage.app',

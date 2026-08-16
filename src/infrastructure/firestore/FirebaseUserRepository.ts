@@ -7,6 +7,7 @@ import {
   query,
   setDoc,
   updateDoc,
+  where,
   Timestamp,
 } from 'firebase/firestore'
 import type { User } from '@/domain/entities/User'
@@ -63,6 +64,15 @@ export class FirebaseUserRepository implements UserRepository {
       query(this.collectionRef, orderBy('createdAt', 'desc')),
     )
     return snapshot.docs.map((item) => mapUser(item.id, item.data() as UserDoc))
+  }
+
+  async listTechnicians(): Promise<User[]> {
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('role', '==', 'TECNICO')),
+    )
+    return snapshot.docs
+      .map((item) => mapUser(item.id, item.data() as UserDoc))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
   }
 
   async create(input: CreateUserInput): Promise<User> {

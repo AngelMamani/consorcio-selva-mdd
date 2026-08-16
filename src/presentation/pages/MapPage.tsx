@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
+import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { hasGeoLocation } from '@/domain/value-objects/GeoLocation'
 import { useAuth } from '@/presentation/providers/AuthProvider'
@@ -11,21 +12,9 @@ import './MapPage.css'
 
 const MADRE_DE_DIOS_CENTER: L.LatLngExpression = [-12.5933, -69.1891]
 const DEFAULT_ZOOM = 7
-
-const TECH_COLORS = [
-  '#C62828',
-  '#1565C0',
-  '#2E7D32',
-  '#EF6C00',
-  '#6A1B9A',
-  '#00838F',
-  '#AD1457',
-  '#4527A0',
-  '#558B2F',
-  '#00695C',
-  '#D84315',
-  '#283593',
-] as const
+const FOCUS_ZOOM = 16
+const ROUTE_PIN_COLOR = '#1565C0'
+const FOCUS_PIN_COLOR = '#2E7D32'
 
 function formatCoords(lat: number, lng: number): string {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
@@ -39,23 +28,11 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;')
 }
 
-function hashOwnerId(ownerId: string): number {
-  let hash = 0
-  for (let i = 0; i < ownerId.length; i += 1) {
-    hash = (hash * 31 + ownerId.charCodeAt(i)) >>> 0
-  }
-  return hash
-}
-
-function colorForTechnician(ownerId: string): string {
-  return TECH_COLORS[hashOwnerId(ownerId) % TECH_COLORS.length]
-}
-
-function createTechnicianMarkerIcon(color: string): L.DivIcon {
+function createRouteMarkerIcon(color: string): L.DivIcon {
   return L.divIcon({
-    className: 'map-tech-marker',
+    className: 'map-route-marker',
     html: `
-      <span class="map-tech-marker__pin" style="--pin-color:${color}">
+      <span class="map-route-marker__pin" style="--pin-color:${color}">
         <svg viewBox="0 0 24 36" aria-hidden="true">
           <path
             d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z"
@@ -76,6 +53,9 @@ function createTechnicianMarkerIcon(color: string): L.DivIcon {
 export function MapPage() {
   const { user } = useAuth()
   const { listFoldersUseCase } = useDependencies()
+  const [searchParams] = useSearchParams()
+  const focusFolderId = searchParams.get('folder')?.trim() || ''
+
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markersLayerRef = useRef<L.LayerGroup | null>(null)
@@ -91,6 +71,11 @@ export function MapPage() {
           folder.location != null && hasGeoLocation(folder.location),
       ),
     [folders],
+  )
+
+  const focusedFolder = useMemo(
+    () => locatedFolders.find((folder) => folder.id === focusFolderId) ?? null,
+    [locatedFolders, focusFolderId],
   )
 
   useEffect(() => {
@@ -159,6 +144,9 @@ export function MapPage() {
     layer.clearLayers()
 
     const bounds: L.LatLngExpression[] = []
+    const defaultIcon = createRouteMarkerIcon(ROUTE_PIN_COLOR)
+    const focusIcon = createRouteMarkerIcon(FOCUS_PIN_COLOR)
+    let focusMarker: L.Marker | null = null
 
     for (const folder of locatedFolders) {
       const location = folder.location
@@ -170,10 +158,11 @@ export function MapPage() {
       ]
       bounds.push(latLng)
 
-      const color = colorForTechnician(folder.ownerId)
+      const isFocused = folder.id === focusFolderId
       const marker = L.marker(latLng, {
-        icon: createTechnicianMarkerIcon(color),
-        title: `${folder.ownerName} — ${folder.name}`,
+        icon: isFocused ? focusIcon : defaultIcon,
+        title: folder.name,
+        zIndexOffset: isFocused ? 1000 : 0,
       })
 
       const accuracy =
@@ -181,20 +170,28 @@ export function MapPage() {
           ? `<br/><small>Precisión ±${Math.round(location.accuracyMeters)} m</small>`
           : ''
 
+      const assignees = escapeHtml(formatFolderAssignees(folder))
+
       marker.bindPopup(
         `<div class="map-popup">` +
-          `<span class="map-popup__swatch" style="background:${color}"></span>` +
           `<strong>${escapeHtml(folder.name)}</strong><br/>` +
-          `<span style="color:${color};font-weight:700">${escapeHtml(folder.ownerName)}</span><br/>` +
+          `<small>Asignado: ${assignees}</small><br/>` +
           `<small>${formatCoords(location.latitude, location.longitude)}</small>` +
           accuracy +
-          `<br/><a href="/carpetas/${folder.id}">Ver carpeta</a>` +
+          `<br/><a href="/carpetas/${folder.id}">Ver detalle</a>` +
           `</div>`,
       )
       marker.addTo(layer)
+      if (isFocused) focusMarker = marker
     }
 
-    if (bounds.length === 1) {
+    if (focusMarker && focusedFolder?.location) {
+      map.setView(
+        [focusedFolder.location.latitude, focusedFolder.location.longitude],
+        FOCUS_ZOOM,
+      )
+      window.setTimeout(() => focusMarker?.openPopup(), 120)
+    } else if (bounds.length === 1) {
       map.setView(bounds[0], 15)
     } else if (bounds.length > 1) {
       map.fitBounds(L.latLngBounds(bounds), { padding: [48, 48] })
@@ -203,20 +200,33 @@ export function MapPage() {
     }
 
     window.setTimeout(() => map.invalidateSize(), 80)
-  }, [locatedFolders])
+  }, [locatedFolders, focusFolderId, focusedFolder])
 
   return (
     <section className="map-page">
       <div className="map-page__bar">
-        <h1>Mapa</h1>
+        <div>
+          <h1>Mapa de rutas</h1>
+          <p className="map-page__subtitle">
+            {focusedFolder
+              ? `Enfocando: ${focusedFolder.name}`
+              : 'Ubicación de cada ruta (carpeta). El técnico asignado se ve en el pin.'}
+          </p>
+        </div>
         <span className="map-page__count">
           {loading
             ? 'Cargando...'
-            : `${locatedFolders.length} ubicación${locatedFolders.length === 1 ? '' : 'es'}`}
+            : `${locatedFolders.length} ruta${locatedFolders.length === 1 ? '' : 's'}`}
         </span>
       </div>
 
       {error ? <p className="form-alert form-alert--error">{error}</p> : null}
+
+      {focusFolderId && !loading && !focusedFolder ? (
+        <p className="form-alert form-alert--error">
+          No se encontró la ubicación de esa carpeta en el mapa.
+        </p>
+      ) : null}
 
       <div className="map-page__stage">
         {loading ? (
@@ -227,10 +237,9 @@ export function MapPage() {
           <div className="map-page__empty">
             <h3>Sin ubicaciones aún</h3>
             <p>
-              Cuando un técnico cree una carpeta con GPS, el pin aparecerá
-              aquí.
+              Cuando se cree una ruta/carpeta con GPS, el pin aparecerá aquí.
             </p>
-            <Link to="/carpetas" className="btn btn--soft-muted">
+            <Link to="/areas" className="btn btn--soft-muted">
               Ir a carpetas
             </Link>
           </div>

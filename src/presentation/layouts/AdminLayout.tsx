@@ -9,14 +9,22 @@ import './AdminLayout.css'
 
 const SIDEBAR_COLLAPSED_KEY = 'consorcio-sidebar-collapsed'
 
-function FoldersIcon() {
+function AreasIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
       <path
-        d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4.2c.4 0 .8.16 1.1.44L13.2 7H18a2.5 2.5 0 0 1 2.5 2.5v7A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-9Z"
+        d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 12v9M4 7.5l8 4.5 8-4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -49,6 +57,28 @@ function MapIcon() {
       />
       <path
         d="M9.5 4.2v13M14.5 6.4v13"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function DocsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5A1.5 1.5 0 0 1 7.5 3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+        transform="translate(-0.5 0)"
+      />
+      <path
+        d="M14 3.5V8h5M9 12h6M9 15.5h6M9 19h4"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.7"
@@ -198,14 +228,14 @@ export function AdminLayout() {
             <p className="admin-sidebar__label">Menú</p>
             <nav className="admin-nav" aria-label="Navegación principal">
               <NavLink
-                to="/carpetas"
-                title="Carpetas"
+                to="/areas"
+                title="Áreas"
                 className={({ isActive }) =>
                   isActive ? 'admin-nav__link active' : 'admin-nav__link'
                 }
               >
-                <FoldersIcon />
-                <span>Carpetas</span>
+                <AreasIcon />
+                <span>Áreas</span>
               </NavLink>
               <NavLink
                 to="/mapa"
@@ -216,6 +246,16 @@ export function AdminLayout() {
               >
                 <MapIcon />
                 <span>Mapa</span>
+              </NavLink>
+              <NavLink
+                to="/documentacion"
+                title="Documentación"
+                className={({ isActive }) =>
+                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
+                }
+              >
+                <DocsIcon />
+                <span>Documentación</span>
               </NavLink>
               {user.role === UserRole.Administrador ? (
                 <NavLink

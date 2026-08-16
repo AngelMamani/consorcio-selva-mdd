@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/composition_root.dart';
+import '../../domain/entities/app_user.dart';
 import '../../domain/entities/image_folder.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/folder_image_repository.dart';
@@ -10,10 +11,19 @@ import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
 import '../state/session_controller.dart';
 
+enum _AssignMode { self, all, specific }
+
 class CreateEditFolderPage extends StatefulWidget {
-  const CreateEditFolderPage({super.key, this.folder});
+  const CreateEditFolderPage({
+    super.key,
+    this.folder,
+    this.areaId,
+    this.areaName,
+  });
 
   final ImageFolder? folder;
+  final String? areaId;
+  final String? areaName;
 
   @override
   State<CreateEditFolderPage> createState() => _CreateEditFolderPageState();
@@ -27,8 +37,12 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
   final _locationService = DeviceLocationService();
 
   final List<ImageFilePayload> _pendingPhotos = [];
+  final Set<String> _selectedTechnicianIds = {};
+  List<AppUser> _technicians = [];
+  _AssignMode _assignMode = _AssignMode.self;
   GeoLocation? _capturedLocation;
   bool _saving = false;
+  bool _loadingTechnicians = true;
   String _status = '';
 
   bool get _isEdit => widget.folder != null;
@@ -41,6 +55,54 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
       _nameController.text = folder.name;
       _descriptionController.text = folder.description;
       _capturedLocation = folder.location;
+      if (folder.assignToAllTechnicians) {
+        _assignMode = _AssignMode.all;
+      } else {
+        _assignMode = _AssignMode.specific;
+        _selectedTechnicianIds.addAll(folder.assignedTechnicianIds);
+        if (_selectedTechnicianIds.isEmpty && folder.ownerId.isNotEmpty) {
+          _selectedTechnicianIds.add(folder.ownerId);
+        }
+        // Si solo está el dueño, se muestra como "Solo yo" al cargar sesión.
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final selfId = context.read<SessionController>().user?.id;
+      if (widget.folder == null && selfId != null) {
+        setState(() {
+          _assignMode = _AssignMode.self;
+          _selectedTechnicianIds
+            ..clear()
+            ..add(selfId);
+        });
+      } else if (widget.folder != null &&
+          !widget.folder!.assignToAllTechnicians &&
+          selfId != null &&
+          _selectedTechnicianIds.length == 1 &&
+          _selectedTechnicianIds.contains(selfId)) {
+        setState(() => _assignMode = _AssignMode.self);
+      }
+      _loadTechnicians();
+    });
+  }
+
+  Future<void> _loadTechnicians() async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null) return;
+
+    try {
+      final technicians =
+          await deps.createFolderUseCase.listTechniciansForAssignment();
+      if (!mounted) return;
+      setState(() {
+        _technicians = technicians;
+        _loadingTechnicians = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingTechnicians = false);
     }
   }
 
@@ -63,6 +125,19 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
     setState(() => _pendingPhotos.addAll(photos));
   }
 
+  ({bool assignAll, List<String> ids}) _assignmentPayload(AppUser actor) {
+    switch (_assignMode) {
+      case _AssignMode.all:
+        return (assignAll: true, ids: <String>[]);
+      case _AssignMode.self:
+        return (assignAll: false, ids: <String>[actor.id]);
+      case _AssignMode.specific:
+        final ids = _selectedTechnicianIds.toList();
+        if (!ids.contains(actor.id)) ids.add(actor.id);
+        return (assignAll: false, ids: ids);
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -71,12 +146,21 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
     final user = session.user;
     if (user == null) return;
 
+    if (_assignMode == _AssignMode.specific &&
+        _selectedTechnicianIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un técnico')),
+      );
+      return;
+    }
+
     setState(() {
       _saving = true;
       _status = _isEdit ? 'Guardando...' : 'Obteniendo GPS...';
     });
 
     try {
+      final assignment = _assignmentPayload(user);
       late final ImageFolder folder;
       if (_isEdit) {
         folder = await deps.updateFolderUseCase.execute(
@@ -84,6 +168,8 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
           folderId: widget.folder!.id,
           name: _nameController.text,
           description: _descriptionController.text,
+          assignToAllTechnicians: assignment.assignAll,
+          assignedTechnicianIds: assignment.ids,
         );
       } else {
         final location = await _locationService.getCurrentLocation();
@@ -95,9 +181,12 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
 
         folder = await deps.createFolderUseCase.execute(
           user,
+          areaId: widget.areaId ?? widget.folder?.areaId ?? '',
           name: _nameController.text,
           description: _descriptionController.text,
           location: location,
+          assignToAllTechnicians: assignment.assignAll,
+          assignedTechnicianIds: assignment.ids,
         );
       }
 
@@ -154,6 +243,7 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
   @override
   Widget build(BuildContext context) {
     final location = _capturedLocation;
+    final selfId = context.watch<SessionController>().user?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -187,6 +277,38 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
                 labelText: 'Descripción (opcional)',
                 hintText: 'Detalle breve del trabajo',
               ),
+            ),
+            const SizedBox(height: 18),
+            _AssignmentSection(
+              assignMode: _assignMode,
+              technicians: _technicians,
+              selectedIds: _selectedTechnicianIds,
+              loadingTechnicians: _loadingTechnicians,
+              selfId: selfId,
+              enabled: !_saving,
+              onModeChanged: (mode) {
+                setState(() {
+                  _assignMode = mode;
+                  if (mode == _AssignMode.self && selfId != null) {
+                    _selectedTechnicianIds
+                      ..clear()
+                      ..add(selfId);
+                  } else if (mode == _AssignMode.specific &&
+                      _selectedTechnicianIds.isEmpty &&
+                      selfId != null) {
+                    _selectedTechnicianIds.add(selfId);
+                  }
+                });
+              },
+              onToggleTechnician: (id, checked) {
+                setState(() {
+                  if (checked) {
+                    _selectedTechnicianIds.add(id);
+                  } else {
+                    _selectedTechnicianIds.remove(id);
+                  }
+                });
+              },
             ),
             const SizedBox(height: 18),
             Builder(
@@ -336,6 +458,351 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+String _initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+  if (parts.isEmpty) return '?';
+  final list = parts.toList();
+  if (list.length == 1) {
+    return list.first.substring(0, list.first.length >= 2 ? 2 : 1).toUpperCase();
+  }
+  return '${list[0][0]}${list[1][0]}'.toUpperCase();
+}
+
+class _AssignmentSection extends StatelessWidget {
+  const _AssignmentSection({
+    required this.assignMode,
+    required this.technicians,
+    required this.selectedIds,
+    required this.loadingTechnicians,
+    required this.selfId,
+    required this.enabled,
+    required this.onModeChanged,
+    required this.onToggleTechnician,
+  });
+
+  final _AssignMode assignMode;
+  final List<AppUser> technicians;
+  final Set<String> selectedIds;
+  final bool loadingTechnicians;
+  final String? selfId;
+  final bool enabled;
+  final ValueChanged<_AssignMode> onModeChanged;
+  final void Function(String id, bool checked) onToggleTechnician;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final countLabel = assignMode == _AssignMode.all
+        ? 'Todos'
+        : assignMode == _AssignMode.self
+            ? '1 seleccionado'
+            : '${selectedIds.length} seleccionado${selectedIds.length == 1 ? '' : 's'}';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2A3A4D) : const Color(0xFFD7DEE8),
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? const [Color(0xFF1A2736), Color(0xFF17231F)]
+              : const [Color(0xFFEAF3FB), Color(0xFFF3FAF4)],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Asignación',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Quién podrá ver y trabajar esta carpeta',
+                      style: TextStyle(fontSize: 12.5, color: Color(0xFF6B7385)),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF243044)
+                      : const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  countLabel,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? const Color(0xFF90CAF9)
+                        : const Color(0xFF1565C0),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _ModeCard(
+            selected: assignMode == _AssignMode.self,
+            icon: Icons.person_rounded,
+            title: 'Solo yo',
+            subtitle: 'Acceso personal',
+            enabled: enabled,
+            onTap: () => onModeChanged(_AssignMode.self),
+          ),
+          const SizedBox(height: 8),
+          _ModeCard(
+            selected: assignMode == _AssignMode.all,
+            icon: Icons.groups_rounded,
+            title: 'Todos los técnicos',
+            subtitle: 'Acceso general al equipo',
+            enabled: enabled,
+            onTap: () => onModeChanged(_AssignMode.all),
+          ),
+          const SizedBox(height: 8),
+          _ModeCard(
+            selected: assignMode == _AssignMode.specific,
+            icon: Icons.person_search_rounded,
+            title: 'Elegir técnicos',
+            subtitle: 'Uno o varios específicos',
+            enabled: enabled,
+            onTap: () => onModeChanged(_AssignMode.specific),
+          ),
+          if (assignMode == _AssignMode.specific) ...[
+            const SizedBox(height: 12),
+            if (loadingTechnicians)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (technicians.isEmpty)
+              const Text(
+                'No hay técnicos activos para asignar.',
+                style: TextStyle(color: Color(0xFF6B7385)),
+              )
+            else
+              ...technicians.map((tech) {
+                final selected = selectedIds.contains(tech.id);
+                final isYou = tech.id == selfId;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: selected
+                        ? (isDark
+                            ? const Color(0xFF1F3A2C)
+                            : const Color(0xFFE8F5E9))
+                        : (isDark
+                            ? const Color(0xFF1C2533)
+                            : Colors.white),
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: enabled
+                          ? () => onToggleTechnician(tech.id, !selected)
+                          : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected
+                                ? (isDark
+                                    ? const Color(0xFF4CAF50)
+                                    : const Color(0xFF81C784))
+                                : (isDark
+                                    ? const Color(0xFF2A3A4D)
+                                    : const Color(0xFFD9DEE8)),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: selected
+                                  ? const Color(0xFF43A047)
+                                  : (isDark
+                                      ? const Color(0xFF243044)
+                                      : const Color(0xFFE3F2FD)),
+                              foregroundColor: selected
+                                  ? Colors.white
+                                  : (isDark
+                                      ? const Color(0xFF90CAF9)
+                                      : const Color(0xFF1565C0)),
+                              child: Text(
+                                _initials(tech.displayName),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    tech.displayName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    isYou ? 'Tú' : 'Técnico',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              selected
+                                  ? Icons.check_circle_rounded
+                                  : Icons.circle_outlined,
+                              color: selected
+                                  ? const Color(0xFF43A047)
+                                  : const Color(0xFF9AA7B8),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+          ],
+          if (assignMode == _AssignMode.all) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Esta carpeta quedará visible para todos los técnicos activos.',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.selected,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: selected
+          ? (isDark ? const Color(0xFF1A2F45) : const Color(0xFFE3F2FD))
+          : (isDark ? const Color(0xFF1C2533) : Colors.white),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? (isDark ? const Color(0xFF64B5F6) : const Color(0xFF90CAF9))
+                  : (isDark ? const Color(0xFF2A3A4D) : const Color(0xFFD9DEE8)),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: selected
+                      ? const Color(0xFF1E88E5)
+                      : (isDark
+                          ? const Color(0xFF243044)
+                          : const Color(0xFFEEF3F8)),
+                ),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: selected
+                      ? Colors.white
+                      : (isDark
+                          ? const Color(0xFF90CAF9)
+                          : const Color(0xFF1565C0)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                color: selected
+                    ? const Color(0xFF43A047)
+                    : const Color(0xFF9AA7B8),
+              ),
+            ],
+          ),
         ),
       ),
     );

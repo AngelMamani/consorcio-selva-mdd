@@ -38,7 +38,7 @@ export class ExportFolderImagesToPdfUseCase {
       throw new NotFoundError('Carpeta no encontrada')
     }
 
-    if (!assertUserCanAccessFolder(actor, folder.ownerId)) {
+    if (!assertUserCanAccessFolder(actor, folder)) {
       throw new UnauthorizedError('No tienes permiso para exportar esta carpeta')
     }
 

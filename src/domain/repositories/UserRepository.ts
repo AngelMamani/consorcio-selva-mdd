@@ -20,6 +20,7 @@ export interface UpdateUserInput {
 export interface UserRepository {
   getById(id: string): Promise<User | null>
   listAll(): Promise<User[]>
+  listTechnicians(): Promise<User[]>
   create(input: CreateUserInput): Promise<User>
   update(id: string, input: UpdateUserInput): Promise<User>
 }

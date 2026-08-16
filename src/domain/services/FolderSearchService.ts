@@ -16,7 +16,11 @@ export function folderMatchesSearch(
   if (!term) return true
 
   const haystack = normalizeSearchText(
-    `${folder.name} ${folder.description} ${folder.ownerName}`,
+    `${folder.name} ${folder.description} ${folder.ownerName} ${
+      folder.assignToAllTechnicians
+        ? 'todos los tecnicos'
+        : (folder.assignedTechnicianNames ?? []).join(' ')
+    }`,
   )
 
   return term.split(/\s+/).every((token) => haystack.includes(token))

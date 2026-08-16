@@ -2,6 +2,7 @@ name: consorcio
 description: App móvil para técnicos de Consorcio Selva MDD
 publish_to: 'none'
 version: 1.0.0+1
+# versionName+versionCode — sube versionCode en cada APK que compartas
 
 environment:
   sdk: ^3.9.2

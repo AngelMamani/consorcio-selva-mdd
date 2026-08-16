@@ -42,11 +42,11 @@ export function ProtectedRoute({
   }
 
   if (!user.mustChangePassword && allowPasswordChange) {
-    return <Navigate to="/carpetas" replace />
+    return <Navigate to="/areas" replace />
   }
 
   if (roles && !roles.includes(user.role)) {
-    return <Navigate to="/carpetas" replace />
+    return <Navigate to="/areas" replace />
   }
 
   return <Outlet />

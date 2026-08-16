@@ -10,7 +10,14 @@ import 'create_edit_folder_page.dart';
 import 'folder_detail_page.dart';
 
 class FoldersPage extends StatefulWidget {
-  const FoldersPage({super.key});
+  const FoldersPage({
+    super.key,
+    required this.areaId,
+    required this.areaName,
+  });
+
+  final String areaId;
+  final String areaName;
 
   @override
   State<FoldersPage> createState() => _FoldersPageState();
@@ -47,6 +54,7 @@ class _FoldersPageState extends State<FoldersPage> {
 
       return name.contains(query) ||
           description.contains(query) ||
+          folder.assigneesLabel.toLowerCase().contains(query) ||
           created.contains(query) ||
           updated.contains(query);
     }).toList();
@@ -80,7 +88,10 @@ class _FoldersPageState extends State<FoldersPage> {
     });
 
     try {
-      final folders = await deps.listMyFoldersUseCase.execute(user);
+      final folders = await deps.listMyFoldersUseCase.execute(
+        user,
+        areaId: widget.areaId,
+      );
       if (!mounted) return;
       setState(() {
         _folders = folders;
@@ -103,7 +114,12 @@ class _FoldersPageState extends State<FoldersPage> {
 
   Future<void> _openCreate() async {
     final result = await Navigator.of(context).push<Object?>(
-      MaterialPageRoute(builder: (_) => const CreateEditFolderPage()),
+      MaterialPageRoute(
+        builder: (_) => CreateEditFolderPage(
+          areaId: widget.areaId,
+          areaName: widget.areaName,
+        ),
+      ),
     );
     if (result == null) return;
     await _load();
@@ -127,7 +143,7 @@ class _FoldersPageState extends State<FoldersPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mis carpetas'),
+        title: Text(widget.areaName),
         actions: [
           IconButton(
             tooltip: session.isDarkTheme ? 'Modo claro' : 'Modo oscuro',
@@ -210,7 +226,7 @@ class _FoldersPageState extends State<FoldersPage> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Crea carpetas y sube fotos del campo.',
+                      'Rutas de esta área. El técnico se ve en el detalle.',
                       style: TextStyle(color: Colors.white70),
                     ),
                   ],
@@ -346,7 +362,7 @@ class _FoldersPageState extends State<FoldersPage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    '${folder.imageCount} foto(s)',
+                                    '${folder.imageCount} foto(s) · ${folder.assigneesLabel}',
                                     style: const TextStyle(
                                       color: AppTheme.brandGreen,
                                       fontWeight: FontWeight.w700,

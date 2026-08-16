@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { FolderImage } from '@/domain/entities/FolderImage'
+import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { hasGeoLocation } from '@/domain/value-objects/GeoLocation'
 import { UserRole } from '@/domain/value-objects/UserRole'
@@ -10,6 +11,11 @@ import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
 import { StorageImage } from '@/presentation/components/StorageImage'
+import {
+  swalConfirmDelete,
+  swalError,
+  swalSuccess,
+} from '@/presentation/utils/appSwal'
 import './FolderDetailPage.css'
 
 function formatBytes(size: number): string {
@@ -192,7 +198,6 @@ export function FolderDetailPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [imageToDelete, setImageToDelete] = useState<FolderImage | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [showPdfModal, setShowPdfModal] = useState(false)
   const [pdfName, setPdfName] = useState('')
@@ -250,12 +255,14 @@ export function FolderDetailPage() {
       )
       downloadBlob(result.blob, result.fileName)
       setShowPdfModal(false)
+      swalSuccess('PDF exportado')
     } catch (err) {
-      setError(
+      const message =
         err instanceof DomainError
           ? err.message
-          : 'No se pudo generar el PDF',
-      )
+          : 'No se pudo generar el PDF'
+      setError(message)
+      swalError(message)
     } finally {
       setExportingPdf(false)
       setPdfStatus('')
@@ -282,11 +289,17 @@ export function FolderDetailPage() {
           data: file,
         })
       }
+      swalSuccess(
+        selected.length === 1
+          ? 'Imagen subida'
+          : `${selected.length} imágenes subidas`,
+      )
       await loadData()
     } catch (err) {
-      setError(
-        err instanceof DomainError ? err.message : 'No se pudo subir la imagen',
-      )
+      const message =
+        err instanceof DomainError ? err.message : 'No se pudo subir la imagen'
+      setError(message)
+      swalError(message)
     } finally {
       setUploading(false)
       setUploadProgress('')
@@ -294,17 +307,25 @@ export function FolderDetailPage() {
     }
   }
 
-  async function handleDeleteConfirm() {
-    if (!user || !folderId || !imageToDelete || !isAdmin) return
-    setDeleting(true)
-    setError(null)
+  async function confirmDeleteImage(image: FolderImage) {
+    if (!user || !folderId || !isAdmin || deleting) return
 
+    const confirmed = await swalConfirmDelete({
+      title: '¿Eliminar imagen?',
+      text: `"${image.fileName}" se eliminará. Esta acción no se puede deshacer.`,
+    })
+    if (!confirmed) return
+
+    setDeleting(true)
+    setImages((current) => current.filter((item) => item.id !== image.id))
+    swalSuccess('Imagen eliminada')
     try {
-      await deleteFolderImageUseCase.execute(user, folderId, imageToDelete.id)
-      setImageToDelete(null)
-      await loadData()
+      await deleteFolderImageUseCase.execute(user, folderId, image.id)
     } catch (err) {
-      setError(err instanceof DomainError ? err.message : 'No se pudo eliminar')
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo eliminar',
+      )
+      await loadData()
     } finally {
       setDeleting(false)
     }
@@ -323,9 +344,9 @@ export function FolderDetailPage() {
     return (
       <div className="folder-detail-empty panel">
         <p>{error ?? 'Carpeta no encontrada'}</p>
-        <Link to="/carpetas" className="btn btn--soft-muted">
+        <Link to="/areas" className="btn btn--soft-muted">
           <IconBack />
-          Volver a carpetas
+          Volver a áreas
         </Link>
       </div>
     )
@@ -333,13 +354,16 @@ export function FolderDetailPage() {
 
   const previewPdfName = sanitizePdfFileName(pdfName || folder.name)
   const totalBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0)
+  const backToFolders = folder.areaId
+    ? `/areas/${folder.areaId}/carpetas`
+    : '/areas'
 
   return (
     <section className="folder-detail-page">
       <div className="folder-detail-top">
-        <Link to="/carpetas" className="folder-detail-back">
+        <Link to={backToFolders} className="folder-detail-back">
           <IconBack />
-          Carpetas
+          {folder.areaName || 'Carpetas'}
         </Link>
       </div>
 
@@ -357,7 +381,7 @@ export function FolderDetailPage() {
             <div className="folder-detail-hero__chips">
               <span className="folder-detail-chip">
                 <IconPerson />
-                {folder.ownerName}
+                {formatFolderAssignees(folder)}
               </span>
               <span className="folder-detail-chip">
                 <IconImage />
@@ -379,7 +403,10 @@ export function FolderDetailPage() {
                   <IconPin />
                   GPS {folder.location.latitude.toFixed(5)},{' '}
                   {folder.location.longitude.toFixed(5)}
-                  <Link to="/mapa" className="folder-detail-chip__link">
+                  <Link
+                    to={`/mapa?folder=${folder.id}`}
+                    className="folder-detail-chip__link"
+                  >
                     Ver mapa
                   </Link>
                 </span>
@@ -427,8 +454,12 @@ export function FolderDetailPage() {
           <span>peso total</span>
         </div>
         <div className="folder-detail-summary__item">
-          <strong>{folder.ownerName.split(' ')[0]}</strong>
-          <span>responsable</span>
+          <strong>
+            {folder.assignToAllTechnicians
+              ? 'Todos'
+              : (folder.assignedTechnicianNames?.length || 1)}
+          </strong>
+          <span>asignado{(folder.assignToAllTechnicians || (folder.assignedTechnicianNames?.length ?? 0) !== 1) ? 's' : ''}</span>
         </div>
       </div>
 
@@ -481,7 +512,7 @@ export function FolderDetailPage() {
                   <button
                     type="button"
                     className="btn btn--soft-rose btn--small"
-                    onClick={() => setImageToDelete(image)}
+                    onClick={() => void confirmDeleteImage(image)}
                   >
                     <IconTrash />
                     Eliminar
@@ -547,42 +578,6 @@ export function FolderDetailPage() {
             <p className="form-alert form-alert--error">{error}</p>
           ) : null}
         </form>
-      </AppModal>
-
-      <AppModal
-        open={imageToDelete !== null}
-        title="Eliminar imagen"
-        description="Esta acción no se puede deshacer."
-        onClose={() => {
-          if (!deleting) setImageToDelete(null)
-        }}
-        size="sm"
-        danger
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn--soft-muted"
-              onClick={() => setImageToDelete(null)}
-              disabled={deleting}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn btn--soft-rose"
-              onClick={() => void handleDeleteConfirm()}
-              disabled={deleting}
-            >
-              <IconTrash />
-              {deleting ? 'Eliminando...' : 'Sí, eliminar'}
-            </button>
-          </>
-        }
-      >
-        <p>
-          ¿Eliminar la imagen <strong>{imageToDelete?.fileName}</strong>?
-        </p>
       </AppModal>
     </section>
   )

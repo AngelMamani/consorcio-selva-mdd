@@ -1,6 +1,7 @@
 import '../domain/usecases/change_own_password_use_case.dart';
 import '../domain/usecases/create_folder_use_case.dart';
 import '../domain/usecases/get_folder_detail_use_case.dart';
+import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
 import '../domain/usecases/login_use_case.dart';
 import '../domain/usecases/logout_use_case.dart';
@@ -9,6 +10,7 @@ import '../domain/usecases/update_folder_use_case.dart';
 import '../domain/usecases/update_own_theme_use_case.dart';
 import '../domain/usecases/upload_folder_images_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
+import '../infrastructure/firestore/firebase_area_repository.dart';
 import '../infrastructure/firestore/firebase_folder_image_repository.dart';
 import '../infrastructure/firestore/firebase_image_folder_repository.dart';
 import '../infrastructure/firestore/firebase_user_repository.dart';
@@ -20,6 +22,8 @@ class AppDependencies {
     required this.observeSessionUseCase,
     required this.changeOwnPasswordUseCase,
     required this.updateOwnThemeUseCase,
+    required this.listAreasUseCase,
+    required this.getAreaUseCase,
     required this.listMyFoldersUseCase,
     required this.createFolderUseCase,
     required this.updateFolderUseCase,
@@ -32,6 +36,8 @@ class AppDependencies {
   final ObserveSessionUseCase observeSessionUseCase;
   final ChangeOwnPasswordUseCase changeOwnPasswordUseCase;
   final UpdateOwnThemeUseCase updateOwnThemeUseCase;
+  final ListAreasUseCase listAreasUseCase;
+  final GetAreaUseCase getAreaUseCase;
   final ListMyFoldersUseCase listMyFoldersUseCase;
   final CreateFolderUseCase createFolderUseCase;
   final UpdateFolderUseCase updateFolderUseCase;
@@ -44,6 +50,7 @@ AppDependencies createAppDependencies() {
   final userRepository = FirebaseUserRepository();
   final folderRepository = FirebaseImageFolderRepository();
   final imageRepository = FirebaseFolderImageRepository();
+  final areaRepository = FirebaseAreaRepository();
 
   return AppDependencies(
     loginUseCase: LoginUseCase(authRepository, userRepository),
@@ -53,9 +60,13 @@ AppDependencies createAppDependencies() {
     changeOwnPasswordUseCase:
         ChangeOwnPasswordUseCase(authRepository, userRepository),
     updateOwnThemeUseCase: UpdateOwnThemeUseCase(userRepository),
+    listAreasUseCase: ListAreasUseCase(areaRepository),
+    getAreaUseCase: GetAreaUseCase(areaRepository),
     listMyFoldersUseCase: ListMyFoldersUseCase(folderRepository),
-    createFolderUseCase: CreateFolderUseCase(folderRepository),
-    updateFolderUseCase: UpdateFolderUseCase(folderRepository),
+    createFolderUseCase:
+        CreateFolderUseCase(folderRepository, areaRepository, userRepository),
+    updateFolderUseCase:
+        UpdateFolderUseCase(folderRepository, userRepository),
     getFolderDetailUseCase:
         GetFolderDetailUseCase(folderRepository, imageRepository),
     uploadFolderImagesUseCase:

@@ -24,7 +24,7 @@ class UploadFolderImagesUseCase {
     if (folder == null) {
       throw DomainException('Carpeta no encontrada');
     }
-    if (folder.ownerId != actor.id) {
+    if (!folder.canBeAccessedBy(actor.id)) {
       throw DomainException('No puedes subir a esta carpeta');
     }
     if (files.isEmpty) {

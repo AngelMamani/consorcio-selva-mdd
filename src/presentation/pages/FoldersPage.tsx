@@ -7,8 +7,11 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
+import type { Area } from '@/domain/entities/Area'
+import type { User } from '@/domain/entities/User'
+import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { UserRole } from '@/domain/value-objects/UserRole'
 import {
@@ -19,6 +22,11 @@ import {
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
+import {
+  swalConfirmDelete,
+  swalError,
+  swalSuccess,
+} from '@/presentation/utils/appSwal'
 import './FoldersPage.css'
 
 function formatBytes(size: number): string {
@@ -41,7 +49,7 @@ function wasFolderModified(folder: ImageFolder): boolean {
   return Math.abs(folder.updatedAt.getTime() - folder.createdAt.getTime()) > 60_000
 }
 
-type ModalMode = 'create' | 'edit' | 'delete' | null
+type ModalMode = 'create' | 'edit' | null
 type FolderViewMode = 'cards' | 'list'
 
 const FOLDER_VIEW_STORAGE_KEY = 'consorcio-folder-view'
@@ -136,6 +144,183 @@ function IconPerson() {
         d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4m0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4"
       />
     </svg>
+  )
+}
+
+function IconPeople() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3m-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3m0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13m8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5"
+      />
+    </svg>
+  )
+}
+
+function IconCheck() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+      />
+    </svg>
+  )
+}
+
+function technicianInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+}
+
+function FolderAssigneePicker({
+  assignToAllTechnicians,
+  assignedTechnicianIds,
+  technicians,
+  currentUserId,
+  onAssignAll,
+  onAssignSpecific,
+  onToggleTechnician,
+}: {
+  assignToAllTechnicians: boolean
+  assignedTechnicianIds: string[]
+  technicians: User[]
+  currentUserId?: string
+  onAssignAll: () => void
+  onAssignSpecific: () => void
+  onToggleTechnician: (id: string) => void
+}) {
+  const [techSearch, setTechSearch] = useState('')
+  const deferredTechSearch = useDeferredValue(techSearch)
+
+  const filteredTechnicians = useMemo(() => {
+    const term = deferredTechSearch.trim().toLowerCase()
+    if (!term) return technicians
+    return technicians.filter((tech) =>
+      tech.displayName.toLowerCase().includes(term),
+    )
+  }, [technicians, deferredTechSearch])
+
+  const selectedCount = assignToAllTechnicians
+    ? technicians.length
+    : assignedTechnicianIds.length
+
+  return (
+    <div className="folder-assignees">
+      <div className="folder-assignees__head">
+        <div>
+          <p className="folder-assignees__label">Asignación</p>
+          <p className="folder-assignees__hint">
+            Quién podrá ver y trabajar esta carpeta
+          </p>
+        </div>
+        <span className="folder-assignees__count">
+          {assignToAllTechnicians
+            ? 'Todos'
+            : `${selectedCount} seleccionado${selectedCount === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      <div className="folder-assignees__modes" role="radiogroup" aria-label="Modo de asignación">
+        <button
+          type="button"
+          className={`folder-assignees__mode ${assignToAllTechnicians ? 'is-active' : ''}`}
+          aria-pressed={assignToAllTechnicians}
+          onClick={onAssignAll}
+        >
+          <span className="folder-assignees__mode-icon" aria-hidden="true">
+            <IconPeople />
+          </span>
+          <span className="folder-assignees__mode-copy">
+            <strong>Todos los técnicos</strong>
+            <small>Acceso general al equipo</small>
+          </span>
+          <span className="folder-assignees__mode-check" aria-hidden="true">
+            <IconCheck />
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`folder-assignees__mode ${!assignToAllTechnicians ? 'is-active' : ''}`}
+          aria-pressed={!assignToAllTechnicians}
+          onClick={onAssignSpecific}
+        >
+          <span className="folder-assignees__mode-icon" aria-hidden="true">
+            <IconPerson />
+          </span>
+          <span className="folder-assignees__mode-copy">
+            <strong>Elegir técnicos</strong>
+            <small>Uno o varios específicos</small>
+          </span>
+          <span className="folder-assignees__mode-check" aria-hidden="true">
+            <IconCheck />
+          </span>
+        </button>
+      </div>
+
+      {!assignToAllTechnicians ? (
+        <div className="folder-assignees__picker">
+          {technicians.length > 4 ? (
+            <label className="folder-assignees__search">
+              <span className="sr-only">Buscar técnico</span>
+              <IconSearch />
+              <input
+                type="search"
+                value={techSearch}
+                onChange={(event) => setTechSearch(event.target.value)}
+                placeholder="Buscar técnico..."
+                autoComplete="off"
+              />
+            </label>
+          ) : null}
+
+          {technicians.length === 0 ? (
+            <p className="folder-assignees__empty">
+              No hay técnicos activos para asignar.
+            </p>
+          ) : filteredTechnicians.length === 0 ? (
+            <p className="folder-assignees__empty">
+              Ningún técnico coincide con la búsqueda.
+            </p>
+          ) : (
+            <div className="folder-assignees__grid" role="group" aria-label="Técnicos">
+              {filteredTechnicians.map((tech) => {
+                const selected = assignedTechnicianIds.includes(tech.id)
+                const isYou = tech.id === currentUserId
+                return (
+                  <button
+                    key={tech.id}
+                    type="button"
+                    className={`folder-assignees__tech ${selected ? 'is-selected' : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => onToggleTechnician(tech.id)}
+                  >
+                    <span className="folder-assignees__avatar" aria-hidden="true">
+                      {technicianInitials(tech.displayName)}
+                    </span>
+                    <span className="folder-assignees__tech-copy">
+                      <strong>{tech.displayName}</strong>
+                      {isYou ? <em>Tú</em> : <em>Técnico</em>}
+                    </span>
+                    <span className="folder-assignees__tech-check" aria-hidden="true">
+                      <IconCheck />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="folder-assignees__all-note">
+          Esta carpeta quedará visible para todos los técnicos activos.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -280,6 +465,7 @@ function FolderActions({
 }
 
 export function FoldersPage() {
+  const { areaId = '' } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
   const {
@@ -288,16 +474,25 @@ export function FoldersPage() {
     updateFolderUseCase,
     deleteFolderUseCase,
     uploadFolderImageUseCase,
+    getAreaUseCase,
+    listTechniciansUseCase,
   } = useDependencies()
 
+  const [area, setArea] = useState<Area | null>(null)
   const [folders, setFolders] = useState<ImageFolder[]>([])
+  const [technicianOptions, setTechnicianOptions] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [activeFolder, setActiveFolder] = useState<ImageFolder | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [statusText, setStatusText] = useState('')
-  const [form, setForm] = useState({ name: '', description: '' })
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    assignToAllTechnicians: false,
+    assignedTechnicianIds: [] as string[],
+  })
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('all')
@@ -311,18 +506,40 @@ export function FoldersPage() {
     localStorage.setItem(FOLDER_VIEW_STORAGE_KEY, viewMode)
   }, [viewMode])
 
+  useEffect(() => {
+    if (!user) return
+    void listTechniciansUseCase
+      .execute(user)
+      .then(setTechnicianOptions)
+      .catch(() => setTechnicianOptions([]))
+  }, [user, listTechniciansUseCase])
+
   const technicians = useMemo(() => {
-    const names = new Set(
-      folders.map((folder) => folder.ownerName).filter(Boolean),
-    )
+    const names = new Set<string>()
+    for (const folder of folders) {
+      if (folder.assignToAllTechnicians) {
+        names.add('Todos los técnicos')
+        continue
+      }
+      for (const name of folder.assignedTechnicianNames ?? []) {
+        if (name) names.add(name)
+      }
+      if ((folder.assignedTechnicianNames ?? []).length === 0 && folder.ownerName) {
+        names.add(folder.ownerName)
+      }
+    }
     return [...names].sort((a, b) => a.localeCompare(b, 'es'))
   }, [folders])
 
   const filteredFolders = useMemo(() => {
     const matched = folders.filter((folder) => {
       const matchesSearch = folderMatchesSearch(folder, deferredSearch)
+      const label = formatFolderAssignees(folder)
       const matchesOwner =
-        ownerFilter === 'all' || folder.ownerName === ownerFilter
+        ownerFilter === 'all' ||
+        label === ownerFilter ||
+        (folder.assignedTechnicianNames ?? []).includes(ownerFilter) ||
+        folder.ownerName === ownerFilter
       return matchesSearch && matchesOwner
     })
     return sortFolders(matched, sortBy)
@@ -334,14 +551,19 @@ export function FoldersPage() {
   )
 
   async function loadFolders() {
-    if (!user) return
+    if (!user || !areaId) return
     setLoading(true)
     setError(null)
     try {
-      const result = await listFoldersUseCase.execute(user)
+      const [nextArea, result] = await Promise.all([
+        getAreaUseCase.execute(user, areaId),
+        listFoldersUseCase.execute(user, areaId),
+      ])
+      setArea(nextArea)
       setFolders(result)
     } catch (err) {
-      setError(
+      setArea(null)
+      swalError(
         err instanceof DomainError ? err.message : 'Error al cargar carpetas',
       )
     } finally {
@@ -351,11 +573,17 @@ export function FoldersPage() {
 
   useEffect(() => {
     void loadFolders()
-  }, [user])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, areaId])
 
   function openCreateModal() {
     setActiveFolder(null)
-    setForm({ name: '', description: '' })
+    setForm({
+      name: '',
+      description: '',
+      assignToAllTechnicians: false,
+      assignedTechnicianIds: user?.role === UserRole.Tecnico && user.id ? [user.id] : [],
+    })
     setSelectedFiles([])
     setStatusText('')
     setError(null)
@@ -364,17 +592,36 @@ export function FoldersPage() {
 
   function openEditModal(folder: ImageFolder) {
     setActiveFolder(folder)
-    setForm({ name: folder.name, description: folder.description })
+    setForm({
+      name: folder.name,
+      description: folder.description,
+      assignToAllTechnicians: folder.assignToAllTechnicians === true,
+      assignedTechnicianIds:
+        folder.assignToAllTechnicians
+          ? []
+          : folder.assignedTechnicianIds?.length
+            ? [...folder.assignedTechnicianIds]
+            : folder.ownerId
+              ? [folder.ownerId]
+              : [],
+    })
     setSelectedFiles([])
     setStatusText('')
     setError(null)
     setModalMode('edit')
   }
 
+  function toggleTechnician(technicianId: string) {
+    setForm((prev) => {
+      const selected = prev.assignedTechnicianIds.includes(technicianId)
+        ? prev.assignedTechnicianIds.filter((id) => id !== technicianId)
+        : [...prev.assignedTechnicianIds, technicianId]
+      return { ...prev, assignedTechnicianIds: selected }
+    })
+  }
+
   function openDeleteModal(folder: ImageFolder) {
-    setActiveFolder(folder)
-    setError(null)
-    setModalMode('delete')
+    void confirmDeleteFolder(folder)
   }
 
   function closeModal() {
@@ -392,17 +639,29 @@ export function FoldersPage() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!user) return
+    if (!user || !areaId) return
     setSubmitting(true)
     setError(null)
 
-    try {
-      setStatusText('Creando carpeta...')
-      const folder = await createFolderUseCase.execute(user, form)
+    const filesToUpload = [...selectedFiles]
+    setModalMode(null)
+    swalSuccess(
+      filesToUpload.length > 0
+        ? 'Carpeta creada con imágenes'
+        : 'Carpeta creada',
+    )
 
-      for (let index = 0; index < selectedFiles.length; index += 1) {
-        const file = selectedFiles[index]
-        setStatusText(`Subiendo ${index + 1} de ${selectedFiles.length}...`)
+    try {
+      const folder = await createFolderUseCase.execute(user, {
+        name: form.name,
+        description: form.description,
+        areaId,
+        assignToAllTechnicians: form.assignToAllTechnicians,
+        assignedTechnicianIds: form.assignedTechnicianIds,
+      })
+
+      for (let index = 0; index < filesToUpload.length; index += 1) {
+        const file = filesToUpload[index]
         await uploadFolderImageUseCase.execute(user, folder.id, {
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
@@ -411,18 +670,19 @@ export function FoldersPage() {
         })
       }
 
-      setModalMode(null)
       await loadFolders()
       navigate(`/carpetas/${folder.id}`)
     } catch (err) {
-      setError(
+      swalError(
         err instanceof DomainError
           ? err.message
           : 'No se pudo crear la carpeta o subir las imágenes',
       )
+      setModalMode('create')
     } finally {
       setSubmitting(false)
       setStatusText('')
+      setSelectedFiles([])
     }
   }
 
@@ -432,18 +692,47 @@ export function FoldersPage() {
     setSubmitting(true)
     setError(null)
 
+    const folderId = activeFolder.id
+    const filesToUpload = [...selectedFiles]
+    const nextName = form.name
+    const nextDescription = form.description
+    const nextAssignAll = form.assignToAllTechnicians
+    const nextAssignedIds = [...form.assignedTechnicianIds]
+
+    setFolders((current) =>
+      current.map((item) =>
+        item.id === folderId
+          ? {
+              ...item,
+              name: nextName.trim(),
+              description: nextDescription.trim(),
+              assignToAllTechnicians: nextAssignAll,
+              assignedTechnicianIds: nextAssignAll ? [] : nextAssignedIds,
+              updatedAt: new Date(),
+            }
+          : item,
+      ),
+    )
+    setModalMode(null)
+    setActiveFolder(null)
+    swalSuccess(
+      filesToUpload.length > 0
+        ? 'Carpeta actualizada con imágenes'
+        : 'Carpeta actualizada',
+    )
+
     try {
-      setStatusText('Guardando cambios...')
       await updateFolderUseCase.execute(user, {
-        folderId: activeFolder.id,
-        name: form.name,
-        description: form.description,
+        folderId,
+        name: nextName,
+        description: nextDescription,
+        assignToAllTechnicians: nextAssignAll,
+        assignedTechnicianIds: nextAssignedIds,
       })
 
-      for (let index = 0; index < selectedFiles.length; index += 1) {
-        const file = selectedFiles[index]
-        setStatusText(`Subiendo ${index + 1} de ${selectedFiles.length}...`)
-        await uploadFolderImageUseCase.execute(user, activeFolder.id, {
+      for (let index = 0; index < filesToUpload.length; index += 1) {
+        const file = filesToUpload[index]
+        await uploadFolderImageUseCase.execute(user, folderId, {
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           sizeBytes: file.size,
@@ -451,33 +740,40 @@ export function FoldersPage() {
         })
       }
 
-      setModalMode(null)
-      setActiveFolder(null)
       await loadFolders()
     } catch (err) {
-      setError(
+      swalError(
         err instanceof DomainError
           ? err.message
           : 'No se pudo editar la carpeta',
       )
+      await loadFolders()
     } finally {
       setSubmitting(false)
       setStatusText('')
+      setSelectedFiles([])
     }
   }
 
-  async function handleDeleteConfirm() {
-    if (!user || !activeFolder || !isAdmin) return
-    setSubmitting(true)
-    setError(null)
+  async function confirmDeleteFolder(folder: ImageFolder) {
+    if (!user || !isAdmin || submitting) return
 
+    const confirmed = await swalConfirmDelete({
+      title: '¿Eliminar carpeta?',
+      text: `"${folder.name}" y todas sus imágenes se eliminarán. Esta acción no se puede deshacer.`,
+    })
+    if (!confirmed) return
+
+    setSubmitting(true)
+    setFolders((current) => current.filter((item) => item.id !== folder.id))
+    swalSuccess('Carpeta eliminada')
     try {
-      await deleteFolderUseCase.execute(user, activeFolder.id)
-      setModalMode(null)
-      setActiveFolder(null)
-      await loadFolders()
+      await deleteFolderUseCase.execute(user, folder.id)
     } catch (err) {
-      setError(err instanceof DomainError ? err.message : 'No se pudo eliminar')
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo eliminar',
+      )
+      await loadFolders()
     } finally {
       setSubmitting(false)
     }
@@ -562,7 +858,7 @@ export function FoldersPage() {
             <div className="folder-tile__meta">
               <span className="folder-meta-chip">
                 <IconPerson />
-                {folder.ownerName}
+                {formatFolderAssignees(folder)}
               </span>
               <span className="folder-meta-chip">
                 <IconImage />
@@ -591,7 +887,7 @@ export function FoldersPage() {
             <thead>
               <tr>
                 <th>Carpeta</th>
-                <th>Técnico</th>
+                <th>Asignados</th>
                 <th>Imágenes</th>
                 <th>Creada</th>
                 <th>Modificada</th>
@@ -629,7 +925,7 @@ export function FoldersPage() {
                       </span>
                     </div>
                   </td>
-                  <td>{folder.ownerName}</td>
+                  <td>{formatFolderAssignees(folder)}</td>
                   <td>{folder.imageCount}</td>
                   <td>
                     <span className="folders-list-datetime">
@@ -688,7 +984,7 @@ export function FoldersPage() {
               </div>
 
               <div className="folders-list-item__meta">
-                <span>{folder.ownerName}</span>
+                <span>{formatFolderAssignees(folder)}</span>
                 <span>
                   {folder.imageCount} foto
                   {folder.imageCount === 1 ? '' : 's'}
@@ -719,18 +1015,25 @@ export function FoldersPage() {
     <section className="folders-page">
       <div className="page-header">
         <div>
-          <p className="folders-page__eyebrow">Campo</p>
-          <h2>Carpetas de imágenes</h2>
+          <p className="folders-page__eyebrow">
+            <Link to="/areas" className="folders-page__back">
+              ← Áreas
+            </Link>
+          </p>
+          <h2>{area?.name || 'Carpetas'}</h2>
           <p>
-            {isAdmin
-              ? 'Revisa el trabajo de los técnicos con una vista clara y ordenada.'
-              : 'Organiza tus fotos de campo, edita carpetas y sube varias imágenes a la vez.'}
+            {area?.description?.trim()
+              ? area.description
+              : isAdmin
+                ? 'Rutas/carpetas de esta área. Puedes asignar uno o más técnicos, o a todos.'
+                : 'Organiza tus rutas de esta área y sube las fotos de campo.'}
           </p>
         </div>
         <button
           type="button"
           className="btn btn--soft-primary"
           onClick={openCreateModal}
+          disabled={!area}
         >
           <IconFolderPlus />
           Nueva carpeta
@@ -788,7 +1091,7 @@ export function FoldersPage() {
           <div className="folder-toolbar__filters">
             {isAdmin ? (
               <label className="folder-filter">
-                <span>Técnico</span>
+                <span>Asignado</span>
                 <select
                   value={ownerFilter}
                   onChange={(event) => setOwnerFilter(event.target.value)}
@@ -910,6 +1213,32 @@ export function FoldersPage() {
               placeholder="Notas breves del trabajo en campo"
             />
           </label>
+          <FolderAssigneePicker
+            assignToAllTechnicians={form.assignToAllTechnicians}
+            assignedTechnicianIds={form.assignedTechnicianIds}
+            technicians={technicianOptions}
+            currentUserId={user?.id}
+            onAssignAll={() =>
+              setForm((prev) => ({
+                ...prev,
+                assignToAllTechnicians: true,
+                assignedTechnicianIds: [],
+              }))
+            }
+            onAssignSpecific={() =>
+              setForm((prev) => ({
+                ...prev,
+                assignToAllTechnicians: false,
+                assignedTechnicianIds:
+                  prev.assignedTechnicianIds.length > 0
+                    ? prev.assignedTechnicianIds
+                    : user?.role === UserRole.Tecnico && user.id
+                      ? [user.id]
+                      : [],
+              }))
+            }
+            onToggleTechnician={toggleTechnician}
+          />
           <label className="field">
             <span>Imágenes (opcional, múltiples)</span>
             <input
@@ -996,6 +1325,32 @@ export function FoldersPage() {
               }
             />
           </label>
+          <FolderAssigneePicker
+            assignToAllTechnicians={form.assignToAllTechnicians}
+            assignedTechnicianIds={form.assignedTechnicianIds}
+            technicians={technicianOptions}
+            currentUserId={user?.id}
+            onAssignAll={() =>
+              setForm((prev) => ({
+                ...prev,
+                assignToAllTechnicians: true,
+                assignedTechnicianIds: [],
+              }))
+            }
+            onAssignSpecific={() =>
+              setForm((prev) => ({
+                ...prev,
+                assignToAllTechnicians: false,
+                assignedTechnicianIds:
+                  prev.assignedTechnicianIds.length > 0
+                    ? prev.assignedTechnicianIds
+                    : user?.role === UserRole.Tecnico && user.id
+                      ? [user.id]
+                      : [],
+              }))
+            }
+            onToggleTechnician={toggleTechnician}
+          />
           <label className="field">
             <span>Agregar más imágenes (opcional)</span>
             <input
@@ -1022,44 +1377,6 @@ export function FoldersPage() {
             <p className="form-alert form-alert--error">{error}</p>
           ) : null}
         </form>
-      </AppModal>
-
-      <AppModal
-        open={modalMode === 'delete'}
-        title="Eliminar carpeta"
-        description="Esta acción no se puede deshacer."
-        onClose={closeModal}
-        size="sm"
-        danger
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn--soft-muted"
-              onClick={closeModal}
-              disabled={submitting}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn btn--soft-rose"
-              onClick={() => void handleDeleteConfirm()}
-              disabled={submitting}
-            >
-              <IconTrash />
-              {submitting ? 'Eliminando...' : 'Sí, eliminar'}
-            </button>
-          </>
-        }
-      >
-        <p>
-          ¿Eliminar la carpeta <strong>{activeFolder?.name}</strong> y todas sus
-          imágenes?
-        </p>
-        {error && modalMode === 'delete' ? (
-          <p className="form-alert form-alert--error">{error}</p>
-        ) : null}
       </AppModal>
     </section>
   )

@@ -23,6 +23,18 @@ class FirebaseUserRepository implements UserRepository {
   }
 
   @override
+  Future<List<AppUser>> listTechnicians() async {
+    final snapshot =
+        await _users.where('role', isEqualTo: 'TECNICO').get();
+    final users = snapshot.docs
+        .map((doc) => _map(doc.id, doc.data()))
+        .where((user) => user.active)
+        .toList()
+      ..sort((a, b) => a.displayName.compareTo(b.displayName));
+    return users;
+  }
+
+  @override
   Future<AppUser> updateMustChangePassword({
     required String userId,
     required bool mustChangePassword,

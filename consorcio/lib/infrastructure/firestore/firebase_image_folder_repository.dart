@@ -33,13 +33,58 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
   }
 
   @override
+  Future<List<ImageFolder>> listAccessibleForUser(String userId) async {
+    final results = await Future.wait([
+      _folders.where('ownerId', isEqualTo: userId).get(),
+      _folders.where('assignToAllTechnicians', isEqualTo: true).get(),
+      _folders
+          .where('assignedTechnicianIds', arrayContains: userId)
+          .get(),
+    ]);
+
+    final byId = <String, ImageFolder>{};
+    for (final snapshot in results) {
+      for (final doc in snapshot.docs) {
+        byId[doc.id] = _map(doc.id, doc.data());
+      }
+    }
+
+    final folders = byId.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return folders;
+  }
+
+  @override
+  Future<List<ImageFolder>> listByOwnerAndArea({
+    required String ownerId,
+    required String areaId,
+  }) async {
+    final folders = await listByOwner(ownerId);
+    return folders.where((folder) => folder.areaId == areaId).toList();
+  }
+
+  @override
+  Future<List<ImageFolder>> listAccessibleForUserAndArea({
+    required String userId,
+    required String areaId,
+  }) async {
+    final folders = await listAccessibleForUser(userId);
+    return folders.where((folder) => folder.areaId == areaId).toList();
+  }
+
+  @override
   Future<ImageFolder> create(CreateImageFolderInput input) async {
     final now = Timestamp.now();
     final payload = <String, dynamic>{
+      'areaId': input.areaId,
+      'areaName': input.areaName,
       'name': input.name,
       'description': input.description,
       'ownerId': input.ownerId,
       'ownerName': input.ownerName,
+      'assignToAllTechnicians': input.assignToAllTechnicians,
+      'assignedTechnicianIds': input.assignedTechnicianIds,
+      'assignedTechnicianNames': input.assignedTechnicianNames,
       'imageCount': 0,
       'createdAt': now,
       'updatedAt': now,
@@ -66,6 +111,9 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
     required String id,
     required String name,
     required String description,
+    required bool assignToAllTechnicians,
+    required List<String> assignedTechnicianIds,
+    required List<String> assignedTechnicianNames,
   }) async {
     final ref = _folders.doc(id);
     final existing = await ref.get();
@@ -76,6 +124,9 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
     await ref.update({
       'name': name,
       'description': description,
+      'assignToAllTechnicians': assignToAllTechnicians,
+      'assignedTechnicianIds': assignedTechnicianIds,
+      'assignedTechnicianNames': assignedTechnicianNames,
       'updatedAt': Timestamp.now(),
     });
 
@@ -93,12 +144,26 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
 
   ImageFolder _map(String id, Map<String, dynamic> data) {
     final captured = data['locationCapturedAt'];
+    final assignedIds = (data['assignedTechnicianIds'] as List?)
+            ?.whereType<String>()
+            .toList() ??
+        <String>[];
+    final assignedNames = (data['assignedTechnicianNames'] as List?)
+            ?.whereType<String>()
+            .toList() ??
+        <String>[];
+
     return ImageFolder(
       id: id,
+      areaId: data['areaId'] as String? ?? '',
+      areaName: data['areaName'] as String? ?? '',
       name: data['name'] as String? ?? '',
       description: data['description'] as String? ?? '',
       ownerId: data['ownerId'] as String? ?? '',
       ownerName: data['ownerName'] as String? ?? '',
+      assignToAllTechnicians: data['assignToAllTechnicians'] == true,
+      assignedTechnicianIds: assignedIds,
+      assignedTechnicianNames: assignedNames,
       imageCount: (data['imageCount'] as num?)?.toInt() ?? 0,
       location: GeoLocation.tryParse({
         'latitude': data['latitude'],

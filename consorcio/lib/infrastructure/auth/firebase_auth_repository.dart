@@ -64,6 +64,11 @@ class FirebaseAuthRepository implements AuthRepository {
         return 'Por seguridad, cierra sesión e inicia de nuevo para cambiar la contraseña';
       case 'too-many-requests':
         return 'Demasiados intentos. Espera un momento';
+      case 'network-request-failed':
+        return 'Sin conexión con Firebase. Revisa tu internet e intenta otra vez';
+      case 'invalid-api-key':
+      case 'app-not-authorized':
+        return 'La app no está bien registrada en Firebase. Contacta al administrador';
       default:
         return error.message ?? 'Error de autenticación';
     }
