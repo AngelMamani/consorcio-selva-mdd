@@ -3,7 +3,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ChangeEvent,
   type FormEvent,
   type ReactNode,
 } from 'react'
@@ -28,12 +27,6 @@ import {
   swalSuccess,
 } from '@/presentation/utils/appSwal'
 import './FoldersPage.css'
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function formatDateTime(date: Date): string {
   return date.toLocaleString('es-PE', {
@@ -405,17 +398,6 @@ function IconEmpty() {
   )
 }
 
-function IconUpload() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
-      <path
-        fill="currentColor"
-        d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
-      />
-    </svg>
-  )
-}
-
 function folderTone(name: string): string {
   const tones = ['blue', 'teal', 'green', 'cyan', 'slate']
   let hash = 0
@@ -473,7 +455,6 @@ export function FoldersPage() {
     createFolderUseCase,
     updateFolderUseCase,
     deleteFolderUseCase,
-    uploadFolderImageUseCase,
     getAreaUseCase,
     listTechniciansUseCase,
   } = useDependencies()
@@ -493,7 +474,6 @@ export function FoldersPage() {
     assignToAllTechnicians: false,
     assignedTechnicianIds: [] as string[],
   })
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [sortBy, setSortBy] = useState<FolderSortOption>('newest')
@@ -584,7 +564,6 @@ export function FoldersPage() {
       assignToAllTechnicians: false,
       assignedTechnicianIds: user?.role === UserRole.Tecnico && user.id ? [user.id] : [],
     })
-    setSelectedFiles([])
     setStatusText('')
     setError(null)
     setModalMode('create')
@@ -605,7 +584,6 @@ export function FoldersPage() {
               ? [folder.ownerId]
               : [],
     })
-    setSelectedFiles([])
     setStatusText('')
     setError(null)
     setModalMode('edit')
@@ -628,13 +606,7 @@ export function FoldersPage() {
     if (submitting) return
     setModalMode(null)
     setActiveFolder(null)
-    setSelectedFiles([])
     setStatusText('')
-  }
-
-  function handleFilesChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files
-    setSelectedFiles(files ? Array.from(files) : [])
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -642,14 +614,8 @@ export function FoldersPage() {
     if (!user || !areaId) return
     setSubmitting(true)
     setError(null)
-
-    const filesToUpload = [...selectedFiles]
     setModalMode(null)
-    swalSuccess(
-      filesToUpload.length > 0
-        ? 'Carpeta creada con imágenes'
-        : 'Carpeta creada',
-    )
+    swalSuccess('Carpeta creada')
 
     try {
       const folder = await createFolderUseCase.execute(user, {
@@ -660,29 +626,18 @@ export function FoldersPage() {
         assignedTechnicianIds: form.assignedTechnicianIds,
       })
 
-      for (let index = 0; index < filesToUpload.length; index += 1) {
-        const file = filesToUpload[index]
-        await uploadFolderImageUseCase.execute(user, folder.id, {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          sizeBytes: file.size,
-          data: file,
-        })
-      }
-
       await loadFolders()
       navigate(`/carpetas/${folder.id}`)
     } catch (err) {
       swalError(
         err instanceof DomainError
           ? err.message
-          : 'No se pudo crear la carpeta o subir las imágenes',
+          : 'No se pudo crear la carpeta',
       )
       setModalMode('create')
     } finally {
       setSubmitting(false)
       setStatusText('')
-      setSelectedFiles([])
     }
   }
 
@@ -693,7 +648,6 @@ export function FoldersPage() {
     setError(null)
 
     const folderId = activeFolder.id
-    const filesToUpload = [...selectedFiles]
     const nextName = form.name
     const nextDescription = form.description
     const nextAssignAll = form.assignToAllTechnicians
@@ -715,11 +669,7 @@ export function FoldersPage() {
     )
     setModalMode(null)
     setActiveFolder(null)
-    swalSuccess(
-      filesToUpload.length > 0
-        ? 'Carpeta actualizada con imágenes'
-        : 'Carpeta actualizada',
-    )
+    swalSuccess('Carpeta actualizada')
 
     try {
       await updateFolderUseCase.execute(user, {
@@ -729,16 +679,6 @@ export function FoldersPage() {
         assignToAllTechnicians: nextAssignAll,
         assignedTechnicianIds: nextAssignedIds,
       })
-
-      for (let index = 0; index < filesToUpload.length; index += 1) {
-        const file = filesToUpload[index]
-        await uploadFolderImageUseCase.execute(user, folderId, {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          sizeBytes: file.size,
-          data: file,
-        })
-      }
 
       await loadFolders()
     } catch (err) {
@@ -751,7 +691,6 @@ export function FoldersPage() {
     } finally {
       setSubmitting(false)
       setStatusText('')
-      setSelectedFiles([])
     }
   }
 
@@ -760,7 +699,7 @@ export function FoldersPage() {
 
     const confirmed = await swalConfirmDelete({
       title: '¿Eliminar carpeta?',
-      text: `"${folder.name}" y todas sus imágenes se eliminarán. Esta acción no se puede deshacer.`,
+      text: `"${folder.name}" se eliminará con todas sus fechas e imágenes. Esta acción no se puede deshacer.`,
     })
     if (!confirmed) return
 
@@ -1155,7 +1094,7 @@ export function FoldersPage() {
       <AppModal
         open={modalMode === 'create'}
         title="Nueva carpeta"
-        description="Define la carpeta y, si quieres, sube imágenes al momento."
+        description="Define la carpeta. Las fotos se suben después, dentro de una fecha."
         onClose={closeModal}
         footer={
           <>
@@ -1173,12 +1112,8 @@ export function FoldersPage() {
               className="btn btn--soft-primary"
               disabled={submitting}
             >
-              {selectedFiles.length > 0 ? <IconUpload /> : <IconFolderPlus />}
-              {submitting
-                ? statusText || 'Guardando...'
-                : selectedFiles.length > 0
-                  ? 'Crear y subir'
-                  : 'Crear'}
+              <IconFolderPlus />
+              {submitting ? statusText || 'Guardando...' : 'Crear'}
             </button>
           </>
         }
@@ -1239,31 +1174,6 @@ export function FoldersPage() {
             }
             onToggleTechnician={toggleTechnician}
           />
-          <label className="field">
-            <span>Imágenes (opcional, múltiples)</span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              onChange={handleFilesChange}
-              disabled={submitting}
-            />
-          </label>
-          {selectedFiles.length > 0 ? (
-            <div className="file-preview-list folders-file-preview">
-              <p>{selectedFiles.length} imagen(es) lista(s) para subir</p>
-              <ul>
-                {selectedFiles.slice(0, 6).map((file) => (
-                  <li key={`${file.name}-${file.size}-${file.lastModified}`}>
-                    {file.name} · {formatBytes(file.size)}
-                  </li>
-                ))}
-                {selectedFiles.length > 6 ? (
-                  <li>... y {selectedFiles.length - 6} más</li>
-                ) : null}
-              </ul>
-            </div>
-          ) : null}
           {error && modalMode === 'create' ? (
             <p className="form-alert form-alert--error">{error}</p>
           ) : null}
@@ -1273,7 +1183,7 @@ export function FoldersPage() {
       <AppModal
         open={modalMode === 'edit'}
         title="Editar carpeta"
-        description="Actualiza los datos y agrega más imágenes si lo necesitas."
+        description="Actualiza el nombre, la descripción y la asignación."
         onClose={closeModal}
         footer={
           <>
@@ -1351,28 +1261,6 @@ export function FoldersPage() {
             }
             onToggleTechnician={toggleTechnician}
           />
-          <label className="field">
-            <span>Agregar más imágenes (opcional)</span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              onChange={handleFilesChange}
-              disabled={submitting}
-            />
-          </label>
-          {selectedFiles.length > 0 ? (
-            <div className="file-preview-list folders-file-preview">
-              <p>{selectedFiles.length} imagen(es) nuevas para subir</p>
-              <ul>
-                {selectedFiles.slice(0, 6).map((file) => (
-                  <li key={`${file.name}-${file.size}-${file.lastModified}`}>
-                    {file.name} · {formatBytes(file.size)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {error && modalMode === 'edit' ? (
             <p className="form-alert form-alert--error">{error}</p>
           ) : null}

@@ -177,6 +177,86 @@
   font-weight: 600;
 }
 
+.folder-dates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.85rem;
+}
+
+.folder-date-card {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.folder-date-card:hover,
+.folder-date-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--sidebar-active-border);
+  box-shadow: 0 14px 28px rgba(18, 21, 28, 0.08);
+  outline: none;
+}
+
+.folder-date-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #43a047, #66bb6a);
+}
+
+.folder-date-card__icon .btn-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.folder-date-card__copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.folder-date-card__copy h3 {
+  font-size: 1rem;
+  color: var(--ink);
+  text-transform: capitalize;
+}
+
+.folder-date-card__copy p,
+.folder-date-card__copy span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-legacy {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.folder-legacy h3 {
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.folder-legacy p {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .folder-photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -317,6 +397,11 @@ html[data-theme='dark'] .folder-photo:hover {
   box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
 }
 
+html[data-theme='dark'] .folder-date-card:hover,
+html[data-theme='dark'] .folder-date-card:focus-visible {
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+}
+
 @keyframes folder-detail-spin {
   to {
     transform: rotate(360deg);
@@ -370,6 +455,20 @@ html[data-theme='dark'] .folder-photo:hover {
 
   .folder-detail-summary__item:last-child {
     grid-column: 1 / -1;
+  }
+
+  .folder-dates-grid {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .folder-date-card {
+    padding: 0.75rem 0.8rem;
+    border-radius: 12px;
+  }
+
+  .folder-date-card:hover {
+    transform: none;
   }
 
   .folder-photo-grid {

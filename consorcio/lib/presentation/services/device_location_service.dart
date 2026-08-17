@@ -4,11 +4,16 @@ import '../../domain/errors/domain_exception.dart';
 import '../../domain/value_objects/geo_location.dart';
 
 class DeviceLocationService {
-  Future<GeoLocation> getCurrentLocation() async {
+  Future<GeoLocation> getCurrentLocation({
+    bool openSettingsIfDisabled = true,
+  }) async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
+      if (openSettingsIfDisabled) {
+        await Geolocator.openLocationSettings();
+      }
       throw DomainException(
-        'El GPS está apagado. Actívalo para registrar la ubicación.',
+        'El GPS está apagado. Actívalo para asignar la ubicación de la carpeta.',
       );
     }
 
@@ -24,6 +29,7 @@ class DeviceLocationService {
     }
 
     if (permission == LocationPermission.deniedForever) {
+      await Geolocator.openAppSettings();
       throw DomainException(
         'Permiso de ubicación bloqueado. Actívalo en Ajustes del celular.',
       );

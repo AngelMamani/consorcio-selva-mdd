@@ -48,5 +48,9 @@ abstract class ImageFolderRepository {
     required List<String> assignedTechnicianIds,
     required List<String> assignedTechnicianNames,
   });
+  Future<ImageFolder> assignLocation({
+    required String id,
+    required GeoLocation location,
+  });
   Future<void> incrementImageCount(String folderId, int delta);
 }

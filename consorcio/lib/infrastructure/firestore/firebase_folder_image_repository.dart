@@ -32,8 +32,20 @@ class FirebaseFolderImageRepository implements FolderImageRepository {
   }
 
   @override
+  Future<List<FolderImage>> listByDate(String folderId, String dateId) async {
+    final snapshot = await _images.where('dateId', isEqualTo: dateId).get();
+    final images = snapshot.docs
+        .map((doc) => _map(doc.id, doc.data()))
+        .where((image) => image.folderId == folderId)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return images;
+  }
+
+  @override
   Future<FolderImage> create({
     required String folderId,
+    required String dateId,
     required ImageFilePayload file,
     required String uploadedById,
     required String uploadedByName,
@@ -41,7 +53,7 @@ class FirebaseFolderImageRepository implements FolderImageRepository {
   }) async {
     final imageId = _uuid.v4();
     final safeName = file.fileName.replaceAll(RegExp(r'[^\w.\-() ]+'), '_');
-    final storagePath = 'folders/$folderId/${imageId}_$safeName';
+    final storagePath = 'folders/$folderId/$dateId/${imageId}_$safeName';
     final storageRef = _storage.ref(storagePath);
 
     await storageRef.putData(
@@ -53,6 +65,7 @@ class FirebaseFolderImageRepository implements FolderImageRepository {
     final now = Timestamp.now();
     final payload = <String, dynamic>{
       'folderId': folderId,
+      'dateId': dateId,
       'fileName': file.fileName,
       'storagePath': storagePath,
       'downloadUrl': downloadUrl,
@@ -83,6 +96,7 @@ class FirebaseFolderImageRepository implements FolderImageRepository {
     return FolderImage(
       id: id,
       folderId: data['folderId'] as String? ?? '',
+      dateId: data['dateId'] as String? ?? '',
       fileName: data['fileName'] as String? ?? '',
       storagePath: data['storagePath'] as String? ?? '',
       downloadUrl: data['downloadUrl'] as String? ?? '',

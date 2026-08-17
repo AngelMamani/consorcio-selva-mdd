@@ -1,19 +1,26 @@
 import '../entities/app_user.dart';
 import '../entities/folder_image.dart';
 import '../errors/domain_exception.dart';
+import '../repositories/folder_date_repository.dart';
 import '../repositories/folder_image_repository.dart';
 import '../repositories/image_folder_repository.dart';
 import '../value_objects/geo_location.dart';
 
 class UploadFolderImagesUseCase {
-  UploadFolderImagesUseCase(this._folderRepository, this._imageRepository);
+  UploadFolderImagesUseCase(
+    this._folderRepository,
+    this._dateRepository,
+    this._imageRepository,
+  );
 
   final ImageFolderRepository _folderRepository;
+  final FolderDateRepository _dateRepository;
   final FolderImageRepository _imageRepository;
 
   Future<List<FolderImage>> execute(
     AppUser actor, {
     required String folderId,
+    required String dateId,
     required List<ImageFilePayload> files,
     GeoLocation? location,
     void Function(int current, int total)? onProgress,
@@ -27,6 +34,12 @@ class UploadFolderImagesUseCase {
     if (!folder.canBeAccessedBy(actor.id)) {
       throw DomainException('No puedes subir a esta carpeta');
     }
+
+    final folderDate = await _dateRepository.getById(dateId);
+    if (folderDate == null || folderDate.folderId != folderId) {
+      throw DomainException('Primero crea una fecha para subir las imágenes');
+    }
+
     if (files.isEmpty) {
       throw DomainException('Selecciona al menos una imagen');
     }
@@ -41,12 +54,16 @@ class UploadFolderImagesUseCase {
 
       final image = await _imageRepository.create(
         folderId: folderId,
+        dateId: dateId,
         file: file,
         uploadedById: actor.id,
         uploadedByName: actor.displayName,
         location: location,
       );
-      await _folderRepository.incrementImageCount(folderId, 1);
+      await Future.wait([
+        _folderRepository.incrementImageCount(folderId, 1),
+        _dateRepository.incrementImageCount(dateId, 1),
+      ]);
       uploaded.add(image);
     }
 

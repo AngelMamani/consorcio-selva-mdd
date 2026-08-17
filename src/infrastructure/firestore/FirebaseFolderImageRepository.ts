@@ -28,6 +28,7 @@ import {
 
 interface ImageDoc {
   folderId: string
+  dateId?: string
   fileName: string
   storagePath: string
   downloadUrl: string
@@ -59,6 +60,7 @@ function mapImage(id: string, data: ImageDoc): FolderImage {
   return {
     id,
     folderId: data.folderId,
+    dateId: data.dateId ?? '',
     fileName: data.fileName,
     storagePath: data.storagePath,
     downloadUrl: data.downloadUrl,
@@ -67,7 +69,7 @@ function mapImage(id: string, data: ImageDoc): FolderImage {
     uploadedById: data.uploadedById,
     uploadedByName: data.uploadedByName,
     location: mapLocation(data),
-    createdAt: data.createdAt.toDate(),
+    createdAt: data.createdAt?.toDate?.() ?? new Date(),
   }
 }
 
@@ -87,10 +89,20 @@ export class FirebaseFolderImageRepository implements FolderImageRepository {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
 
+  async listByDate(folderId: string, dateId: string): Promise<FolderImage[]> {
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('dateId', '==', dateId)),
+    )
+    return snapshot.docs
+      .map((item) => mapImage(item.id, item.data() as ImageDoc))
+      .filter((image) => image.folderId === folderId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
   async create(input: CreateFolderImageInput): Promise<FolderImage> {
     const imageId = crypto.randomUUID()
     const safeName = sanitizeFileName(input.file.fileName)
-    const storagePath = `folders/${input.folderId}/${imageId}_${safeName}`
+    const storagePath = `folders/${input.folderId}/${input.dateId}/${imageId}_${safeName}`
     const storageRef = ref(firebaseStorage, storagePath)
 
     await uploadBytes(storageRef, input.file.data, {
@@ -101,6 +113,7 @@ export class FirebaseFolderImageRepository implements FolderImageRepository {
     const now = Timestamp.now()
     const payload: ImageDoc = {
       folderId: input.folderId,
+      dateId: input.dateId,
       fileName: input.file.fileName,
       storagePath,
       downloadUrl,
@@ -127,12 +140,53 @@ export class FirebaseFolderImageRepository implements FolderImageRepository {
   }
 
   async delete(image: FolderImage): Promise<void> {
-    await deleteObject(ref(firebaseStorage, image.storagePath)).catch(() => undefined)
+    await deleteObject(ref(firebaseStorage, image.storagePath)).catch(
+      () => undefined,
+    )
     await deleteDoc(doc(this.collectionRef, image.id))
   }
 
   async deleteAllByFolder(folderId: string): Promise<void> {
-    const images = await this.listByFolder(folderId)
-    await Promise.all(images.map((image) => this.delete(image)))
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('folderId', '==', folderId)),
+    )
+    await Promise.all(
+      snapshot.docs.map(async (item) => {
+        try {
+          const storagePath = item.data().storagePath
+          if (typeof storagePath === 'string' && storagePath) {
+            await deleteObject(ref(firebaseStorage, storagePath)).catch(
+              () => undefined,
+            )
+          }
+          await deleteDoc(item.ref)
+        } catch {
+          // Sigue con el resto: la carpeta se borra igual.
+        }
+      }),
+    )
+  }
+
+  async deleteAllByDate(folderId: string, dateId: string): Promise<void> {
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('dateId', '==', dateId)),
+    )
+    await Promise.all(
+      snapshot.docs
+        .filter((item) => item.data().folderId === folderId)
+        .map(async (item) => {
+          try {
+            const storagePath = item.data().storagePath
+            if (typeof storagePath === 'string' && storagePath) {
+              await deleteObject(ref(firebaseStorage, storagePath)).catch(
+                () => undefined,
+              )
+            }
+            await deleteDoc(item.ref)
+          } catch {
+            // Sigue con el resto de imágenes de la fecha.
+          }
+        }),
+    )
   }
 }

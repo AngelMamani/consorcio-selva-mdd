@@ -32,6 +32,7 @@ export class ExportFolderImagesToPdfUseCase {
     actor: User,
     folderId: string,
     requestedFileName: string,
+    dateId?: string,
   ): Promise<PdfExportResult> {
     const folder = await this.folderRepository.getById(folderId)
     if (!folder) {
@@ -47,9 +48,11 @@ export class ExportFolderImagesToPdfUseCase {
       throw new ValidationError('El nombre del PDF es obligatorio')
     }
 
-    const images = await this.imageRepository.listByFolder(folderId)
+    const images = dateId
+      ? await this.imageRepository.listByDate(folderId, dateId)
+      : await this.imageRepository.listByFolder(folderId)
     if (images.length === 0) {
-      throw new ValidationError('La carpeta no tiene imágenes para exportar')
+      throw new ValidationError('No hay imágenes para exportar')
     }
 
     return this.pdfExportService.createImagesDocument(

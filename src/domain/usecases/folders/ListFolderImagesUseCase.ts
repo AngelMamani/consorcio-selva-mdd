@@ -20,7 +20,11 @@ export class ListFolderImagesUseCase {
     this.imageRepository = imageRepository
   }
 
-  async execute(actor: User, folderId: string): Promise<FolderImage[]> {
+  async execute(
+    actor: User,
+    folderId: string,
+    dateId?: string,
+  ): Promise<FolderImage[]> {
     const folder = await this.folderRepository.getById(folderId)
     if (!folder) {
       throw new NotFoundError('Carpeta no encontrada')
@@ -28,6 +32,10 @@ export class ListFolderImagesUseCase {
 
     if (!assertUserCanAccessFolder(actor, folder)) {
       throw new UnauthorizedError('No tienes permiso para ver esta carpeta')
+    }
+
+    if (dateId) {
+      return this.imageRepository.listByDate(folderId, dateId)
     }
 
     return this.imageRepository.listByFolder(folderId)

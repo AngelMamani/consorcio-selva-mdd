@@ -2,6 +2,7 @@ import { FirebaseAuthRepository } from '@/infrastructure/auth/FirebaseAuthReposi
 import { FirebaseUserRepository } from '@/infrastructure/firestore/FirebaseUserRepository'
 import { FirebaseImageFolderRepository } from '@/infrastructure/firestore/FirebaseImageFolderRepository'
 import { FirebaseFolderImageRepository } from '@/infrastructure/firestore/FirebaseFolderImageRepository'
+import { FirebaseFolderDateRepository } from '@/infrastructure/firestore/FirebaseFolderDateRepository'
 import { LoginUseCase } from '@/domain/usecases/auth/LoginUseCase'
 import { LogoutUseCase } from '@/domain/usecases/auth/LogoutUseCase'
 import { ObserveSessionUseCase } from '@/domain/usecases/auth/ObserveSessionUseCase'
@@ -21,6 +22,12 @@ import { UploadFolderImageUseCase } from '@/domain/usecases/folders/UploadFolder
 import { ListFolderImagesUseCase } from '@/domain/usecases/folders/ListFolderImagesUseCase'
 import { DeleteFolderImageUseCase } from '@/domain/usecases/folders/DeleteFolderImageUseCase'
 import { ExportFolderImagesToPdfUseCase } from '@/domain/usecases/folders/ExportFolderImagesToPdfUseCase'
+import {
+  ListFolderDatesUseCase,
+  GetFolderDateUseCase,
+  CreateFolderDateUseCase,
+  DeleteFolderDateUseCase,
+} from '@/domain/usecases/folders/FolderDateUseCases'
 import {
   ListAreasUseCase,
   GetAreaUseCase,
@@ -75,6 +82,10 @@ export interface AppDependencies {
   listFolderImagesUseCase: ListFolderImagesUseCase
   deleteFolderImageUseCase: DeleteFolderImageUseCase
   exportFolderImagesToPdfUseCase: ExportFolderImagesToPdfUseCase
+  listFolderDatesUseCase: ListFolderDatesUseCase
+  getFolderDateUseCase: GetFolderDateUseCase
+  createFolderDateUseCase: CreateFolderDateUseCase
+  deleteFolderDateUseCase: DeleteFolderDateUseCase
   listAreasUseCase: ListAreasUseCase
   getAreaUseCase: GetAreaUseCase
   createAreaUseCase: CreateAreaUseCase
@@ -102,6 +113,7 @@ export function createAppDependencies(): AppDependencies {
   const userRepository = new FirebaseUserRepository()
   const folderRepository = new FirebaseImageFolderRepository()
   const imageRepository = new FirebaseFolderImageRepository()
+  const folderDateRepository = new FirebaseFolderDateRepository()
   const areaRepository = new FirebaseAreaRepository()
   const pdfExportService = new JsPdfExportService()
   const documentationRepository = new FirebaseDocumentationRepository()
@@ -142,10 +154,12 @@ export function createAppDependencies(): AppDependencies {
     getFolderUseCase: new GetFolderUseCase(folderRepository),
     deleteFolderUseCase: new DeleteFolderUseCase(
       folderRepository,
+      folderDateRepository,
       imageRepository,
     ),
     uploadFolderImageUseCase: new UploadFolderImageUseCase(
       folderRepository,
+      folderDateRepository,
       imageRepository,
     ),
     listFolderImagesUseCase: new ListFolderImagesUseCase(
@@ -154,6 +168,24 @@ export function createAppDependencies(): AppDependencies {
     ),
     deleteFolderImageUseCase: new DeleteFolderImageUseCase(
       folderRepository,
+      folderDateRepository,
+      imageRepository,
+    ),
+    listFolderDatesUseCase: new ListFolderDatesUseCase(
+      folderRepository,
+      folderDateRepository,
+    ),
+    getFolderDateUseCase: new GetFolderDateUseCase(
+      folderRepository,
+      folderDateRepository,
+    ),
+    createFolderDateUseCase: new CreateFolderDateUseCase(
+      folderRepository,
+      folderDateRepository,
+    ),
+    deleteFolderDateUseCase: new DeleteFolderDateUseCase(
+      folderRepository,
+      folderDateRepository,
       imageRepository,
     ),
     exportFolderImagesToPdfUseCase: new ExportFolderImagesToPdfUseCase(

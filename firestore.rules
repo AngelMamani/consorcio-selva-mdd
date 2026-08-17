@@ -170,13 +170,50 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /folderDates/{dateId} {
+      // List/get no pueden usar get() a folders: Firestore rechaza la query/lectura.
+      // El acceso a la carpeta se valida en los casos de uso.
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && canAccessFolder(request.resource.data.folderId)
+        && request.resource.data.createdById == request.auth.uid
+        && request.resource.data.folderId is string
+        && request.resource.data.folderId.size() > 0
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 200
+        && request.resource.data.imageCount == 0
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120
+        && request.resource.data.keys().hasOnly([
+          'folderId', 'dateKey', 'note', 'imageCount',
+          'createdById', 'createdByName', 'createdAt', 'updatedAt'
+        ]);
+
+      allow update: if isActiveUser()
+        && canAccessFolder(resource.data.folderId)
+        && unchangedKeys(['folderId', 'dateKey', 'createdById', 'createdByName', 'createdAt'])
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 200
+        && request.resource.data.imageCount is int
+        && request.resource.data.imageCount >= 0;
+
+      allow delete: if isAdmin();
+    }
+
     match /folderImages/{imageId} {
-      allow read: if canAccessFolder(resource.data.folderId);
+      allow list: if isActiveUser();
+      allow get: if canAccessFolder(resource.data.folderId);
 
       allow create: if isActiveUser()
         && request.resource.data.uploadedById == request.auth.uid
         && request.resource.data.folderId is string
         && canAccessFolder(request.resource.data.folderId)
+        && request.resource.data.dateId is string
+        && request.resource.data.dateId.size() > 0
         && request.resource.data.storagePath is string
         && request.resource.data.downloadUrl is string
         && request.resource.data.contentType.matches('image/.*')
@@ -196,12 +233,7 @@ service cloud.firestore {
         && (!('locationCapturedAt' in request.resource.data)
           || request.resource.data.locationCapturedAt is timestamp);
 
-      allow delete: if isAdmin()
-        || (
-          isActiveUser()
-          && canAccessFolder(resource.data.folderId)
-          && resource.data.uploadedById == request.auth.uid
-        );
+      allow delete: if isAdmin();
 
       allow update: if false;
     }

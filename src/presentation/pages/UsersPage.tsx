@@ -11,6 +11,11 @@ import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
+import {
+  swalConfirm,
+  swalError,
+  swalSuccess,
+} from '@/presentation/utils/appSwal'
 import './UsersPage.css'
 
 type UsersViewMode = 'cards' | 'list'
@@ -240,8 +245,6 @@ export function UsersPage() {
   } = useDependencies()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [resettingUserId, setResettingUserId] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
@@ -252,7 +255,6 @@ export function UsersPage() {
     email?: string
     temporaryPassword: string
   } | null>(null)
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all')
@@ -272,12 +274,11 @@ export function UsersPage() {
   async function loadUsers() {
     if (!user) return
     setLoading(true)
-    setError(null)
     try {
       const result = await listUsersUseCase.execute(user)
       setUsers(result)
     } catch (err) {
-      setError(
+      swalError(
         err instanceof DomainError ? err.message : 'Error al cargar usuarios',
       )
     } finally {
@@ -287,7 +288,8 @@ export function UsersPage() {
 
   useEffect(() => {
     void loadUsers()
-  }, [user])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   const filteredUsers = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
@@ -308,8 +310,6 @@ export function UsersPage() {
   }
 
   function openEditModal(target: User) {
-    setError(null)
-    setSuccess(null)
     setEditingUser(target)
     setEditName(target.displayName)
   }
@@ -322,14 +322,15 @@ export function UsersPage() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!user) return
+    if (!user || submitting) return
+
+    const payload = { ...form }
     setSubmitting(true)
-    setError(null)
-    setSuccess(null)
+    setShowModal(false)
+    swalSuccess('Usuario creado')
 
     try {
-      const created = await createUserUseCase.execute(user, form)
-      setShowModal(false)
+      const created = await createUserUseCase.execute(user, payload)
       setForm({
         displayName: '',
         email: '',
@@ -341,14 +342,15 @@ export function UsersPage() {
         email: created.user.email,
         temporaryPassword: created.temporaryPassword,
       })
-      setSuccess('Usuario creado. Guarda la clave temporal antes de cerrar.')
-      await loadUsers()
+      setUsers((current) => [created.user, ...current])
     } catch (err) {
-      setError(
+      swalError(
         err instanceof DomainError
           ? err.message
           : 'No se pudo crear el usuario',
       )
+      setForm(payload)
+      setShowModal(true)
     } finally {
       setSubmitting(false)
     }
@@ -356,15 +358,15 @@ export function UsersPage() {
 
   async function handleUpdateName(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!user || !editingUser) return
+    if (!user || !editingUser || submitting) return
 
     const nextName = editName.trim()
     if (!nextName) {
-      setError('El nombre no puede estar vacío')
+      swalError('El nombre no puede estar vacío')
       return
     }
     if (nextName.length > 120) {
-      setError('El nombre es demasiado largo')
+      swalError('El nombre es demasiado largo')
       return
     }
     if (nextName === editingUser.displayName) {
@@ -372,65 +374,104 @@ export function UsersPage() {
       return
     }
 
-    setSubmitting(true)
-    setError(null)
-    setSuccess(null)
+    const previous = editingUser
+    const userId = editingUser.id
 
+    setUsers((current) =>
+      current.map((item) =>
+        item.id === userId
+          ? { ...item, displayName: nextName, updatedAt: new Date() }
+          : item,
+      ),
+    )
+    if (user.id === userId) {
+      setUser({ ...user, displayName: nextName, updatedAt: new Date() })
+    }
+    setEditingUser(null)
+    setEditName('')
+    swalSuccess('Nombre actualizado')
+
+    setSubmitting(true)
     try {
       const updated = await updateUserUseCase.execute(user, {
-        userId: editingUser.id,
+        userId,
         displayName: nextName,
       })
       if (user.id === updated.id) {
         setUser(updated)
       }
-      setSuccess(
-        `Nombre actualizado y sincronizado: ${nextName}`,
+      setUsers((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
       )
-      setEditingUser(null)
-      setEditName('')
-      await loadUsers()
     } catch (err) {
-      setError(
+      setUsers((current) =>
+        current.map((item) => (item.id === previous.id ? previous : item)),
+      )
+      if (user.id === previous.id) {
+        setUser(previous)
+      }
+      swalError(
         err instanceof DomainError
           ? err.message
           : 'No se pudo actualizar el nombre',
       )
+      setEditingUser(previous)
+      setEditName(previous.displayName)
     } finally {
       setSubmitting(false)
     }
   }
 
   async function handleToggleActive(target: User) {
-    if (!user) return
-    setSuccess(null)
+    if (!user || submitting || resettingUserId) return
+
+    const nextActive = !target.active
+    const previous = target
+
+    setUsers((current) =>
+      current.map((item) =>
+        item.id === target.id
+          ? { ...item, active: nextActive, updatedAt: new Date() }
+          : item,
+      ),
+    )
+    swalSuccess(
+      nextActive
+        ? `${target.displayName} activado`
+        : `${target.displayName} desactivado`,
+    )
+
     try {
-      await updateUserUseCase.execute(user, {
+      const updated = await updateUserUseCase.execute(user, {
         userId: target.id,
-        active: !target.active,
+        active: nextActive,
       })
-      setSuccess(
-        target.active
-          ? `${target.displayName} quedó inactivo.`
-          : `${target.displayName} volvió a estar activo.`,
+      setUsers((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
       )
-      await loadUsers()
     } catch (err) {
-      setError(err instanceof DomainError ? err.message : 'No se pudo actualizar')
+      setUsers((current) =>
+        current.map((item) => (item.id === previous.id ? previous : item)),
+      )
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo actualizar',
+      )
     }
   }
 
   async function handleResetPassword(target: User) {
-    if (!user) return
-    const confirmed = window.confirm(
-      `¿Restablecer la contraseña de ${target.displayName} a 87654321? Al ingresar deberá elegir una más segura.`,
-    )
+    if (!user || submitting || resettingUserId) return
+
+    const confirmed = await swalConfirm({
+      title: '¿Restablecer clave?',
+      text: `Se asignará 87654321 a ${target.displayName}. Al ingresar deberá elegir una más segura.`,
+      confirmButtonText: 'Sí, restablecer',
+      confirmButtonColor: '#f9a825',
+    })
     if (!confirmed) return
 
     setResettingUserId(target.id)
-    setError(null)
-    setSuccess(null)
-    setCopyFeedback(null)
+    swalSuccess('Clave restablecida')
 
     try {
       const result = await resetUserPasswordUseCase.execute(user, target.id)
@@ -440,12 +481,8 @@ export function UsersPage() {
         email: target.email,
         temporaryPassword: result.temporaryPassword,
       })
-      setSuccess(
-        `Clave restablecida para ${target.displayName}. Cópiala ahora; solo se muestra una vez.`,
-      )
-      await loadUsers()
     } catch (err) {
-      setError(
+      swalError(
         err instanceof DomainError
           ? err.message
           : 'No se pudo restablecer la contraseña',
@@ -459,9 +496,9 @@ export function UsersPage() {
     if (!credentialsInfo) return
     try {
       await navigator.clipboard.writeText(credentialsInfo.temporaryPassword)
-      setCopyFeedback('Clave copiada al portapapeles')
+      swalSuccess('Clave copiada')
     } catch {
-      setCopyFeedback('No se pudo copiar. Selecciónala manualmente.')
+      swalError('No se pudo copiar. Selecciónala manualmente.')
     }
   }
 
@@ -487,7 +524,6 @@ export function UsersPage() {
           type="button"
           className="btn btn--soft-primary"
           onClick={() => {
-            setError(null)
             setShowModal(true)
           }}
         >
@@ -524,9 +560,15 @@ export function UsersPage() {
           return (
             <article
               key={item.id}
-              className={`user-card ${item.active ? '' : 'user-card--inactive'}`}
+              className={[
+                'user-card',
+                isAdminRole ? 'user-card--admin' : 'user-card--tech',
+                item.active ? '' : 'user-card--inactive',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             >
-              <div className="user-card__top">
+              <div className="user-card__main">
                 <div
                   className={`user-avatar user-avatar--${avatarTone(item.displayName)}`}
                   aria-hidden="true"
@@ -545,14 +587,14 @@ export function UsersPage() {
                     <span>{item.email}</span>
                   </p>
                 </div>
-                <UserActions
-                  item={item}
-                  isSelf={isSelf}
-                  busy={busy || submitting}
-                  resetting={resettingUserId === item.id}
-                  onEdit={openEditModal}
-                  onToggleActive={(target) => void handleToggleActive(target)}
-                  onResetPassword={(target) => void handleResetPassword(target)}
+                <span
+                  className={`user-card__status-dot ${
+                    item.active
+                      ? 'user-card__status-dot--on'
+                      : 'user-card__status-dot--off'
+                  }`}
+                  title={item.active ? 'Activo' : 'Inactivo'}
+                  aria-hidden="true"
                 />
               </div>
 
@@ -574,6 +616,18 @@ export function UsersPage() {
                 >
                   {item.active ? 'Activo' : 'Inactivo'}
                 </span>
+              </div>
+
+              <div className="user-card__footer">
+                <UserActions
+                  item={item}
+                  isSelf={isSelf}
+                  busy={busy || submitting}
+                  resetting={resettingUserId === item.id}
+                  onEdit={openEditModal}
+                  onToggleActive={(target) => void handleToggleActive(target)}
+                  onResetPassword={(target) => void handleResetPassword(target)}
+                />
               </div>
             </article>
           )
@@ -736,18 +790,17 @@ export function UsersPage() {
     <section className="users-page">
       <div className="page-header">
         <div>
-          <p className="users-page__eyebrow">Equipo</p>
-          <h2>Personas del sistema</h2>
+          <p className="users-page__eyebrow">Administración</p>
+          <h2>Usuarios</h2>
           <p>
-            Da de alta cuentas, pausa accesos o entrega una clave temporal cuando
-            alguien olvide la suya.
+            Gestiona cuentas del equipo: alta, roles, estado de acceso y claves
+            temporales.
           </p>
         </div>
         <button
           type="button"
           className="btn btn--soft-primary"
           onClick={() => {
-            setError(null)
             setShowModal(true)
           }}
         >
@@ -757,17 +810,32 @@ export function UsersPage() {
       </div>
 
       <div className="users-summary" aria-label="Resumen del equipo">
-        <div className="users-summary__item">
-          <strong>{users.length}</strong>
-          <span>en total</span>
+        <div className="users-summary__item users-summary__item--total">
+          <span className="users-summary__icon" aria-hidden="true">
+            <IconPeople />
+          </span>
+          <div>
+            <strong>{users.length}</strong>
+            <span>usuarios</span>
+          </div>
         </div>
-        <div className="users-summary__item">
-          <strong>{activeCount}</strong>
-          <span>activos</span>
+        <div className="users-summary__item users-summary__item--active">
+          <span className="users-summary__icon" aria-hidden="true">
+            <IconPlay />
+          </span>
+          <div>
+            <strong>{activeCount}</strong>
+            <span>activos</span>
+          </div>
         </div>
-        <div className="users-summary__item">
-          <strong>{techCount}</strong>
-          <span>técnicos</span>
+        <div className="users-summary__item users-summary__item--tech">
+          <span className="users-summary__icon" aria-hidden="true">
+            <IconWrench />
+          </span>
+          <div>
+            <strong>{techCount}</strong>
+            <span>técnicos</span>
+          </div>
         </div>
       </div>
 
@@ -843,19 +911,12 @@ export function UsersPage() {
         </div>
       ) : null}
 
-      {error && !showModal && !editingUser ? (
-        <p className="form-alert form-alert--error">{error}</p>
-      ) : null}
-      {success ? (
-        <p className="form-alert form-alert--success">{success}</p>
-      ) : null}
-
       <div className="panel users-panel">{content}</div>
 
       <AppModal
         open={showModal}
-        title="Invitar a alguien al sistema"
-        description="Se creará con la clave temporal 87654321. En el primer ingreso deberá elegir una más segura."
+        title="Nuevo usuario"
+        description="Se crea con la clave temporal 87654321. En el primer ingreso deberá cambiarla."
         onClose={closeModal}
         footer={
           <>
@@ -874,7 +935,7 @@ export function UsersPage() {
               disabled={submitting}
             >
               <IconUserPlus />
-              {submitting ? 'Creando...' : 'Crear usuario'}
+              Crear usuario
             </button>
           </>
         }
@@ -932,9 +993,6 @@ export function UsersPage() {
               <option value={UserRole.Administrador}>Administrador</option>
             </select>
           </label>
-          {error && showModal ? (
-            <p className="form-alert form-alert--error">{error}</p>
-          ) : null}
         </form>
       </AppModal>
 
@@ -965,7 +1023,7 @@ export function UsersPage() {
               disabled={submitting}
             >
               <IconEdit />
-              {submitting ? 'Guardando...' : 'Guardar nombre'}
+              Guardar nombre
             </button>
           </>
         }
@@ -986,9 +1044,6 @@ export function UsersPage() {
               autoFocus
             />
           </label>
-          {error && editingUser ? (
-            <p className="form-alert form-alert--error">{error}</p>
-          ) : null}
         </form>
       </AppModal>
 
@@ -998,7 +1053,6 @@ export function UsersPage() {
         description="Guárdala ahora. No se volverá a mostrar."
         onClose={() => {
           setCredentialsInfo(null)
-          setCopyFeedback(null)
         }}
         size="sm"
         footer={
@@ -1008,7 +1062,6 @@ export function UsersPage() {
               className="btn btn--soft-muted"
               onClick={() => {
                 setCredentialsInfo(null)
-                setCopyFeedback(null)
               }}
             >
               Cerrar
@@ -1046,9 +1099,6 @@ export function UsersPage() {
                 segura antes de continuar.
               </p>
             </div>
-            {copyFeedback ? (
-              <p className="form-alert form-alert--success">{copyFeedback}</p>
-            ) : null}
           </div>
         ) : null}
       </AppModal>

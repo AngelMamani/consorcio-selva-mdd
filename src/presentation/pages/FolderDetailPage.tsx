@@ -1,12 +1,13 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
+import type { FolderDate } from '@/domain/entities/FolderDate'
+import { formatDateKey, toDateKey } from '@/domain/entities/FolderDate'
 import type { FolderImage } from '@/domain/entities/FolderImage'
 import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { hasGeoLocation } from '@/domain/value-objects/GeoLocation'
 import { UserRole } from '@/domain/value-objects/UserRole'
-import { sanitizePdfFileName } from '@/domain/services/PdfFileNameService'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -17,37 +18,6 @@ import {
   swalSuccess,
 } from '@/presentation/utils/appSwal'
 import './FolderDetailPage.css'
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatDateTime(date: Date): string {
-  return date.toLocaleString('es-PE', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function wasFolderModified(folder: ImageFolder): boolean {
-  return Math.abs(folder.updatedAt.getTime() - folder.createdAt.getTime()) > 60_000
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 
 function IconBack() {
   return (
@@ -66,28 +36,6 @@ function IconFolder() {
       <path
         fill="currentColor"
         d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z"
-      />
-    </svg>
-  )
-}
-
-function IconPdf() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
-      <path
-        fill="currentColor"
-        d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2m-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5zm4-1H19v1h1.5V11H19v1h-1.5V7h3zM9 9.5h1v-1H9zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4zm11 5.5h1v-3h-1z"
-      />
-    </svg>
-  )
-}
-
-function IconUpload() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
-      <path
-        fill="currentColor"
-        d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"
       />
     </svg>
   )
@@ -137,12 +85,12 @@ function IconClock() {
   )
 }
 
-function IconUpdated() {
+function IconCalendar() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="folder-detail-chip__icon">
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
       <path
         fill="currentColor"
-        d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8A5.87 5.87 0 0 1 6 12c0-3.31 2.69-6 6-6m6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26"
+        d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m0 16H5V10h14zm0-12H5V6h14z"
       />
     </svg>
   )
@@ -164,18 +112,7 @@ function IconEmpty() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="folder-detail-empty__icon">
       <path
         fill="currentColor"
-        d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2M8.5 13.5l2.5 3.01L14.5 12l4.5 6H5z"
-      />
-    </svg>
-  )
-}
-
-function IconExpand() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="folder-photo__expand">
-      <path
-        fill="currentColor"
-        d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"
+        d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m0 16H5V10h14z"
       />
     </svg>
   )
@@ -183,42 +120,61 @@ function IconExpand() {
 
 export function FolderDetailPage() {
   const { folderId = '' } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const {
     getFolderUseCase,
+    listFolderDatesUseCase,
+    createFolderDateUseCase,
+    deleteFolderDateUseCase,
     listFolderImagesUseCase,
-    uploadFolderImageUseCase,
     deleteFolderImageUseCase,
-    exportFolderImagesToPdfUseCase,
   } = useDependencies()
 
   const [folder, setFolder] = useState<ImageFolder | null>(null)
-  const [images, setImages] = useState<FolderImage[]>([])
+  const [dates, setDates] = useState<FolderDate[]>([])
+  const [legacyImages, setLegacyImages] = useState<FolderImage[]>([])
   const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [showPdfModal, setShowPdfModal] = useState(false)
-  const [pdfName, setPdfName] = useState('')
-  const [exportingPdf, setExportingPdf] = useState(false)
-  const [pdfStatus, setPdfStatus] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [showDateModal, setShowDateModal] = useState(false)
+  const [dateKey, setDateKey] = useState(toDateKey(new Date()))
+  const [dateNote, setDateNote] = useState('')
 
   const isAdmin = user?.role === UserRole.Administrador
 
   async function loadData() {
     if (!user || !folderId) return
     setLoading(true)
-    setError(null)
     try {
-      const [folderData, imageData] = await Promise.all([
-        getFolderUseCase.execute(user, folderId),
+      const folderData = await getFolderUseCase.execute(user, folderId)
+      setFolder(folderData)
+
+      const [dateResult, imageResult] = await Promise.allSettled([
+        listFolderDatesUseCase.execute(user, folderId),
         listFolderImagesUseCase.execute(user, folderId),
       ])
-      setFolder(folderData)
-      setImages(imageData)
+
+      if (dateResult.status === 'fulfilled') {
+        setDates(dateResult.value)
+      } else {
+        setDates([])
+        console.error('Error al cargar fechas', dateResult.reason)
+        swalError(
+          dateResult.reason instanceof DomainError
+            ? dateResult.reason.message
+            : 'No se pudieron cargar las fechas de esta carpeta',
+        )
+      }
+
+      if (imageResult.status === 'fulfilled') {
+        setLegacyImages(imageResult.value.filter((image) => !image.dateId))
+      } else {
+        setLegacyImages([])
+        console.error('Error al cargar imágenes', imageResult.reason)
+      }
     } catch (err) {
-      setError(
+      setFolder(null)
+      swalError(
         err instanceof DomainError ? err.message : 'Error al cargar carpeta',
       )
     } finally {
@@ -228,96 +184,68 @@ export function FolderDetailPage() {
 
   useEffect(() => {
     void loadData()
-  }, [user, folderId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, folderId])
 
-  function openPdfModal() {
-    if (!folder) return
-    setPdfName(folder.name)
-    setPdfStatus('')
-    setError(null)
-    setShowPdfModal(true)
-  }
-
-  async function handleExportPdf(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateDate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!user || !folderId) return
+    if (!user || !folderId || submitting) return
 
-    setExportingPdf(true)
-    setError(null)
-    setPdfStatus('Preparando PDF...')
+    setSubmitting(true)
+    setShowDateModal(false)
+    swalSuccess('Fecha creada')
 
     try {
-      setPdfStatus('Convirtiendo imágenes...')
-      const result = await exportFolderImagesToPdfUseCase.execute(
-        user,
+      const created = await createFolderDateUseCase.execute(user, {
         folderId,
-        pdfName,
+        dateKey,
+        note: dateNote,
+      })
+      setDates((current) =>
+        [...current, created].sort((a, b) => b.dateKey.localeCompare(a.dateKey)),
       )
-      downloadBlob(result.blob, result.fileName)
-      setShowPdfModal(false)
-      swalSuccess('PDF exportado')
+      setDateNote('')
+      setDateKey(toDateKey(new Date()))
+      navigate(`/carpetas/${folderId}/fechas/${created.id}`)
     } catch (err) {
-      const message =
-        err instanceof DomainError
-          ? err.message
-          : 'No se pudo generar el PDF'
-      setError(message)
-      swalError(message)
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo crear la fecha',
+      )
+      setShowDateModal(true)
     } finally {
-      setExportingPdf(false)
-      setPdfStatus('')
+      setSubmitting(false)
     }
   }
 
-  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
-    if (!user || !folderId) return
-    const files = event.target.files
-    if (!files || files.length === 0) return
+  async function confirmDeleteDate(folderDate: FolderDate) {
+    if (!user || !isAdmin || submitting) return
+    const confirmed = await swalConfirmDelete({
+      title: '¿Eliminar fecha?',
+      text: `"${formatDateKey(folderDate.dateKey)}" y todas sus imágenes se eliminarán.`,
+    })
+    if (!confirmed) return
 
-    const selected = Array.from(files)
-    setUploading(true)
-    setError(null)
-
+    setDates((current) => current.filter((item) => item.id !== folderDate.id))
+    swalSuccess('Fecha eliminada')
     try {
-      for (let index = 0; index < selected.length; index += 1) {
-        const file = selected[index]
-        setUploadProgress(`Subiendo ${index + 1} de ${selected.length}...`)
-        await uploadFolderImageUseCase.execute(user, folderId, {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          sizeBytes: file.size,
-          data: file,
-        })
-      }
-      swalSuccess(
-        selected.length === 1
-          ? 'Imagen subida'
-          : `${selected.length} imágenes subidas`,
+      await deleteFolderDateUseCase.execute(user, folderId, folderDate.id)
+    } catch (err) {
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo eliminar',
       )
       await loadData()
-    } catch (err) {
-      const message =
-        err instanceof DomainError ? err.message : 'No se pudo subir la imagen'
-      setError(message)
-      swalError(message)
-    } finally {
-      setUploading(false)
-      setUploadProgress('')
-      event.target.value = ''
     }
   }
 
-  async function confirmDeleteImage(image: FolderImage) {
-    if (!user || !folderId || !isAdmin || deleting) return
-
+  async function confirmDeleteLegacyImage(image: FolderImage) {
+    if (!user || !folderId || !isAdmin || submitting) return
     const confirmed = await swalConfirmDelete({
       title: '¿Eliminar imagen?',
       text: `"${image.fileName}" se eliminará. Esta acción no se puede deshacer.`,
     })
     if (!confirmed) return
 
-    setDeleting(true)
-    setImages((current) => current.filter((item) => item.id !== image.id))
+    setLegacyImages((current) => current.filter((item) => item.id !== image.id))
     swalSuccess('Imagen eliminada')
     try {
       await deleteFolderImageUseCase.execute(user, folderId, image.id)
@@ -326,8 +254,6 @@ export function FolderDetailPage() {
         err instanceof DomainError ? err.message : 'No se pudo eliminar',
       )
       await loadData()
-    } finally {
-      setDeleting(false)
     }
   }
 
@@ -343,7 +269,7 @@ export function FolderDetailPage() {
   if (!folder) {
     return (
       <div className="folder-detail-empty panel">
-        <p>{error ?? 'Carpeta no encontrada'}</p>
+        <p>Carpeta no encontrada</p>
         <Link to="/areas" className="btn btn--soft-muted">
           <IconBack />
           Volver a áreas
@@ -352,8 +278,6 @@ export function FolderDetailPage() {
     )
   }
 
-  const previewPdfName = sanitizePdfFileName(pdfName || folder.name)
-  const totalBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0)
   const backToFolders = folder.areaId
     ? `/areas/${folder.areaId}/carpetas`
     : '/areas'
@@ -373,7 +297,7 @@ export function FolderDetailPage() {
             <IconFolder />
           </div>
           <div className="folder-detail-hero__copy">
-            <p className="folder-detail-page__eyebrow">Detalle de carpeta</p>
+            <p className="folder-detail-page__eyebrow">Carpeta</p>
             <h2>{folder.name}</h2>
             <p className="folder-detail-hero__desc">
               {folder.description || 'Sin descripción'}
@@ -384,20 +308,14 @@ export function FolderDetailPage() {
                 {formatFolderAssignees(folder)}
               </span>
               <span className="folder-detail-chip">
+                <IconClock />
+                {dates.length} fecha{dates.length === 1 ? '' : 's'}
+              </span>
+              <span className="folder-detail-chip">
                 <IconImage />
                 {folder.imageCount} imagen
                 {folder.imageCount === 1 ? '' : 'es'}
               </span>
-              <span className="folder-detail-chip">
-                <IconClock />
-                Creada {formatDateTime(folder.createdAt)}
-              </span>
-              {wasFolderModified(folder) ? (
-                <span className="folder-detail-chip folder-detail-chip--updated">
-                  <IconUpdated />
-                  Modificada {formatDateTime(folder.updatedAt)}
-                </span>
-              ) : null}
               {folder.location && hasGeoLocation(folder.location) ? (
                 <span className="folder-detail-chip">
                   <IconPin />
@@ -418,165 +336,170 @@ export function FolderDetailPage() {
         <div className="folder-detail-hero__actions">
           <button
             type="button"
-            className="btn btn--soft-teal"
-            onClick={openPdfModal}
-            disabled={images.length === 0 || uploading || exportingPdf}
+            className="btn btn--soft-primary"
+            onClick={() => {
+              setDateKey(toDateKey(new Date()))
+              setDateNote('')
+              setShowDateModal(true)
+            }}
           >
-            <IconPdf />
-            Convertir a PDF
+            <IconCalendar />
+            Nueva fecha
           </button>
-          <label
-            className={`btn btn--soft-primary ${uploading ? 'is-busy' : ''}`}
-          >
-            <IconUpload />
-            {uploading
-              ? uploadProgress || 'Subiendo...'
-              : 'Subir imágenes'}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              hidden
-              disabled={uploading}
-              onChange={(event) => void handleUpload(event)}
-            />
-          </label>
         </div>
       </header>
 
-      <div className="folder-detail-summary" aria-label="Resumen">
-        <div className="folder-detail-summary__item">
-          <strong>{images.length}</strong>
-          <span>en galería</span>
-        </div>
-        <div className="folder-detail-summary__item">
-          <strong>{formatBytes(totalBytes)}</strong>
-          <span>peso total</span>
-        </div>
-        <div className="folder-detail-summary__item">
-          <strong>
-            {folder.assignToAllTechnicians
-              ? 'Todos'
-              : (folder.assignedTechnicianNames?.length || 1)}
-          </strong>
-          <span>asignado{(folder.assignToAllTechnicians || (folder.assignedTechnicianNames?.length ?? 0) !== 1) ? 's' : ''}</span>
-        </div>
-      </div>
-
-      {error && !showPdfModal ? (
-        <p className="form-alert form-alert--error">{error}</p>
-      ) : null}
-
-      {images.length === 0 ? (
+      {dates.length === 0 ? (
         <div className="folder-detail-empty panel">
           <IconEmpty />
-          <h3>Esta carpeta está vacía</h3>
-          <p>Sube las primeras fotos de campo para empezar a documentar.</p>
-          <label className={`btn btn--soft-primary ${uploading ? 'is-busy' : ''}`}>
-            <IconUpload />
-            {uploading ? uploadProgress || 'Subiendo...' : 'Subir imágenes'}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              hidden
-              disabled={uploading}
-              onChange={(event) => void handleUpload(event)}
-            />
-          </label>
+          <h3>Crea una fecha para subir fotos</h3>
+          <p>
+            Las imágenes van dentro de una carpeta de fecha. Crea el día de
+            trabajo y luego sube las fotos ahí.
+          </p>
+          <button
+            type="button"
+            className="btn btn--soft-primary"
+            onClick={() => setShowDateModal(true)}
+          >
+            <IconCalendar />
+            Nueva fecha
+          </button>
         </div>
       ) : (
-        <div className="folder-photo-grid">
-          {images.map((image) => (
-            <article key={image.id} className="folder-photo">
-              <StorageImage
-                className="folder-photo__media"
-                storagePath={image.storagePath}
-                alt={image.fileName}
-                openOnClick
-                overlay={
-                  <span className="folder-photo__overlay">
-                    <IconExpand />
-                    Ver grande
-                  </span>
+        <div className="folder-dates-grid">
+          {dates.map((item) => (
+            <article
+              key={item.id}
+              className="folder-date-card"
+              role="link"
+              tabIndex={0}
+              onClick={() =>
+                navigate(`/carpetas/${folderId}/fechas/${item.id}`)
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  navigate(`/carpetas/${folderId}/fechas/${item.id}`)
                 }
-              />
-              <div className="folder-photo__body">
-                <strong title={image.fileName}>{image.fileName}</strong>
-                <div className="folder-photo__meta">
-                  <span>{formatBytes(image.sizeBytes)}</span>
-                  <span>{image.uploadedByName}</span>
-                  <span>{formatDateTime(image.createdAt)}</span>
-                </div>
-                {isAdmin ? (
-                  <button
-                    type="button"
-                    className="btn btn--soft-rose btn--small"
-                    onClick={() => void confirmDeleteImage(image)}
-                  >
-                    <IconTrash />
-                    Eliminar
-                  </button>
-                ) : null}
+              }}
+            >
+              <div className="folder-date-card__icon" aria-hidden="true">
+                <IconCalendar />
               </div>
+              <div className="folder-date-card__copy">
+                <h3>{formatDateKey(item.dateKey)}</h3>
+                <p>{item.note || 'Sin nota'}</p>
+                <span>
+                  {item.imageCount} imagen{item.imageCount === 1 ? '' : 'es'} ·{' '}
+                  {item.createdByName}
+                </span>
+              </div>
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="btn btn--icon-only btn--soft-rose"
+                  title="Eliminar fecha"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void confirmDeleteDate(item)
+                  }}
+                >
+                  <IconTrash />
+                </button>
+              ) : null}
             </article>
           ))}
         </div>
       )}
 
+      {legacyImages.length > 0 ? (
+        <section className="folder-legacy">
+          <h3>Imágenes sin fecha</h3>
+          <p>
+            Fotos antiguas de esta carpeta. Las nuevas se suben dentro de una
+            fecha.
+          </p>
+          <div className="folder-photo-grid">
+            {legacyImages.map((image) => (
+              <article key={image.id} className="folder-photo">
+                <StorageImage
+                  className="folder-photo__media"
+                  storagePath={image.storagePath}
+                  alt={image.fileName}
+                  openOnClick
+                />
+                <div className="folder-photo__body">
+                  <strong title={image.fileName}>{image.fileName}</strong>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="btn btn--soft-rose btn--small"
+                      onClick={() => void confirmDeleteLegacyImage(image)}
+                    >
+                      <IconTrash />
+                      Eliminar
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <AppModal
-        open={showPdfModal}
-        title="Convertir a PDF"
-        description="Elige el nombre del archivo antes de descargarlo."
+        open={showDateModal}
+        title="Nueva fecha"
+        description="Elige el día de trabajo. Las fotos se suben dentro de esta fecha."
         onClose={() => {
-          if (!exportingPdf) setShowPdfModal(false)
+          if (!submitting) setShowDateModal(false)
         }}
         footer={
           <>
             <button
               type="button"
               className="btn btn--soft-muted"
-              onClick={() => setShowPdfModal(false)}
-              disabled={exportingPdf}
+              onClick={() => setShowDateModal(false)}
+              disabled={submitting}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              form="pdf-export-form"
+              form="folder-date-form"
               className="btn btn--soft-primary"
-              disabled={exportingPdf || !pdfName.trim()}
+              disabled={submitting}
             >
-              <IconPdf />
-              {exportingPdf ? pdfStatus || 'Generando...' : 'Generar y descargar'}
+              <IconCalendar />
+              Crear fecha
             </button>
           </>
         }
       >
         <form
-          id="pdf-export-form"
+          id="folder-date-form"
           className="login-form"
-          onSubmit={handleExportPdf}
+          onSubmit={handleCreateDate}
         >
           <label className="field">
-            <span>Nombre del PDF</span>
+            <span>Fecha</span>
             <input
-              value={pdfName}
-              onChange={(event) => setPdfName(event.target.value)}
-              placeholder="Ej: Informe campo sector A"
+              type="date"
+              value={dateKey}
+              onChange={(event) => setDateKey(event.target.value)}
               required
-              disabled={exportingPdf}
             />
           </label>
-          <p className="pdf-name-hint">
-            Se guardará como: <strong>{previewPdfName}</strong>
-          </p>
-          <p className="pdf-name-hint">
-            Incluye {images.length} imagen(es) de esta carpeta.
-          </p>
-          {error && showPdfModal ? (
-            <p className="form-alert form-alert--error">{error}</p>
-          ) : null}
+          <label className="field">
+            <span>Nota (opcional)</span>
+            <input
+              value={dateNote}
+              onChange={(event) => setDateNote(event.target.value)}
+              placeholder="Ej. Inspección sector 2"
+              maxLength={200}
+            />
+          </label>
         </form>
       </AppModal>
     </section>

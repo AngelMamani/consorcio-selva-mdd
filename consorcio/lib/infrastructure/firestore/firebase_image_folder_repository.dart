@@ -135,6 +135,39 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
   }
 
   @override
+  Future<ImageFolder> assignLocation({
+    required String id,
+    required GeoLocation location,
+  }) async {
+    if (!location.isValid) {
+      throw DomainException('La ubicación GPS no es válida');
+    }
+
+    final ref = _folders.doc(id);
+    final existing = await ref.get();
+    if (!existing.exists) {
+      throw DomainException('Carpeta no encontrada');
+    }
+
+    final now = Timestamp.now();
+    final payload = <String, dynamic>{
+      'latitude': location.latitude,
+      'longitude': location.longitude,
+      'updatedAt': now,
+      'locationCapturedAt': Timestamp.fromDate(
+        location.capturedAt ?? DateTime.now(),
+      ),
+    };
+    if (location.accuracyMeters != null) {
+      payload['locationAccuracy'] = location.accuracyMeters;
+    }
+
+    await ref.update(payload);
+    final updated = await ref.get();
+    return _map(id, updated.data()!);
+  }
+
+  @override
   Future<void> incrementImageCount(String folderId, int delta) async {
     await _folders.doc(folderId).update({
       'imageCount': FieldValue.increment(delta),

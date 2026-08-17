@@ -10,6 +10,7 @@ export interface ImageFilePayload {
 
 export interface CreateFolderImageInput {
   folderId: string
+  dateId: string
   file: ImageFilePayload
   uploadedById: string
   uploadedByName: string
@@ -18,7 +19,9 @@ export interface CreateFolderImageInput {
 
 export interface FolderImageRepository {
   listByFolder(folderId: string): Promise<FolderImage[]>
+  listByDate(folderId: string, dateId: string): Promise<FolderImage[]>
   create(input: CreateFolderImageInput): Promise<FolderImage>
   delete(image: FolderImage): Promise<void>
   deleteAllByFolder(folderId: string): Promise<void>
+  deleteAllByDate(folderId: string, dateId: string): Promise<void>
 }

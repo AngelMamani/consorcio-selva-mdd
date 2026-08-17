@@ -1,5 +1,8 @@
+import '../domain/usecases/assign_folder_location_use_case.dart';
 import '../domain/usecases/change_own_password_use_case.dart';
+import '../domain/usecases/create_folder_date_use_case.dart';
 import '../domain/usecases/create_folder_use_case.dart';
+import '../domain/usecases/get_folder_date_detail_use_case.dart';
 import '../domain/usecases/get_folder_detail_use_case.dart';
 import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
@@ -11,6 +14,7 @@ import '../domain/usecases/update_own_theme_use_case.dart';
 import '../domain/usecases/upload_folder_images_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
 import '../infrastructure/firestore/firebase_area_repository.dart';
+import '../infrastructure/firestore/firebase_folder_date_repository.dart';
 import '../infrastructure/firestore/firebase_folder_image_repository.dart';
 import '../infrastructure/firestore/firebase_image_folder_repository.dart';
 import '../infrastructure/firestore/firebase_user_repository.dart';
@@ -27,7 +31,10 @@ class AppDependencies {
     required this.listMyFoldersUseCase,
     required this.createFolderUseCase,
     required this.updateFolderUseCase,
+    required this.assignFolderLocationUseCase,
     required this.getFolderDetailUseCase,
+    required this.createFolderDateUseCase,
+    required this.getFolderDateDetailUseCase,
     required this.uploadFolderImagesUseCase,
   });
 
@@ -41,7 +48,10 @@ class AppDependencies {
   final ListMyFoldersUseCase listMyFoldersUseCase;
   final CreateFolderUseCase createFolderUseCase;
   final UpdateFolderUseCase updateFolderUseCase;
+  final AssignFolderLocationUseCase assignFolderLocationUseCase;
   final GetFolderDetailUseCase getFolderDetailUseCase;
+  final CreateFolderDateUseCase createFolderDateUseCase;
+  final GetFolderDateDetailUseCase getFolderDateDetailUseCase;
   final UploadFolderImagesUseCase uploadFolderImagesUseCase;
 }
 
@@ -50,6 +60,7 @@ AppDependencies createAppDependencies() {
   final userRepository = FirebaseUserRepository();
   final folderRepository = FirebaseImageFolderRepository();
   final imageRepository = FirebaseFolderImageRepository();
+  final folderDateRepository = FirebaseFolderDateRepository();
   final areaRepository = FirebaseAreaRepository();
 
   return AppDependencies(
@@ -67,9 +78,21 @@ AppDependencies createAppDependencies() {
         CreateFolderUseCase(folderRepository, areaRepository, userRepository),
     updateFolderUseCase:
         UpdateFolderUseCase(folderRepository, userRepository),
+    assignFolderLocationUseCase:
+        AssignFolderLocationUseCase(folderRepository),
     getFolderDetailUseCase:
-        GetFolderDetailUseCase(folderRepository, imageRepository),
-    uploadFolderImagesUseCase:
-        UploadFolderImagesUseCase(folderRepository, imageRepository),
+        GetFolderDetailUseCase(folderRepository, folderDateRepository),
+    createFolderDateUseCase:
+        CreateFolderDateUseCase(folderRepository, folderDateRepository),
+    getFolderDateDetailUseCase: GetFolderDateDetailUseCase(
+      folderRepository,
+      folderDateRepository,
+      imageRepository,
+    ),
+    uploadFolderImagesUseCase: UploadFolderImagesUseCase(
+      folderRepository,
+      folderDateRepository,
+      imageRepository,
+    ),
   );
 }

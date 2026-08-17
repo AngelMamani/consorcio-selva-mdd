@@ -1,21 +1,23 @@
 import '../entities/app_user.dart';
-import '../entities/folder_date.dart';
 import '../entities/image_folder.dart';
 import '../errors/domain_exception.dart';
-import '../repositories/folder_date_repository.dart';
 import '../repositories/image_folder_repository.dart';
+import '../value_objects/geo_location.dart';
 
-class GetFolderDetailUseCase {
-  GetFolderDetailUseCase(this._folderRepository, this._dateRepository);
-
+class AssignFolderLocationUseCase {
+  AssignFolderLocationUseCase(this._folderRepository);
   final ImageFolderRepository _folderRepository;
-  final FolderDateRepository _dateRepository;
 
-  Future<({ImageFolder folder, List<FolderDate> dates})> execute(
-    AppUser actor,
-    String folderId,
-  ) async {
+  Future<ImageFolder> execute(
+    AppUser actor, {
+    required String folderId,
+    required GeoLocation location,
+  }) async {
     actor.assertCanOperateApp();
+
+    if (!location.isValid) {
+      throw DomainException('La ubicación GPS no es válida');
+    }
 
     final folder = await _folderRepository.getById(folderId);
     if (folder == null) {
@@ -25,7 +27,9 @@ class GetFolderDetailUseCase {
       throw DomainException('No tienes acceso a esta carpeta');
     }
 
-    final dates = await _dateRepository.listByFolder(folderId);
-    return (folder: folder, dates: dates);
+    return _folderRepository.assignLocation(
+      id: folderId,
+      location: location,
+    );
   }
 }

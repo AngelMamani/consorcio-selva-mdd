@@ -43,14 +43,26 @@ flutter pub get
 flutter run
 ```
 
-## Qué puede hacer el técnico
+## Qué puede hacer el técnico (v1.1)
 
 1. Iniciar sesión / cambiar clave temporal
-2. Ver y buscar **sus** carpetas
-3. Crear carpeta con GPS + fotos
-4. Subir más fotos (GPS al subir)
-5. Modo oscuro propio
-6. App solo en vertical
+2. Ver **áreas** y entrar a las carpetas de cada área
+3. Ver carpetas **propias, asignadas o abiertas a todos**
+4. Crear/editar carpeta con asignación: **Solo yo / Todos / Elegir técnicos**
+5. Ver a quién está asignada la carpeta
+6. Crear carpeta con GPS (sin fotos todavía)
+7. Crear carpeta de fecha y subir fotos ahí (cámara/galería)
+8. GPS de carpeta solo si aún no tiene ubicación
+9. Modo oscuro propio
+10. App solo en vertical
+
+## Qué NO va en la app (queda en el panel web)
+
+- Administrar usuarios
+- CRUD de áreas
+- Documentación (Excel/Word)
+- Mapa Leaflet
+- Eliminar carpetas/imágenes y exportar PDF (solo admin en web)
 
 ## Firebase Android
 

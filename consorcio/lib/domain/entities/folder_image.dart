@@ -4,6 +4,7 @@ class FolderImage {
   const FolderImage({
     required this.id,
     required this.folderId,
+    required this.dateId,
     required this.fileName,
     required this.storagePath,
     required this.downloadUrl,
@@ -17,6 +18,7 @@ class FolderImage {
 
   final String id;
   final String folderId;
+  final String dateId;
   final String fileName;
   final String storagePath;
   final String downloadUrl;

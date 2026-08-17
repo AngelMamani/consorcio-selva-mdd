@@ -5,10 +5,8 @@ import '../../application/composition_root.dart';
 import '../../domain/entities/app_user.dart';
 import '../../domain/entities/image_folder.dart';
 import '../../domain/errors/domain_exception.dart';
-import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
-import '../services/image_picker_service.dart';
 import '../state/session_controller.dart';
 
 enum _AssignMode { self, all, specific }
@@ -33,10 +31,8 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _picker = ImagePickerService();
   final _locationService = DeviceLocationService();
 
-  final List<ImageFilePayload> _pendingPhotos = [];
   final Set<String> _selectedTechnicianIds = {};
   List<AppUser> _technicians = [];
   _AssignMode _assignMode = _AssignMode.self;
@@ -113,18 +109,6 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
     super.dispose();
   }
 
-  Future<void> _addCameraPhoto() async {
-    final photo = await _picker.takePhoto();
-    if (photo == null) return;
-    setState(() => _pendingPhotos.add(photo));
-  }
-
-  Future<void> _addGalleryPhotos() async {
-    final photos = await _picker.pickFromGallery(multiple: true);
-    if (photos.isEmpty) return;
-    setState(() => _pendingPhotos.addAll(photos));
-  }
-
   ({bool assignAll, List<String> ids}) _assignmentPayload(AppUser actor) {
     switch (_assignMode) {
       case _AssignMode.all:
@@ -161,7 +145,7 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
 
     try {
       final assignment = _assignmentPayload(user);
-      late final ImageFolder folder;
+      late ImageFolder folder;
       if (_isEdit) {
         folder = await deps.updateFolderUseCase.execute(
           user,
@@ -171,6 +155,21 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
           assignToAllTechnicians: assignment.assignAll,
           assignedTechnicianIds: assignment.ids,
         );
+
+        if (!folder.hasLocation) {
+          setState(() => _status = 'Obteniendo GPS...');
+          final location = await _locationService.getCurrentLocation();
+          if (!mounted) return;
+          setState(() {
+            _capturedLocation = location;
+            _status = 'Asignando ubicación...';
+          });
+          folder = await deps.assignFolderLocationUseCase.execute(
+            user,
+            folderId: folder.id,
+            location: location,
+          );
+        }
       } else {
         final location = await _locationService.getCurrentLocation();
         if (!mounted) return;
@@ -187,30 +186,6 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
           location: location,
           assignToAllTechnicians: assignment.assignAll,
           assignedTechnicianIds: assignment.ids,
-        );
-      }
-
-      if (_pendingPhotos.isNotEmpty) {
-        GeoLocation? uploadLocation = folder.location ?? _capturedLocation;
-        if (!_isEdit && uploadLocation == null) {
-          uploadLocation = await _locationService.getCurrentLocation();
-        } else if (_isEdit) {
-          try {
-            uploadLocation = await _locationService.getCurrentLocation();
-          } on DomainException {
-            uploadLocation = folder.location;
-          }
-        }
-
-        await deps.uploadFolderImagesUseCase.execute(
-          user,
-          folderId: folder.id,
-          files: _pendingPhotos,
-          location: uploadLocation,
-          onProgress: (current, total) {
-            if (!mounted) return;
-            setState(() => _status = 'Subiendo $current de $total...');
-          },
         );
       }
 
@@ -341,9 +316,11 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+            Text(
                               _isEdit
-                                  ? 'Ubicación de la carpeta'
+                                  ? (widget.folder?.hasLocation == true
+                                      ? 'Ubicación de la carpeta'
+                                      : 'GPS obligatorio (sin ubicación)')
                                   : 'GPS obligatorio al crear',
                               style: const TextStyle(fontWeight: FontWeight.w800),
                             ),
@@ -352,7 +329,7 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
                               _isEdit
                                   ? (location != null
                                       ? '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}'
-                                      : 'Esta carpeta aún no tiene GPS guardado.')
+                                      : 'Esta carpeta no tiene GPS. Al guardar se pedirá activarlo.')
                                   : 'Al crear, capturaremos tu ubicación actual. Mantén el GPS encendido.',
                               style: TextStyle(
                                 color: Theme.of(context)
@@ -369,85 +346,6 @@ class _CreateEditFolderPageState extends State<CreateEditFolderPage> {
                 );
               },
             ),
-            const SizedBox(height: 22),
-            const Text(
-              'Fotos',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Puedes tomar fotos ahora o agregarlas después.',
-              style: TextStyle(color: Color(0xFF6B7385)),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _saving
-                        ? null
-                        : () => showPhotoSourceSheet(
-                              context: context,
-                              onCamera: _addCameraPhoto,
-                              onGallery: _addGalleryPhotos,
-                            ),
-                    icon: const Icon(Icons.add_a_photo_rounded),
-                    label: const Text('Agregar fotos'),
-                  ),
-                ),
-              ],
-            ),
-            if (_pendingPhotos.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Text(
-                '${_pendingPhotos.length} foto(s) listas para subir',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: List.generate(_pendingPhotos.length, (index) {
-                  final photo = _pendingPhotos[index];
-                  return Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.memory(
-                          photo.bytes,
-                          width: 88,
-                          height: 88,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: InkWell(
-                          onTap: _saving
-                              ? null
-                              : () => setState(
-                                    () => _pendingPhotos.removeAt(index),
-                                  ),
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.black54,
-                              shape: BoxShape.circle,
-                            ),
-                            padding: const EdgeInsets.all(2),
-                            child: const Icon(
-                              Icons.close_rounded,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }),
-              ),
-            ],
             const SizedBox(height: 28),
             ElevatedButton(
               onPressed: _saving ? null : _save,

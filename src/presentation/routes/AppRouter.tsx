@@ -8,6 +8,7 @@ import { UsersPage } from '@/presentation/pages/UsersPage'
 import { AreasPage } from '@/presentation/pages/AreasPage'
 import { FoldersPage } from '@/presentation/pages/FoldersPage'
 import { FolderDetailPage } from '@/presentation/pages/FolderDetailPage'
+import { FolderDateDetailPage } from '@/presentation/pages/FolderDateDetailPage'
 import { MapPage } from '@/presentation/pages/MapPage'
 import { DocumentationPage } from '@/presentation/pages/DocumentationPage'
 import { DocumentationTypeDetailPage } from '@/presentation/pages/DocumentationTypeDetailPage'
@@ -30,6 +31,10 @@ export function AppRouter() {
             <Route path="/areas" element={<AreasPage />} />
             <Route path="/areas/:areaId/carpetas" element={<FoldersPage />} />
             <Route path="/carpetas/:folderId" element={<FolderDetailPage />} />
+            <Route
+              path="/carpetas/:folderId/fechas/:dateId"
+              element={<FolderDateDetailPage />}
+            />
             <Route path="/mapa" element={<MapPage />} />
             <Route path="/documentacion" element={<DocumentationPage />} />
             <Route

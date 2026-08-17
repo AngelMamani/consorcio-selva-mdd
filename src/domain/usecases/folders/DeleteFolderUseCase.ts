@@ -1,4 +1,5 @@
 import type { ImageFolderRepository } from '@/domain/repositories/ImageFolderRepository'
+import type { FolderDateRepository } from '@/domain/repositories/FolderDateRepository'
 import type { FolderImageRepository } from '@/domain/repositories/FolderImageRepository'
 import type { User } from '@/domain/entities/User'
 import {
@@ -12,13 +13,16 @@ import {
 
 export class DeleteFolderUseCase {
   private readonly folderRepository: ImageFolderRepository
+  private readonly dateRepository: FolderDateRepository
   private readonly imageRepository: FolderImageRepository
 
   constructor(
     folderRepository: ImageFolderRepository,
+    dateRepository: FolderDateRepository,
     imageRepository: FolderImageRepository,
   ) {
     this.folderRepository = folderRepository
+    this.dateRepository = dateRepository
     this.imageRepository = imageRepository
   }
 
@@ -38,7 +42,18 @@ export class DeleteFolderUseCase {
       throw new UnauthorizedError('No tienes permiso para eliminar esta carpeta')
     }
 
-    await this.imageRepository.deleteAllByFolder(folderId)
+    try {
+      await this.imageRepository.deleteAllByFolder(folderId)
+    } catch (error) {
+      console.error('No se pudieron borrar todas las imágenes', error)
+    }
+
+    try {
+      await this.dateRepository.deleteAllByFolder(folderId)
+    } catch (error) {
+      console.error('No se pudieron borrar todas las fechas', error)
+    }
+
     await this.folderRepository.delete(folderId)
   }
 }
