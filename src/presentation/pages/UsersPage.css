@@ -723,6 +723,13 @@
   animation: users-spin 0.8s linear infinite;
 }
 
+.users-edit-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 .users-temp-hint {
   display: flex;
   align-items: flex-start;

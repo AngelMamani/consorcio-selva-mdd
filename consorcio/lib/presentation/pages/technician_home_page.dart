@@ -15,24 +15,45 @@ class TechnicianHomePage extends StatefulWidget {
   State<TechnicianHomePage> createState() => _TechnicianHomePageState();
 }
 
-class _TechnicianHomePageState extends State<TechnicianHomePage> {
+class _TechnicianHomePageState extends State<TechnicianHomePage>
+    with WidgetsBindingObserver {
   int _index = 0;
-  bool _checkedUpdate = false;
+  bool _checkingUpdate = false;
+  bool _updateDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkAppUpdate());
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 600), _checkAppUpdate);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAppUpdate();
+    }
   }
 
   Future<void> _checkAppUpdate() async {
-    if (_checkedUpdate || !mounted) return;
-    _checkedUpdate = true;
+    if (!mounted || _checkingUpdate || _updateDialogOpen) return;
+    _checkingUpdate = true;
 
     final session = context.read<SessionController>();
     final deps = context.read<AppDependencies>();
     final user = session.user;
-    if (user == null) return;
+    if (user == null) {
+      _checkingUpdate = false;
+      return;
+    }
 
     try {
       final info = await PackageInfo.fromPlatform();
@@ -40,13 +61,18 @@ class _TechnicianHomePageState extends State<TechnicianHomePage> {
       final release = await deps.getMobileAppReleaseUseCase.execute(user);
       if (!mounted || release == null) return;
       if (!release.isNewerThan(installedCode)) return;
+
+      _updateDialogOpen = true;
       await showAppUpdateDialog(
         context,
         release: release,
         installedVersionCode: installedCode,
       );
     } catch (_) {
-      // Si no hay red o permiso, no bloquea el uso de la app.
+      // Red o permiso: se vuelve a intentar al reabrir la app.
+    } finally {
+      _checkingUpdate = false;
+      _updateDialogOpen = false;
     }
   }
 

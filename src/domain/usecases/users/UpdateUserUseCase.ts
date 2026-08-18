@@ -1,14 +1,13 @@
 import type { AuthRepository } from '@/domain/repositories/AuthRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { User } from '@/domain/entities/User'
-import type { UserRole } from '@/domain/value-objects/UserRole'
+import { UserRole, isUserRole } from '@/domain/value-objects/UserRole'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
 import {
   NotFoundError,
   UnauthorizedError,
   ValidationError,
 } from '@/domain/errors/DomainError'
-import { isUserRole } from '@/domain/value-objects/UserRole'
 
 export interface UpdateUserRequest {
   userId: string
@@ -44,6 +43,33 @@ export class UpdateUserUseCase {
       throw new ValidationError('No puedes desactivar tu propia cuenta')
     }
 
+    const nextRole = request.role
+    const roleChanged =
+      nextRole !== undefined && nextRole !== existing.role
+
+    if (roleChanged && actor.id === request.userId) {
+      throw new ValidationError('No puedes cambiar tu propio rol')
+    }
+
+    if (
+      roleChanged &&
+      existing.role === UserRole.Administrador &&
+      nextRole !== UserRole.Administrador
+    ) {
+      const all = await this.userRepository.listAll()
+      const otherActiveAdmins = all.filter(
+        (item) =>
+          item.id !== existing.id &&
+          item.role === UserRole.Administrador &&
+          item.active,
+      )
+      if (otherActiveAdmins.length === 0) {
+        throw new ValidationError(
+          'Debe quedar al menos un administrador activo',
+        )
+      }
+    }
+
     const displayName = request.displayName?.trim()
     if (request.displayName !== undefined && !displayName) {
       throw new ValidationError('El nombre no puede estar vacío')
@@ -52,27 +78,27 @@ export class UpdateUserUseCase {
       throw new ValidationError('El nombre es demasiado largo')
     }
 
-    if (displayName && displayName !== existing.displayName) {
+    const nameChanged =
+      Boolean(displayName) && displayName !== existing.displayName
+
+    if (nameChanged && displayName) {
       await this.authRepository.updateManagedUserDisplayName({
         userId: request.userId,
         displayName,
       })
     }
 
-    const shouldPatchRoleOrActive =
-      request.role !== undefined || request.active !== undefined
+    const shouldPatch =
+      nameChanged || roleChanged || request.active !== undefined
 
-    if (shouldPatchRoleOrActive) {
-      return this.userRepository.update(request.userId, {
-        role: request.role,
-        active: request.active,
-      })
+    if (!shouldPatch) {
+      return existing
     }
 
-    const synced = await this.userRepository.getById(request.userId)
-    if (!synced) {
-      throw new NotFoundError('Usuario no encontrado tras sincronizar')
-    }
-    return synced
+    return this.userRepository.update(request.userId, {
+      ...(nameChanged ? { displayName } : {}),
+      ...(request.role !== undefined ? { role: request.role } : {}),
+      ...(request.active !== undefined ? { active: request.active } : {}),
+    })
   }
 }

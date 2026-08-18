@@ -102,8 +102,8 @@ export function MobileAppPage() {
           <p className="mobile-app-page__eyebrow">App de técnicos</p>
           <h2>Actualización del APK</h2>
           <p>
-            Publica un APK nuevo. Al abrir la app, el técnico verá un aviso para
-            descargarlo. El celular igual pedirá confirmar la instalación.
+            El aviso solo aparece si el celular tiene un <strong>código menor</strong> al
+            publicado. Si ya instalaste la misma versión, no sale nada.
           </p>
         </div>
       </header>

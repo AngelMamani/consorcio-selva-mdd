@@ -196,8 +196,8 @@ function UserActions({
         className="btn btn--icon-only btn--soft-blue"
         onClick={() => onEdit(item)}
         disabled={busy}
-        title="Editar nombre"
-        aria-label="Editar nombre"
+        title="Editar usuario"
+        aria-label="Editar usuario"
       >
         <IconEdit />
       </button>
@@ -249,6 +249,7 @@ export function UsersPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [editName, setEditName] = useState('')
+  const [editRole, setEditRole] = useState<UserRole>(UserRole.Tecnico)
   const [credentialsInfo, setCredentialsInfo] = useState<{
     title: string
     displayName: string
@@ -312,12 +313,14 @@ export function UsersPage() {
   function openEditModal(target: User) {
     setEditingUser(target)
     setEditName(target.displayName)
+    setEditRole(target.role)
   }
 
   function closeEditModal() {
     if (submitting) return
     setEditingUser(null)
     setEditName('')
+    setEditRole(UserRole.Tecnico)
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -356,7 +359,7 @@ export function UsersPage() {
     }
   }
 
-  async function handleUpdateName(event: FormEvent<HTMLFormElement>) {
+  async function handleUpdateUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!user || !editingUser || submitting) return
 
@@ -369,33 +372,63 @@ export function UsersPage() {
       swalError('El nombre es demasiado largo')
       return
     }
-    if (nextName === editingUser.displayName) {
+
+    const nameChanged = nextName !== editingUser.displayName
+    const roleChanged = editRole !== editingUser.role
+    if (!nameChanged && !roleChanged) {
       closeEditModal()
       return
     }
 
+    if (roleChanged && user.id === editingUser.id) {
+      swalError('No puedes cambiar tu propio rol')
+      return
+    }
+
+    if (roleChanged) {
+      const confirmed = await swalConfirm({
+        title: '¿Cambiar rol?',
+        text: `${editingUser.displayName} pasará a ser ${userRoleLabel(editRole)}.`,
+        confirmButtonText: 'Sí, cambiar',
+      })
+      if (!confirmed) return
+    }
+
     const previous = editingUser
     const userId = editingUser.id
+    const nextRole = editRole
 
     setUsers((current) =>
       current.map((item) =>
         item.id === userId
-          ? { ...item, displayName: nextName, updatedAt: new Date() }
+          ? {
+              ...item,
+              displayName: nextName,
+              role: nextRole,
+              updatedAt: new Date(),
+            }
           : item,
       ),
     )
     if (user.id === userId) {
-      setUser({ ...user, displayName: nextName, updatedAt: new Date() })
+      setUser({
+        ...user,
+        displayName: nextName,
+        role: nextRole,
+        updatedAt: new Date(),
+      })
     }
     setEditingUser(null)
     setEditName('')
-    swalSuccess('Nombre actualizado')
+    setEditRole(UserRole.Tecnico)
+    swalSuccess(roleChanged ? 'Usuario actualizado' : 'Nombre actualizado')
 
     setSubmitting(true)
     try {
       const updated = await updateUserUseCase.execute(user, {
         userId,
         displayName: nextName,
+        role: nextRole,
       })
       if (user.id === updated.id) {
         setUser(updated)
@@ -413,10 +446,11 @@ export function UsersPage() {
       swalError(
         err instanceof DomainError
           ? err.message
-          : 'No se pudo actualizar el nombre',
+          : 'No se pudo actualizar el usuario',
       )
       setEditingUser(previous)
       setEditName(previous.displayName)
+      setEditRole(previous.role)
     } finally {
       setSubmitting(false)
     }
@@ -505,6 +539,18 @@ export function UsersPage() {
   const activeCount = users.filter((item) => item.active).length
   const techCount = users.filter((item) => item.role === UserRole.Tecnico).length
   const busy = resettingUserId !== null
+  const editingSelf = Boolean(user && editingUser && user.id === editingUser.id)
+  const editingLastAdmin = Boolean(
+    editingUser &&
+      editingUser.role === UserRole.Administrador &&
+      users.filter(
+        (item) =>
+          item.id !== editingUser.id &&
+          item.role === UserRole.Administrador &&
+          item.active,
+      ).length === 0,
+  )
+  const canChangeEditRole = !editingSelf && !editingLastAdmin
 
   let content: ReactNode
   if (loading) {
@@ -998,10 +1044,10 @@ export function UsersPage() {
 
       <AppModal
         open={editingUser !== null}
-        title="Editar nombre"
+        title="Editar usuario"
         description={
           editingUser
-            ? `Actualiza el nombre visible de ${editingUser.email}.`
+            ? `Actualiza el nombre o el rol de ${editingUser.email}.`
             : undefined
         }
         onClose={closeEditModal}
@@ -1018,20 +1064,20 @@ export function UsersPage() {
             </button>
             <button
               type="submit"
-              form="user-edit-name-form"
+              form="user-edit-form"
               className="btn btn--soft-primary"
               disabled={submitting}
             >
               <IconEdit />
-              Guardar nombre
+              Guardar cambios
             </button>
           </>
         }
       >
         <form
-          id="user-edit-name-form"
+          id="user-edit-form"
           className="login-form"
-          onSubmit={(event) => void handleUpdateName(event)}
+          onSubmit={(event) => void handleUpdateUser(event)}
         >
           <label className="field">
             <span>Nombre completo</span>
@@ -1043,6 +1089,26 @@ export function UsersPage() {
               required
               autoFocus
             />
+          </label>
+          <label className="field">
+            <span>Rol</span>
+            <select
+              value={editRole}
+              onChange={(event) =>
+                setEditRole(event.target.value as UserRole)
+              }
+              disabled={submitting || !canChangeEditRole}
+            >
+              <option value={UserRole.Tecnico}>Técnico de campo</option>
+              <option value={UserRole.Administrador}>Administrador</option>
+            </select>
+            <p className="users-edit-hint">
+              {editingSelf
+                ? 'No puedes cambiar tu propio rol.'
+                : editingLastAdmin
+                  ? 'Debe quedar al menos un administrador activo.'
+                  : 'El técnico usa la app móvil. El administrador entra al panel web.'}
+            </p>
           </label>
         </form>
       </AppModal>
