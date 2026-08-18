@@ -10,6 +10,7 @@ import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
 import '../domain/usecases/login_use_case.dart';
 import '../domain/usecases/logout_use_case.dart';
+import '../domain/usecases/get_mobile_app_release_use_case.dart';
 import '../domain/usecases/mark_attendance_use_case.dart';
 import '../domain/usecases/observe_session_use_case.dart';
 import '../domain/usecases/update_folder_use_case.dart';
@@ -18,6 +19,7 @@ import '../domain/usecases/upload_folder_images_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
 import '../infrastructure/firestore/firebase_area_repository.dart';
 import '../infrastructure/firestore/firebase_attendance_repository.dart';
+import '../infrastructure/firestore/firebase_mobile_app_release_repository.dart';
 import '../infrastructure/firestore/firebase_folder_date_repository.dart';
 import '../infrastructure/firestore/firebase_folder_image_repository.dart';
 import '../infrastructure/firestore/firebase_image_folder_repository.dart';
@@ -43,6 +45,7 @@ class AppDependencies {
     required this.getMyTodayAttendanceUseCase,
     required this.getAttendanceSettingsUseCase,
     required this.markAttendanceUseCase,
+    required this.getMobileAppReleaseUseCase,
   });
 
   final LoginUseCase loginUseCase;
@@ -63,6 +66,7 @@ class AppDependencies {
   final GetMyTodayAttendanceUseCase getMyTodayAttendanceUseCase;
   final GetAttendanceSettingsUseCase getAttendanceSettingsUseCase;
   final MarkAttendanceUseCase markAttendanceUseCase;
+  final GetMobileAppReleaseUseCase getMobileAppReleaseUseCase;
 }
 
 AppDependencies createAppDependencies() {
@@ -73,6 +77,7 @@ AppDependencies createAppDependencies() {
   final folderDateRepository = FirebaseFolderDateRepository();
   final areaRepository = FirebaseAreaRepository();
   final attendanceRepository = FirebaseAttendanceRepository();
+  final mobileAppReleaseRepository = FirebaseMobileAppReleaseRepository();
 
   return AppDependencies(
     loginUseCase: LoginUseCase(authRepository, userRepository),
@@ -109,7 +114,8 @@ AppDependencies createAppDependencies() {
         GetMyTodayAttendanceUseCase(attendanceRepository),
     getAttendanceSettingsUseCase:
         GetAttendanceSettingsUseCase(attendanceRepository),
-    markAttendanceUseCase:
-        MarkAttendanceUseCase(attendanceRepository, areaRepository),
+    markAttendanceUseCase: MarkAttendanceUseCase(attendanceRepository),
+    getMobileAppReleaseUseCase:
+        GetMobileAppReleaseUseCase(mobileAppReleaseRepository),
   );
 }

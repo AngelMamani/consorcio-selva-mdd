@@ -1,14 +1,12 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/composition_root.dart';
-import '../../domain/entities/area.dart';
 import '../../domain/entities/attendance.dart';
 import '../../domain/entities/attendance_settings.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/services/geo_distance_service.dart';
+import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
@@ -17,16 +15,7 @@ import '../theme/app_theme.dart';
 import '../widgets/technician_alert.dart';
 import 'office_qr_scan_page.dart';
 
-String _osmTileUrl(double latitude, double longitude, {int zoom = 17}) {
-  final n = math.pow(2, zoom).toDouble();
-  final x = ((longitude + 180) / 360 * n).floor();
-  final latRad = latitude * math.pi / 180;
-  final y = ((1 - math.log(math.tan(latRad) + 1 / math.cos(latRad)) / math.pi) /
-          2 *
-          n)
-      .floor();
-  return 'https://tile.openstreetmap.org/$zoom/$x/$y.png';
-}
+enum _MarkConfirm { cancel, markOnly, markWithPhoto }
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -108,88 +97,11 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _markZone() async {
-    final area = await _pickArea();
-    if (area == null || !mounted) return;
-    await _mark(AttendanceOrigin.zona, areaId: area.id);
-  }
-
-  Future<Area?> _pickArea() async {
-    final session = context.read<SessionController>();
-    final deps = context.read<AppDependencies>();
-    final user = session.user;
-    if (user == null) return null;
-
-    List<Area> areas;
-    try {
-      areas = await deps.listAreasUseCase.execute(user);
-    } on DomainException catch (error) {
-      await _showAlert(
-        TechnicianAlertKind.error,
-        'No se pudieron cargar las áreas',
-        error.message,
-      );
-      return null;
-    } catch (_) {
-      await _showAlert(
-        TechnicianAlertKind.error,
-        'No se pudieron cargar las áreas',
-        'Revisa tu conexión e intenta de nuevo.',
-      );
-      return null;
-    }
-
-    if (!mounted) return null;
-    if (areas.isEmpty) {
-      await _showAlert(
-        TechnicianAlertKind.info,
-        'Aún no hay áreas',
-        'Pide al administrador que las cree en el panel web.',
-      );
-      return null;
-    }
-
-    return showModalBottomSheet<Area>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
-                child: Text(
-                  '¿A qué zona de campo vas?',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                ),
-              ),
-              ...areas.map(
-                (area) => ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.place_rounded),
-                  ),
-                  title: Text(
-                    area.name,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Text(
-                    area.description.trim().isEmpty
-                        ? 'Zona de trabajo'
-                        : area.description,
-                  ),
-                  onTap: () => Navigator.pop(context, area),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    await _mark(AttendanceOrigin.zona);
   }
 
   Future<void> _mark(
     AttendanceOrigin origin, {
-    String? areaId,
     String? officeQrPayload,
   }) async {
     final session = context.read<SessionController>();
@@ -225,30 +137,27 @@ class _AttendancePageState extends State<AttendancePage> {
       if (!mounted) return;
       setState(() => _marking = false);
 
-      final confirmed = await _confirmGpsOnMap(location);
-      if (!confirmed || !mounted) return;
+      final confirm = await _confirmMark(origin);
+      if (confirm == _MarkConfirm.cancel || !mounted) return;
 
-      final photo = await _photoService.takePhoto();
-      if (!mounted) return;
-      if (photo == null) {
-        await _showAlert(
-          TechnicianAlertKind.info,
-          'Foto obligatoria',
-          'Debes tomar una foto del entorno del lugar para registrar la asistencia.',
-        );
-        return;
+      ImageFilePayload? photo;
+      if (origin == AttendanceOrigin.zona &&
+          confirm == _MarkConfirm.markWithPhoto) {
+        photo = await _photoService.takePhoto();
+        if (!mounted) return;
       }
 
       setState(() {
         _marking = true;
-        _markingLabel = 'Subiendo foto y asistencia...';
+        _markingLabel = photo == null
+            ? 'Registrando asistencia...'
+            : 'Subiendo foto y asistencia...';
       });
 
       final attendance = await deps.markAttendanceUseCase.execute(
         user,
         origin: origin,
         location: location,
-        areaId: areaId,
         officeQrPayload: officeQrPayload,
         environmentPhoto: photo,
       );
@@ -257,11 +166,16 @@ class _AttendancePageState extends State<AttendancePage> {
         _today = attendance;
         _marking = false;
       });
+      final extra = origin == AttendanceOrigin.oficina
+          ? 'confirmada en oficina'
+          : photo == null
+              ? 'con GPS de campo'
+              : 'con GPS y foto de evidencia';
       await _showAlert(
         TechnicianAlertKind.success,
         'Asistencia marcada',
-        'Quedó registrada como ${origin.label} a las ${_formatTime(attendance.createdAt)}, '
-        'con GPS y foto del entorno. Ya no puedes volver a marcar hoy.',
+        'Quedó $extra a las ${_formatTime(attendance.createdAt)}. '
+        'Ya no puedes volver a marcar hoy.',
       );
     } on DomainException catch (error) {
       if (!mounted) return;
@@ -282,17 +196,12 @@ class _AttendancePageState extends State<AttendancePage> {
     }
   }
 
-  Future<bool> _confirmGpsOnMap(GeoLocation location) async {
-    final result = await showModalBottomSheet<bool>(
+  Future<_MarkConfirm> _confirmMark(AttendanceOrigin origin) async {
+    final isField = origin == AttendanceOrigin.zona;
+    final result = await showModalBottomSheet<_MarkConfirm>(
       context: context,
-      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        final lat = location.latitude.toStringAsFixed(6);
-        final lng = location.longitude.toStringAsFixed(6);
-        final accuracy = location.accuracyMeters == null
-            ? ''
-            : ' · ±${location.accuracyMeters!.round()} m';
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
@@ -300,60 +209,38 @@ class _AttendancePageState extends State<AttendancePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Confirma tu ubicación GPS',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 4),
                 Text(
-                  '$lat, $lng$accuracy',
-                  style: const TextStyle(color: Color(0xFF6B7385)),
-                ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    height: 220,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.network(
-                          _osmTileUrl(location.latitude, location.longitude),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const ColoredBox(
-                            color: Color(0xFFE8EEF5),
-                            child: Center(
-                              child: Icon(
-                                Icons.map_rounded,
-                                size: 48,
-                                color: Color(0xFF1565C0),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const Center(
-                          child: Icon(
-                            Icons.location_on_rounded,
-                            size: 44,
-                            color: Color(0xFFD32F2F),
-                          ),
-                        ),
-                      ],
-                    ),
+                  isField
+                      ? 'Marcar asistencia en campo'
+                      : 'Confirmar asistencia en oficina',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Luego toma una foto del entorno del lugar. Es obligatoria.',
-                ),
                 const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Confirmar y tomar foto'),
-                ),
+                if (isField) ...[
+                  FilledButton.icon(
+                    onPressed: () =>
+                        Navigator.pop(context, _MarkConfirm.markWithPhoto),
+                    icon: const Icon(Icons.photo_camera_rounded),
+                    label: const Text('Adjuntar foto y marcar'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: () =>
+                        Navigator.pop(context, _MarkConfirm.markOnly),
+                    child: const Text('Marcar solo con GPS'),
+                  ),
+                ] else
+                  FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(context, _MarkConfirm.markOnly),
+                    child: const Text('Confirmar asistencia'),
+                  ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(context, _MarkConfirm.cancel),
                   child: const Text('Cancelar'),
                 ),
               ],
@@ -362,7 +249,7 @@ class _AttendancePageState extends State<AttendancePage> {
         );
       },
     );
-    return result == true;
+    return result ?? _MarkConfirm.cancel;
   }
 
   Future<void> _showAlert(
@@ -445,7 +332,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${settings.officeName} · GPS y foto del entorno obligatorios.',
+                        '${settings.officeName} · Oficina: QR y GPS. Campo: GPS y foto opcional.',
                         style: const TextStyle(color: Colors.white70, height: 1.35),
                       ),
                     ],
@@ -472,7 +359,7 @@ class _AttendancePageState extends State<AttendancePage> {
                     color: const Color(0xFF1565C0),
                     icon: Icons.qr_code_scanner_rounded,
                     title: 'Estoy en oficina',
-                    subtitle: 'Escanea el QR, GPS y foto del entorno.',
+                    subtitle: 'Escanea el QR y confirma con GPS. Sin foto.',
                     onTap: _marking ? null : _markOffice,
                   ),
                   const SizedBox(height: 12),
@@ -480,7 +367,7 @@ class _AttendancePageState extends State<AttendancePage> {
                     color: const Color(0xFF2E7D32),
                     icon: Icons.terrain_rounded,
                     title: 'Voy directo a campo',
-                    subtitle: 'Elige el área. GPS en el mapa y foto del entorno.',
+                    subtitle: 'Activa el GPS. La foto de evidencia es opcional.',
                     onTap: _marking ? null : _markZone,
                   ),
                 ],

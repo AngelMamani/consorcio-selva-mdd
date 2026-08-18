@@ -17,6 +17,6 @@ abstract class AttendanceRepository {
     required bool officeValidated,
     int? distanceToOfficeMeters,
     String? officeQrToken,
-    required ImageFilePayload environmentPhoto,
+    ImageFilePayload? environmentPhoto,
   });
 }

@@ -5,6 +5,7 @@ import { AdminLayout } from '@/presentation/layouts/AdminLayout'
 import { LoginPage } from '@/presentation/pages/LoginPage'
 import { ChangePasswordPage } from '@/presentation/pages/ChangePasswordPage'
 import { UsersPage } from '@/presentation/pages/UsersPage'
+import { MobileAppPage } from '@/presentation/pages/MobileAppPage'
 import { AreasPage } from '@/presentation/pages/AreasPage'
 import { FoldersPage } from '@/presentation/pages/FoldersPage'
 import { FolderDetailPage } from '@/presentation/pages/FolderDetailPage'
@@ -49,6 +50,7 @@ export function AppRouter() {
         <Route element={<ProtectedRoute roles={[UserRole.Administrador]} />}>
           <Route element={<AdminLayout />}>
             <Route path="/usuarios" element={<UsersPage />} />
+            <Route path="/app-movil" element={<MobileAppPage />} />
           </Route>
         </Route>
 

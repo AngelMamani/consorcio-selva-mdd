@@ -67,7 +67,12 @@ import {
 } from '@/domain/usecases/attendance/AttendanceUseCases'
 import { ExportAttendanceDayToExcelUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToExcelUseCase'
 import { ExportAttendanceDayToPdfUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToPdfUseCase'
+import {
+  GetMobileAppReleaseUseCase,
+  PublishMobileAppReleaseUseCase,
+} from '@/domain/usecases/mobile-app/MobileAppReleaseUseCases'
 import { FirebaseAttendanceRepository } from '@/infrastructure/firestore/FirebaseAttendanceRepository'
+import { FirebaseMobileAppReleaseRepository } from '@/infrastructure/firestore/FirebaseMobileAppReleaseRepository'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
 import { FirebaseDocumentationRepository } from '@/infrastructure/firestore/FirebaseDocumentationRepository'
 import { FirebaseAreaRepository } from '@/infrastructure/firestore/FirebaseAreaRepository'
@@ -129,6 +134,8 @@ export interface AppDependencies {
   rotateTodayOfficeQrUseCase: RotateTodayOfficeQrUseCase
   exportAttendanceDayToExcelUseCase: ExportAttendanceDayToExcelUseCase
   exportAttendanceDayToPdfUseCase: ExportAttendanceDayToPdfUseCase
+  getMobileAppReleaseUseCase: GetMobileAppReleaseUseCase
+  publishMobileAppReleaseUseCase: PublishMobileAppReleaseUseCase
 }
 
 export function createAppDependencies(): AppDependencies {
@@ -142,6 +149,7 @@ export function createAppDependencies(): AppDependencies {
   const pdfExportService = new JsPdfExportService()
   const attendanceExcelService = new XlsxAttendanceExcelService()
   const attendancePdfService = new JsPdfAttendanceExportService()
+  const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
   const documentationRepository = new FirebaseDocumentationRepository()
   const documentationExcelService = new XlsxDocumentationExcelService()
   const documentationWordExportService =
@@ -292,10 +300,7 @@ export function createAppDependencies(): AppDependencies {
     getMyTodayAttendanceUseCase: new GetMyTodayAttendanceUseCase(
       attendanceRepository,
     ),
-    markAttendanceUseCase: new MarkAttendanceUseCase(
-      attendanceRepository,
-      areaRepository,
-    ),
+    markAttendanceUseCase: new MarkAttendanceUseCase(attendanceRepository),
     getOrCreateTodayOfficeQrUseCase: new GetOrCreateTodayOfficeQrUseCase(
       attendanceRepository,
     ),
@@ -311,6 +316,12 @@ export function createAppDependencies(): AppDependencies {
       listAttendanceDayUseCase,
       getAttendanceSettingsUseCase,
       attendancePdfService,
+    ),
+    getMobileAppReleaseUseCase: new GetMobileAppReleaseUseCase(
+      mobileAppReleaseRepository,
+    ),
+    publishMobileAppReleaseUseCase: new PublishMobileAppReleaseUseCase(
+      mobileAppReleaseRepository,
     ),
   }
 }

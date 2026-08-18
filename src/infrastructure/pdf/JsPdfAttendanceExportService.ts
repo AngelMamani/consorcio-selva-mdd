@@ -112,7 +112,7 @@ export class JsPdfAttendanceExportService implements AttendancePdfExportService 
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(10)
     const purpose = pdf.splitTextToSize(
-      'Archivo de evidencia: lista del día, GPS y foto del entorno de cada marca. El Excel de control sirve para filtros y planillas; este PDF es el respaldo visual.',
+      'Archivo de evidencia: lista del día y GPS. En campo puede incluir foto. El Excel de control sirve para filtros y planillas.',
       CONTENT_WIDTH,
     )
     pdf.text(purpose, MARGIN, 61)

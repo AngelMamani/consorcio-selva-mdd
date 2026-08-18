@@ -422,7 +422,7 @@ export function AttendancePage() {
           <p className="attendance-page__eyebrow">Control diario</p>
           <h2>Asistencias</h2>
           <p>
-            {formatDateKey(dateKey)} · GPS y foto del entorno obligatorios. Excel para control; PDF para evidencia.
+            {formatDateKey(dateKey)} · Oficina: QR y GPS. Campo: GPS y foto opcional. Excel para control; PDF para evidencia.
           </p>
         </div>
         <div className="attendance-page__toolbar">

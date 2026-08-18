@@ -234,7 +234,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Campo',
-        'Marcas en zona de trabajo, con GPS y área.',
+        'Marcas en zona de trabajo, con GPS. Foto opcional.',
         report,
         report.zone,
       ),

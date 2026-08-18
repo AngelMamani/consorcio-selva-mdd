@@ -18,7 +18,6 @@ import {
 import type { User } from '@/domain/entities/User'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
 import type { AttendanceRepository } from '@/domain/repositories/AttendanceRepository'
-import type { AreaRepository } from '@/domain/repositories/AreaRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { GeoLocation } from '@/domain/value-objects/GeoLocation'
 import { isValidGeoLocation } from '@/domain/value-objects/GeoLocation'
@@ -223,14 +222,9 @@ export class RotateTodayOfficeQrUseCase {
 
 export class MarkAttendanceUseCase {
   private readonly attendanceRepository: AttendanceRepository
-  private readonly areaRepository: AreaRepository
 
-  constructor(
-    attendanceRepository: AttendanceRepository,
-    areaRepository: AreaRepository,
-  ) {
+  constructor(attendanceRepository: AttendanceRepository) {
     this.attendanceRepository = attendanceRepository
-    this.areaRepository = areaRepository
   }
 
   async execute(
@@ -238,10 +232,9 @@ export class MarkAttendanceUseCase {
     request: {
       origin: AttendanceOrigin
       location: GeoLocation
-      areaId?: string
       officeQrPayload?: string
-      environmentPhotoUrl: string
-      environmentPhotoPath: string
+      environmentPhotoUrl?: string
+      environmentPhotoPath?: string
     },
   ): Promise<Attendance> {
     if (!actor.active) {
@@ -258,11 +251,16 @@ export class MarkAttendanceUseCase {
     ) {
       throw new ValidationError('Activa el GPS para marcar asistencia')
     }
-    const environmentPhotoUrl = request.environmentPhotoUrl.trim()
-    const environmentPhotoPath = request.environmentPhotoPath.trim()
-    if (!environmentPhotoUrl || !environmentPhotoPath) {
-      throw new ValidationError('La foto del entorno es obligatoria')
+
+    const environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
+    const environmentPhotoPath = request.environmentPhotoPath?.trim() ?? ''
+    if (
+      (environmentPhotoUrl && !environmentPhotoPath) ||
+      (!environmentPhotoUrl && environmentPhotoPath)
+    ) {
+      throw new ValidationError('La foto de evidencia está incompleta')
     }
+    const hasPhoto = Boolean(environmentPhotoUrl && environmentPhotoPath)
 
     const dateKey = toLimaDateKey()
     const existing = await this.attendanceRepository.getByUserAndDate(
@@ -273,8 +271,6 @@ export class MarkAttendanceUseCase {
       throw new ValidationError('Ya marcaste asistencia hoy')
     }
 
-    let areaId = ''
-    let areaName = ''
     let distanceToOfficeMeters: number | undefined
     let officeValidated = false
     let officeQrToken: string | undefined
@@ -310,17 +306,6 @@ export class MarkAttendanceUseCase {
         )
       }
       officeValidated = true
-    } else {
-      const selectedAreaId = (request.areaId ?? '').trim()
-      if (!selectedAreaId) {
-        throw new ValidationError('Elige el área o zona de trabajo')
-      }
-      const area = await this.areaRepository.getById(selectedAreaId)
-      if (!area) {
-        throw new ValidationError('Área no encontrada')
-      }
-      areaId = area.id
-      areaName = area.name
     }
 
     return this.attendanceRepository.create({
@@ -328,14 +313,14 @@ export class MarkAttendanceUseCase {
       userName: actor.displayName,
       dateKey,
       origin: request.origin,
-      areaId,
-      areaName,
+      areaId: '',
+      areaName: '',
       location: request.location,
       distanceToOfficeMeters,
       officeValidated,
       officeQrToken,
-      environmentPhotoUrl,
-      environmentPhotoPath,
+      environmentPhotoUrl: hasPhoto ? environmentPhotoUrl : undefined,
+      environmentPhotoPath: hasPhoto ? environmentPhotoPath : undefined,
     })
   }
 }

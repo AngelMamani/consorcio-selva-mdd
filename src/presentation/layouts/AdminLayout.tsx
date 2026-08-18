@@ -66,6 +66,26 @@ function UsersIcon() {
   )
 }
 
+function PhoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M8 3.5h8A2.5 2.5 0 0 1 18.5 6v12A2.5 2.5 0 0 1 16 20.5H8A2.5 2.5 0 0 1 5.5 18V6A2.5 2.5 0 0 1 8 3.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M10 17.5h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function MapIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
@@ -298,6 +318,18 @@ export function AdminLayout() {
                 >
                   <UsersIcon />
                   <span>Usuarios</span>
+                </NavLink>
+              ) : null}
+              {user.role === UserRole.Administrador ? (
+                <NavLink
+                  to="/app-movil"
+                  title="App móvil"
+                  className={({ isActive }) =>
+                    isActive ? 'admin-nav__link active' : 'admin-nav__link'
+                  }
+                >
+                  <PhoneIcon />
+                  <span>App móvil</span>
                 </NavLink>
               ) : null}
             </nav>

@@ -32,5 +32,20 @@ service firebase.storage {
         && isAllowedImage();
       allow delete: if isSignedIn();
     }
+
+    function isAllowedApk() {
+      return request.resource.size > 0
+        && request.resource.size < 90 * 1024 * 1024
+        && (
+          request.resource.contentType == 'application/vnd.android.package-archive'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
+    match /app-releases/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAllowedApk();
+      allow delete: if isSignedIn();
+    }
   }
 }

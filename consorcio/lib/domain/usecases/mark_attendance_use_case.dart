@@ -1,33 +1,31 @@
 import '../entities/app_user.dart';
 import '../entities/attendance.dart';
 import '../errors/domain_exception.dart';
-import '../repositories/area_repository.dart';
 import '../repositories/attendance_repository.dart';
 import '../repositories/folder_image_repository.dart';
 import '../services/geo_distance_service.dart';
 import '../value_objects/geo_location.dart';
 
 class MarkAttendanceUseCase {
-  MarkAttendanceUseCase(this._attendanceRepository, this._areaRepository);
+  MarkAttendanceUseCase(this._attendanceRepository);
 
   final AttendanceRepository _attendanceRepository;
-  final AreaRepository _areaRepository;
 
   Future<Attendance> execute(
     AppUser actor, {
     required AttendanceOrigin origin,
     required GeoLocation location,
-    String? areaId,
     String? officeQrPayload,
-    required ImageFilePayload environmentPhoto,
+    ImageFilePayload? environmentPhoto,
   }) async {
     actor.assertCanOperateApp();
     if (!location.isValid) {
       throw DomainException('Activa el GPS para marcar asistencia');
     }
-    if (environmentPhoto.sizeBytes <= 0 ||
-        environmentPhoto.sizeBytes > 10 * 1024 * 1024) {
-      throw DomainException('La foto del entorno es obligatoria y debe pesar máximo 10 MB');
+    if (environmentPhoto != null &&
+        (environmentPhoto.sizeBytes <= 0 ||
+            environmentPhoto.sizeBytes > 10 * 1024 * 1024)) {
+      throw DomainException('La foto debe pesar máximo 10 MB');
     }
 
     final dateKey = limaDateKey();
@@ -37,8 +35,6 @@ class MarkAttendanceUseCase {
       throw DomainException('Ya marcaste asistencia hoy');
     }
 
-    var selectedAreaId = '';
-    var selectedAreaName = '';
     var officeValidated = false;
     int? distanceToOffice;
     String? officeQrToken;
@@ -71,17 +67,6 @@ class MarkAttendanceUseCase {
         );
       }
       officeValidated = true;
-    } else {
-      final id = areaId?.trim() ?? '';
-      if (id.isEmpty) {
-        throw DomainException('Elige el área o zona de trabajo');
-      }
-      final area = await _areaRepository.getById(id);
-      if (area == null) {
-        throw DomainException('Área no encontrada');
-      }
-      selectedAreaId = area.id;
-      selectedAreaName = area.name;
     }
 
     return _attendanceRepository.create(
@@ -89,13 +74,13 @@ class MarkAttendanceUseCase {
       userName: actor.displayName,
       dateKey: dateKey,
       origin: origin,
-      areaId: selectedAreaId,
-      areaName: selectedAreaName,
+      areaId: '',
+      areaName: '',
       location: location,
       officeValidated: officeValidated,
       distanceToOfficeMeters: distanceToOffice,
       officeQrToken: officeQrToken,
-      environmentPhoto: environmentPhoto,
+      environmentPhoto: origin == AttendanceOrigin.zona ? environmentPhoto : null,
     );
   }
 }

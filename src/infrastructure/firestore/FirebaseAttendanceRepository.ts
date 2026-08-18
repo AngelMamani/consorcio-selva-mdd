@@ -231,8 +231,10 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
     if (input.officeQrToken) {
       payload.officeQrToken = input.officeQrToken
     }
-    payload.environmentPhotoUrl = input.environmentPhotoUrl
-    payload.environmentPhotoPath = input.environmentPhotoPath
+    if (input.environmentPhotoUrl && input.environmentPhotoPath) {
+      payload.environmentPhotoUrl = input.environmentPhotoUrl
+      payload.environmentPhotoPath = input.environmentPhotoPath
+    }
 
     try {
       await setDoc(ref, payload)

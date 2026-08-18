@@ -70,9 +70,20 @@ service cloud.firestore {
 
     function validZoneCreate() {
       return request.resource.data.origin == 'ZONA'
-        && request.resource.data.areaId.size() > 0
-        && request.resource.data.areaName.size() > 0
+        && request.resource.data.areaId is string
+        && request.resource.data.areaName is string
         && !('officeQrToken' in request.resource.data);
+    }
+
+    function optionalEnvironmentPhoto() {
+      return (!('environmentPhotoUrl' in request.resource.data)
+          && !('environmentPhotoPath' in request.resource.data))
+        || (
+          request.resource.data.environmentPhotoUrl is string
+          && request.resource.data.environmentPhotoUrl.size() > 12
+          && request.resource.data.environmentPhotoPath is string
+          && request.resource.data.environmentPhotoPath.size() > 8
+        );
     }
 
     function unchangedKeys(keys) {
@@ -308,11 +319,8 @@ service cloud.firestore {
       allow delete: if isActiveUser();
     }
 
-    match /settings/{docId} {
-      allow read: if isActiveUser();
-      allow create, update: if isAdmin()
-        && docId == 'attendance'
-        && request.resource.data.officeName is string
+    function validAttendanceSettings() {
+      return request.resource.data.officeName is string
         && request.resource.data.officeName.size() > 0
         && request.resource.data.officeName.size() <= 120
         && request.resource.data.officeLatitude is number
@@ -324,6 +332,32 @@ service cloud.firestore {
         && request.resource.data.officeRadiusMeters is number
         && request.resource.data.officeRadiusMeters >= 5
         && request.resource.data.officeRadiusMeters <= 20;
+    }
+
+    function validMobileAppSettings() {
+      return request.resource.data.versionName is string
+        && request.resource.data.versionName.matches('^[0-9]+[.][0-9]+[.][0-9]+$')
+        && request.resource.data.versionCode is int
+        && request.resource.data.versionCode >= 1
+        && request.resource.data.apkUrl is string
+        && request.resource.data.apkUrl.size() > 12
+        && request.resource.data.apkPath is string
+        && request.resource.data.apkPath.size() > 8
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 500
+        && request.resource.data.forceUpdate is bool
+        && request.resource.data.updatedById == request.auth.uid
+        && request.resource.data.updatedByName is string
+        && request.resource.data.updatedByName.size() > 0
+        && request.resource.data.updatedByName.size() <= 120;
+    }
+
+    match /settings/{docId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin() && (
+        (docId == 'attendance' && validAttendanceSettings())
+        || (docId == 'mobileApp' && validMobileAppSettings())
+      );
       allow delete: if false;
     }
 
@@ -369,10 +403,7 @@ service cloud.firestore {
           || request.resource.data.locationAccuracy is number)
         && (!('distanceToOfficeMeters' in request.resource.data)
           || request.resource.data.distanceToOfficeMeters is number)
-        && request.resource.data.environmentPhotoUrl is string
-        && request.resource.data.environmentPhotoUrl.size() > 12
-        && request.resource.data.environmentPhotoPath is string
-        && request.resource.data.environmentPhotoPath.size() > 8
+        && optionalEnvironmentPhoto()
         && (validOfficeQrCreate() || validZoneCreate());
 
       allow update, delete: if false;

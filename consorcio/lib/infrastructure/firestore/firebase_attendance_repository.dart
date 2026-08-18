@@ -64,7 +64,7 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
     required bool officeValidated,
     int? distanceToOfficeMeters,
     String? officeQrToken,
-    required ImageFilePayload environmentPhoto,
+    ImageFilePayload? environmentPhoto,
   }) async {
     final id = attendanceDocId(userId, dateKey);
     final ref = _attendances.doc(id);
@@ -73,23 +73,26 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
       throw DomainException('Ya marcaste asistencia hoy');
     }
 
-    final storagePath = 'attendances/$userId/$dateKey/entorno.jpg';
-    final storageRef = _storage.ref(storagePath);
-    late final String photoUrl;
-    try {
-      await storageRef.putData(
-        environmentPhoto.bytes,
-        SettableMetadata(
-          contentType: environmentPhoto.contentType.isEmpty
-              ? 'image/jpeg'
-              : environmentPhoto.contentType,
-        ),
-      );
-      photoUrl = await storageRef.getDownloadURL();
-    } catch (_) {
-      throw DomainException(
-        'No se pudo subir la foto del entorno. Revisa tu conexión.',
-      );
+    String? photoUrl;
+    String? storagePath;
+    if (environmentPhoto != null) {
+      storagePath = 'attendances/$userId/$dateKey/entorno.jpg';
+      final storageRef = _storage.ref(storagePath);
+      try {
+        await storageRef.putData(
+          environmentPhoto.bytes,
+          SettableMetadata(
+            contentType: environmentPhoto.contentType.isEmpty
+                ? 'image/jpeg'
+                : environmentPhoto.contentType,
+          ),
+        );
+        photoUrl = await storageRef.getDownloadURL();
+      } catch (_) {
+        throw DomainException(
+          'No se pudo subir la foto. Revisa tu conexión.',
+        );
+      }
     }
 
     final now = Timestamp.now();
@@ -103,10 +106,12 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
       'latitude': location.latitude,
       'longitude': location.longitude,
       'officeValidated': officeValidated,
-      'environmentPhotoUrl': photoUrl,
-      'environmentPhotoPath': storagePath,
       'createdAt': now,
     };
+    if (photoUrl != null && storagePath != null) {
+      payload['environmentPhotoUrl'] = photoUrl;
+      payload['environmentPhotoPath'] = storagePath;
+    }
     if (location.accuracyMeters != null) {
       payload['locationAccuracy'] = location.accuracyMeters;
     }
