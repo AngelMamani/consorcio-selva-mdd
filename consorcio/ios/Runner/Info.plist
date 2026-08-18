@@ -41,7 +41,7 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Necesitamos la cámara para tomar fotos del trabajo en campo.</string>
+	<string>Necesitamos la cámara para escanear el QR de asistencia y tomar fotos del trabajo en campo.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Necesitamos acceder a tus fotos para adjuntarlas a las carpetas.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

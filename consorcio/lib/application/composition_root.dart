@@ -2,18 +2,22 @@ import '../domain/usecases/assign_folder_location_use_case.dart';
 import '../domain/usecases/change_own_password_use_case.dart';
 import '../domain/usecases/create_folder_date_use_case.dart';
 import '../domain/usecases/create_folder_use_case.dart';
+import '../domain/usecases/get_attendance_settings_use_case.dart';
 import '../domain/usecases/get_folder_date_detail_use_case.dart';
 import '../domain/usecases/get_folder_detail_use_case.dart';
+import '../domain/usecases/get_my_today_attendance_use_case.dart';
 import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
 import '../domain/usecases/login_use_case.dart';
 import '../domain/usecases/logout_use_case.dart';
+import '../domain/usecases/mark_attendance_use_case.dart';
 import '../domain/usecases/observe_session_use_case.dart';
 import '../domain/usecases/update_folder_use_case.dart';
 import '../domain/usecases/update_own_theme_use_case.dart';
 import '../domain/usecases/upload_folder_images_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
 import '../infrastructure/firestore/firebase_area_repository.dart';
+import '../infrastructure/firestore/firebase_attendance_repository.dart';
 import '../infrastructure/firestore/firebase_folder_date_repository.dart';
 import '../infrastructure/firestore/firebase_folder_image_repository.dart';
 import '../infrastructure/firestore/firebase_image_folder_repository.dart';
@@ -36,6 +40,9 @@ class AppDependencies {
     required this.createFolderDateUseCase,
     required this.getFolderDateDetailUseCase,
     required this.uploadFolderImagesUseCase,
+    required this.getMyTodayAttendanceUseCase,
+    required this.getAttendanceSettingsUseCase,
+    required this.markAttendanceUseCase,
   });
 
   final LoginUseCase loginUseCase;
@@ -53,6 +60,9 @@ class AppDependencies {
   final CreateFolderDateUseCase createFolderDateUseCase;
   final GetFolderDateDetailUseCase getFolderDateDetailUseCase;
   final UploadFolderImagesUseCase uploadFolderImagesUseCase;
+  final GetMyTodayAttendanceUseCase getMyTodayAttendanceUseCase;
+  final GetAttendanceSettingsUseCase getAttendanceSettingsUseCase;
+  final MarkAttendanceUseCase markAttendanceUseCase;
 }
 
 AppDependencies createAppDependencies() {
@@ -62,6 +72,7 @@ AppDependencies createAppDependencies() {
   final imageRepository = FirebaseFolderImageRepository();
   final folderDateRepository = FirebaseFolderDateRepository();
   final areaRepository = FirebaseAreaRepository();
+  final attendanceRepository = FirebaseAttendanceRepository();
 
   return AppDependencies(
     loginUseCase: LoginUseCase(authRepository, userRepository),
@@ -94,5 +105,11 @@ AppDependencies createAppDependencies() {
       folderDateRepository,
       imageRepository,
     ),
+    getMyTodayAttendanceUseCase:
+        GetMyTodayAttendanceUseCase(attendanceRepository),
+    getAttendanceSettingsUseCase:
+        GetAttendanceSettingsUseCase(attendanceRepository),
+    markAttendanceUseCase:
+        MarkAttendanceUseCase(attendanceRepository, areaRepository),
   );
 }

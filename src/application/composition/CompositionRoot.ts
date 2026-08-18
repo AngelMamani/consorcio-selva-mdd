@@ -56,9 +56,23 @@ import {
   ExportDocumentationToWordUseCase,
   UploadDocumentationCellImageUseCase,
 } from '@/domain/usecases/documentation/DocumentationImportExportUseCases'
+import {
+  ListAttendanceDayUseCase,
+  GetAttendanceSettingsUseCase,
+  SaveAttendanceSettingsUseCase,
+  GetMyTodayAttendanceUseCase,
+  MarkAttendanceUseCase,
+  GetOrCreateTodayOfficeQrUseCase,
+  RotateTodayOfficeQrUseCase,
+} from '@/domain/usecases/attendance/AttendanceUseCases'
+import { ExportAttendanceDayToExcelUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToExcelUseCase'
+import { ExportAttendanceDayToPdfUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToPdfUseCase'
+import { FirebaseAttendanceRepository } from '@/infrastructure/firestore/FirebaseAttendanceRepository'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
 import { FirebaseDocumentationRepository } from '@/infrastructure/firestore/FirebaseDocumentationRepository'
 import { FirebaseAreaRepository } from '@/infrastructure/firestore/FirebaseAreaRepository'
+import { XlsxAttendanceExcelService } from '@/infrastructure/excel/XlsxAttendanceExcelService'
+import { JsPdfAttendanceExportService } from '@/infrastructure/pdf/JsPdfAttendanceExportService'
 import { XlsxDocumentationExcelService } from '@/infrastructure/excel/XlsxDocumentationExcelService'
 import { DocxDocumentationWordExportService } from '@/infrastructure/word/DocxDocumentationWordExportService'
 
@@ -106,6 +120,15 @@ export interface AppDependencies {
   downloadDocumentationExcelTemplateUseCase: DownloadDocumentationExcelTemplateUseCase
   exportDocumentationToWordUseCase: ExportDocumentationToWordUseCase
   uploadDocumentationCellImageUseCase: UploadDocumentationCellImageUseCase
+  listAttendanceDayUseCase: ListAttendanceDayUseCase
+  getAttendanceSettingsUseCase: GetAttendanceSettingsUseCase
+  saveAttendanceSettingsUseCase: SaveAttendanceSettingsUseCase
+  getMyTodayAttendanceUseCase: GetMyTodayAttendanceUseCase
+  markAttendanceUseCase: MarkAttendanceUseCase
+  getOrCreateTodayOfficeQrUseCase: GetOrCreateTodayOfficeQrUseCase
+  rotateTodayOfficeQrUseCase: RotateTodayOfficeQrUseCase
+  exportAttendanceDayToExcelUseCase: ExportAttendanceDayToExcelUseCase
+  exportAttendanceDayToPdfUseCase: ExportAttendanceDayToPdfUseCase
 }
 
 export function createAppDependencies(): AppDependencies {
@@ -114,12 +137,22 @@ export function createAppDependencies(): AppDependencies {
   const folderRepository = new FirebaseImageFolderRepository()
   const imageRepository = new FirebaseFolderImageRepository()
   const folderDateRepository = new FirebaseFolderDateRepository()
+  const attendanceRepository = new FirebaseAttendanceRepository()
   const areaRepository = new FirebaseAreaRepository()
   const pdfExportService = new JsPdfExportService()
+  const attendanceExcelService = new XlsxAttendanceExcelService()
+  const attendancePdfService = new JsPdfAttendanceExportService()
   const documentationRepository = new FirebaseDocumentationRepository()
   const documentationExcelService = new XlsxDocumentationExcelService()
   const documentationWordExportService =
     new DocxDocumentationWordExportService()
+  const listAttendanceDayUseCase = new ListAttendanceDayUseCase(
+    attendanceRepository,
+    userRepository,
+  )
+  const getAttendanceSettingsUseCase = new GetAttendanceSettingsUseCase(
+    attendanceRepository,
+  )
 
   return {
     loginUseCase: new LoginUseCase(authRepository, userRepository),
@@ -251,5 +284,33 @@ export function createAppDependencies(): AppDependencies {
     ),
     uploadDocumentationCellImageUseCase:
       new UploadDocumentationCellImageUseCase(documentationRepository),
+    listAttendanceDayUseCase,
+    getAttendanceSettingsUseCase,
+    saveAttendanceSettingsUseCase: new SaveAttendanceSettingsUseCase(
+      attendanceRepository,
+    ),
+    getMyTodayAttendanceUseCase: new GetMyTodayAttendanceUseCase(
+      attendanceRepository,
+    ),
+    markAttendanceUseCase: new MarkAttendanceUseCase(
+      attendanceRepository,
+      areaRepository,
+    ),
+    getOrCreateTodayOfficeQrUseCase: new GetOrCreateTodayOfficeQrUseCase(
+      attendanceRepository,
+    ),
+    rotateTodayOfficeQrUseCase: new RotateTodayOfficeQrUseCase(
+      attendanceRepository,
+    ),
+    exportAttendanceDayToExcelUseCase: new ExportAttendanceDayToExcelUseCase(
+      listAttendanceDayUseCase,
+      getAttendanceSettingsUseCase,
+      attendanceExcelService,
+    ),
+    exportAttendanceDayToPdfUseCase: new ExportAttendanceDayToPdfUseCase(
+      listAttendanceDayUseCase,
+      getAttendanceSettingsUseCase,
+      attendancePdfService,
+    ),
   }
 }

@@ -6,6 +6,7 @@ import '../../domain/value_objects/geo_location.dart';
 class DeviceLocationService {
   Future<GeoLocation> getCurrentLocation({
     bool openSettingsIfDisabled = true,
+    String purpose = 'asignar la ubicación',
   }) async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -13,7 +14,7 @@ class DeviceLocationService {
         await Geolocator.openLocationSettings();
       }
       throw DomainException(
-        'El GPS está apagado. Actívalo para asignar la ubicación de la carpeta.',
+        'El GPS está apagado. Actívalo para $purpose.',
       );
     }
 
@@ -24,7 +25,7 @@ class DeviceLocationService {
 
     if (permission == LocationPermission.denied) {
       throw DomainException(
-        'Necesitamos permiso de ubicación para el mapeo de campo.',
+        'Necesitamos permiso de ubicación para $purpose.',
       );
     }
 

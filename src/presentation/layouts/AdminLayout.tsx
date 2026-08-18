@@ -31,6 +31,27 @@ function AreasIcon() {
   )
 }
 
+function AttendanceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M8 3.5h8A3.5 3.5 0 0 1 19.5 7v11A3.5 3.5 0 0 1 16 21.5H8A3.5 3.5 0 0 1 4.5 18V7A3.5 3.5 0 0 1 8 3.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M8 8.5h8M8 12.5h5M8.2 16.2 10 18l3.5-3.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function UsersIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
@@ -236,6 +257,16 @@ export function AdminLayout() {
               >
                 <AreasIcon />
                 <span>Áreas</span>
+              </NavLink>
+              <NavLink
+                to="/asistencias"
+                title="Asistencias"
+                className={({ isActive }) =>
+                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
+                }
+              >
+                <AttendanceIcon />
+                <span>Asistencias</span>
               </NavLink>
               <NavLink
                 to="/mapa"

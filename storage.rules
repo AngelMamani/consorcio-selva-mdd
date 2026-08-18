@@ -24,5 +24,13 @@ service firebase.storage {
       allow write: if isSignedIn() && isAllowedImage();
       allow delete: if isSignedIn();
     }
+
+    match /attendances/{userId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && isAllowedImage();
+      allow delete: if isSignedIn();
+    }
   }
 }

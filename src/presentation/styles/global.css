@@ -332,3 +332,7 @@ html[data-theme='dark'] .btn--soft-muted {
   display: grid;
   gap: 1rem;
 }
+
+.swal2-container {
+  z-index: 4000 !important;
+}
