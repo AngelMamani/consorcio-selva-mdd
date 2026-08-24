@@ -7,11 +7,13 @@ export interface CreateUserInput {
   email: string
   displayName: string
   role: UserRole
+  dni?: string
 }
 
 export interface UpdateUserInput {
   displayName?: string
   role?: UserRole
+  dni?: string
   active?: boolean
   theme?: ThemePreference
   mustChangePassword?: boolean
@@ -21,6 +23,7 @@ export interface UserRepository {
   getById(id: string): Promise<User | null>
   listAll(): Promise<User[]>
   listTechnicians(): Promise<User[]>
+  findByDni(dni: string): Promise<User | null>
   create(input: CreateUserInput): Promise<User>
   update(id: string, input: UpdateUserInput): Promise<User>
 }

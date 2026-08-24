@@ -90,7 +90,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'Tu cuenta es nueva o fue restablecida. Debes crear una contraseña segura antes de usar la app.',
+                        'Tu cuenta es nueva o fue restablecida. Elige una contraseña nueva (puede ser sencilla) para usar la app.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 15,

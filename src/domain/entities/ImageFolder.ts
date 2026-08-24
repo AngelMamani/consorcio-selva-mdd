@@ -14,6 +14,8 @@ export interface ImageFolder {
   assignedTechnicianIds: string[]
   assignedTechnicianNames: string[]
   imageCount: number
+  /** Código de ruta del catálogo global. Fijo en carpetas de suministro. */
+  routeCode?: string
   location?: GeoLocation
   createdAt: Date
   updatedAt: Date

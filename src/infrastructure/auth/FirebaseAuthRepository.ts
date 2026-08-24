@@ -6,7 +6,6 @@ import {
 } from 'firebase/auth'
 import { httpsCallable, type FunctionsError } from 'firebase/functions'
 import type {
-  AuthCredentials,
   AuthRepository,
   CreateManagedUserInput,
   CreateManagedUserResult,
@@ -15,8 +14,10 @@ import type {
 import {
   firebaseAuth,
   firebaseFunctions,
+  firestoreDb,
 } from '@/infrastructure/firebase/firebaseApp'
 import { DomainError } from '@/domain/errors/DomainError'
+import { doc, getDoc } from 'firebase/firestore'
 
 function readErrorCode(error: unknown): string {
   if (!error || typeof error !== 'object') return ''
@@ -64,10 +65,15 @@ function mapAuthError(error: unknown): Error {
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return new DomainError('Correo o contraseña incorrectos')
+      return new DomainError('Correo, DNI o contraseña incorrectos')
     case 'auth/email-already-in-use':
-    case 'functions/already-exists':
       return new DomainError('El correo ya está registrado')
+    case 'functions/already-exists':
+      return new DomainError(
+        message && !message.toLowerCase().includes('already-exists')
+          ? message
+          : 'El correo o DNI ya está registrado',
+      )
     case 'auth/weak-password':
       return new DomainError('La contraseña es demasiado débil')
     case 'auth/requires-recent-login':
@@ -124,16 +130,42 @@ function assertCallablePayload<T extends Record<string, unknown>>(
 }
 
 export class FirebaseAuthRepository implements AuthRepository {
-  async login(credentials: AuthCredentials): Promise<string> {
+  async login(email: string, password: string): Promise<string> {
     try {
       const result = await signInWithEmailAndPassword(
         firebaseAuth,
-        credentials.email,
-        credentials.password,
+        email,
+        password,
       )
       return result.user.uid
     } catch (error) {
       throw mapAuthError(error)
+    }
+  }
+
+  async resolveEmailByDni(dni: string): Promise<string> {
+    try {
+      const snapshot = await getDoc(doc(firestoreDb, 'loginByDni', dni))
+      const email = snapshot.data()?.email
+      if (!snapshot.exists() || typeof email !== 'string' || !email.trim()) {
+        throw new DomainError('Correo, DNI o contraseña incorrectos')
+      }
+      return email.trim().toLowerCase()
+    } catch (error) {
+      if (error instanceof DomainError) throw error
+      throw mapAuthError(error)
+    }
+  }
+
+  async claimConfiguredSuperAdmin(): Promise<void> {
+    try {
+      const callable = httpsCallable<Record<string, never>, { ok: boolean }>(
+        firebaseFunctions,
+        'claimConfiguredSuperAdmin',
+      )
+      await callable({})
+    } catch (error) {
+      throw mapAuthError(error as FunctionsError)
     }
   }
 

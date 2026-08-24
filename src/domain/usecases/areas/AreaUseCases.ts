@@ -2,6 +2,8 @@ import type { User } from '@/domain/entities/User'
 import type { Area } from '@/domain/entities/Area'
 import type { AreaRepository } from '@/domain/repositories/AreaRepository'
 import type { ImageFolderRepository } from '@/domain/repositories/ImageFolderRepository'
+import type { FolderDateRepository } from '@/domain/repositories/FolderDateRepository'
+import type { FolderImageRepository } from '@/domain/repositories/FolderImageRepository'
 import {
   UnauthorizedError,
   ValidationError,
@@ -15,7 +17,7 @@ const DEFAULT_AREA_DESCRIPTION =
 function normalizeName(name: string): string {
   const trimmed = name.trim()
   if (!trimmed) {
-    throw new ValidationError('El nombre del área es obligatorio')
+    throw new ValidationError('El nombre de la actividad es obligatorio')
   }
   if (trimmed.length > 120) {
     throw new ValidationError('El nombre no debe superar 120 caracteres')
@@ -77,13 +79,15 @@ export class CreateAreaUseCase {
     input: { name: string; description: string },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
-      throw new UnauthorizedError('Solo administradores pueden crear áreas')
+      throw new UnauthorizedError(
+        'Solo administradores pueden crear actividades',
+      )
     }
 
     const name = normalizeName(input.name)
     const existing = await this.areaRepository.findByName(name)
     if (existing) {
-      throw new ValidationError('Ya existe un área con ese nombre')
+      throw new ValidationError('Ya existe una actividad con ese nombre')
     }
 
     return this.areaRepository.create({
@@ -108,7 +112,9 @@ export class UpdateAreaUseCase {
     input: { name: string; description: string },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
-      throw new UnauthorizedError('Solo administradores pueden editar áreas')
+      throw new UnauthorizedError(
+        'Solo administradores pueden editar actividades',
+      )
     }
 
     const area = await this.areaRepository.getById(areaId)
@@ -119,7 +125,7 @@ export class UpdateAreaUseCase {
     const name = normalizeName(input.name)
     const duplicate = await this.areaRepository.findByName(name)
     if (duplicate && duplicate.id !== areaId) {
-      throw new ValidationError('Ya existe un área con ese nombre')
+      throw new ValidationError('Ya existe una actividad con ese nombre')
     }
 
     return this.areaRepository.update(areaId, {
@@ -132,33 +138,54 @@ export class UpdateAreaUseCase {
 export class DeleteAreaUseCase {
   private readonly areaRepository: AreaRepository
   private readonly folderRepository: ImageFolderRepository
+  private readonly dateRepository: FolderDateRepository
+  private readonly imageRepository: FolderImageRepository
 
   constructor(
     areaRepository: AreaRepository,
     folderRepository: ImageFolderRepository,
+    dateRepository: FolderDateRepository,
+    imageRepository: FolderImageRepository,
   ) {
     this.areaRepository = areaRepository
     this.folderRepository = folderRepository
+    this.dateRepository = dateRepository
+    this.imageRepository = imageRepository
   }
 
   async execute(actor: User, areaId: string): Promise<void> {
     if (!assertUserCanManageUsers(actor)) {
-      throw new UnauthorizedError('Solo administradores pueden eliminar áreas')
-    }
-
-    const area = await this.areaRepository.getById(areaId)
-    if (!area) {
-      throw new ValidationError('Área no encontrada')
-    }
-
-    const folders = await this.folderRepository.listByArea(areaId)
-    if (folders.length > 0) {
-      throw new ValidationError(
-        'No se puede eliminar un área con carpetas. Mueve o elimina las carpetas primero.',
+      throw new UnauthorizedError(
+        'Solo administradores pueden eliminar actividades',
       )
     }
 
-    await this.areaRepository.delete(areaId)
+    const trimmedId = areaId.trim()
+    if (!trimmedId) {
+      throw new ValidationError('Actividad no encontrada')
+    }
+
+    await this.areaRepository.delete(trimmedId)
+    void this.purgeRelated(trimmedId)
+  }
+
+  private async purgeRelated(areaId: string): Promise<void> {
+    try {
+      const folders = await this.folderRepository.listByArea(areaId)
+      await Promise.all(
+        folders.map(async (folder) => {
+          await this.imageRepository
+            .deleteAllByFolder(folder.id)
+            .catch(() => undefined)
+          await this.dateRepository
+            .deleteAllByFolder(folder.id)
+            .catch(() => undefined)
+          await this.folderRepository.delete(folder.id).catch(() => undefined)
+        }),
+      )
+    } catch (error) {
+      console.error('No se pudieron borrar todas las carpetas de la actividad', error)
+    }
   }
 }
 
@@ -177,13 +204,14 @@ export class EnsureDefaultNotificationsAreaUseCase {
 
   async execute(
     actor: User,
-    options: { migrateOrphans?: boolean } = {},
+    options: { migrateOrphans?: boolean; createIfMissing?: boolean } = {},
   ): Promise<Area> {
     if (!actor.active) {
       throw new UnauthorizedError('Usuario inactivo')
     }
 
     const migrateOrphans = options.migrateOrphans !== false
+    const createIfMissing = options.createIfMissing !== false
     const areas = await this.areaRepository.listAll()
     let area =
       areas.find(
@@ -192,7 +220,7 @@ export class EnsureDefaultNotificationsAreaUseCase {
       ) ?? null
 
     if (!area) {
-      if (assertUserCanManageUsers(actor)) {
+      if (createIfMissing && areas.length === 0 && assertUserCanManageUsers(actor)) {
         area = await this.areaRepository.create({
           name: DEFAULT_AREA_NAME,
           description: DEFAULT_AREA_DESCRIPTION,

@@ -1,5 +1,5 @@
 export interface AuthCredentials {
-  email: string
+  identifier: string
   password: string
 }
 
@@ -7,6 +7,7 @@ export interface CreateManagedUserInput {
   email: string
   displayName: string
   role: string
+  dni?: string
 }
 
 export interface CreateManagedUserResult {
@@ -20,7 +21,9 @@ export interface UpdateManagedUserDisplayNameInput {
 }
 
 export interface AuthRepository {
-  login(credentials: AuthCredentials): Promise<string>
+  login(email: string, password: string): Promise<string>
+  resolveEmailByDni(dni: string): Promise<string>
+  claimConfiguredSuperAdmin(): Promise<void>
   logout(): Promise<void>
   getCurrentUserId(): Promise<string | null>
   observeAuthState(onChange: (userId: string | null) => void): () => void

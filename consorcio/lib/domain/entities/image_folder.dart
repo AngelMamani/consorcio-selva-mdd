@@ -16,6 +16,7 @@ class ImageFolder {
     required this.createdAt,
     required this.updatedAt,
     this.location,
+    this.routeCode,
   });
 
   final String id;
@@ -32,8 +33,11 @@ class ImageFolder {
   final GeoLocation? location;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? routeCode;
 
   bool get hasLocation => location != null && location!.isValid;
+
+  bool get isSupplyFolder => (routeCode ?? '').isNotEmpty;
 
   bool canBeAccessedBy(String userId) {
     if (ownerId == userId) return true;

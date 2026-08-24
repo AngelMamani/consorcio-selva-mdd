@@ -142,7 +142,10 @@ export class ListAttendanceDayUseCase {
       throw new ValidationError('La fecha no es válida')
     }
 
-    if (actor.role !== UserRole.Administrador) {
+    if (
+      actor.role !== UserRole.Administrador &&
+      actor.role !== UserRole.SuperAdministrador
+    ) {
       const own = await this.attendanceRepository.getByUserAndDate(
         actor.id,
         dateKey,

@@ -1,0 +1,224 @@
+.catalog-page,
+.personal-page {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.catalog-page .page-header,
+.personal-page .page-header {
+  margin-bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.catalog-page .page-header h1,
+.personal-page .page-header h1 {
+  font-size: 1.35rem;
+}
+
+.catalog-page .page-header p,
+.personal-page .page-header p {
+  font-size: 0.88rem;
+  max-width: 40rem;
+}
+
+.catalog-page__eyebrow,
+.personal-page__eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-blue);
+}
+
+.catalog-page__actions,
+.personal-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.catalog-toolbar,
+.personal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+}
+
+.catalog-search,
+.personal-search {
+  position: relative;
+  flex: 1 1 220px;
+}
+
+.catalog-search__icon,
+.personal-search__icon {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  width: 1.05rem;
+  height: 1.05rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.catalog-search input,
+.personal-search input,
+.personal-toolbar select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input-bg);
+  padding: 0.65rem 0.8rem 0.65rem 2.1rem;
+  color: var(--ink);
+}
+
+.personal-toolbar select {
+  padding-left: 0.8rem;
+  min-width: 11rem;
+  flex: 0 1 14rem;
+}
+
+.catalog-toolbar strong,
+.personal-kpis strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.personal-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.personal-kpis__item {
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+  display: grid;
+  gap: 0.1rem;
+}
+
+.personal-kpis__item span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.catalog-table-wrap,
+.personal-table-wrap {
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+}
+
+.catalog-table,
+.personal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.catalog-table th,
+.personal-table th,
+.catalog-table td,
+.personal-table td {
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.catalog-table th,
+.personal-table th {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.catalog-table__actions,
+.personal-table__actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.catalog-empty,
+.personal-empty {
+  padding: 1.5rem 1rem;
+  border-radius: 14px;
+  border: 1px dashed var(--line);
+  background: var(--card-bg);
+}
+
+.personal-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.personal-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.personal-chip {
+  display: inline-flex;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--brand-blue-soft);
+  color: var(--brand-blue-deep);
+}
+
+.personal-chip--retirado {
+  background: #fdecea;
+  color: #c62828;
+}
+
+.personal-chip--ingreso {
+  background: #fff4e0;
+  color: #9a5b00;
+}
+
+.personal-progress {
+  padding: 0.7rem 0.85rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+}
+
+.personal-progress__bar {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--brand-blue);
+  min-width: 8px;
+  max-width: 100%;
+  transition: width 0.2s ease;
+}
+
+.personal-progress p {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .personal-form__grid,
+  .personal-kpis {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/composition_root.dart';
 import '../../domain/entities/image_folder.dart';
+import '../../domain/entities/supply.dart';
 import '../../domain/errors/domain_exception.dart';
+import '../../domain/services/supply_folder_service.dart';
+import '../../domain/services/supply_search_service.dart';
+import '../../domain/usecases/search_supplies_use_case.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import 'create_edit_folder_page.dart';
@@ -26,54 +32,85 @@ class FoldersPage extends StatefulWidget {
 class _FoldersPageState extends State<FoldersPage> {
   final _searchController = TextEditingController();
   List<ImageFolder> _folders = [];
+  List<Supply> _catalog = [];
+  int _catalogCount = 0;
   bool _loading = true;
   String? _error;
   String _query = '';
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_onSearchChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  List<ImageFolder> get _filteredFolders {
-    final query = _query.trim().toLowerCase();
-    if (query.isEmpty) return _folders;
-
-    return _folders.where((folder) {
-      final name = folder.name.toLowerCase();
-      final description = folder.description.toLowerCase();
-      final created = _searchableDate(folder.createdAt);
-      final updated = _searchableDate(folder.updatedAt);
-
-      return name.contains(query) ||
-          description.contains(query) ||
-          folder.assigneesLabel.toLowerCase().contains(query) ||
-          created.contains(query) ||
-          updated.contains(query);
-    }).toList();
+  void _onSearchChanged() {
+    setState(() => _query = _searchController.text);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 80), _loadCatalog);
   }
 
-  String _searchableDate(DateTime date) {
-    final local = date.toLocal();
-    final day = local.day.toString().padLeft(2, '0');
-    final month = local.month.toString().padLeft(2, '0');
-    final year = local.year.toString();
-    // Varias formas: 13/08/2026, 13-08-2026, 2026-08-13, 13082026
-    return [
-      '$day/$month/$year',
-      '$day-$month-$year',
-      '$year-$month-$day',
-      '$day$month$year',
-      '$day/$month',
-      year,
-    ].join(' ');
+  List<ImageFolder> get _displayFolders {
+    final byRoute = <String, ImageFolder>{};
+    for (final folder in _folders) {
+      final code = folder.routeCode;
+      if (code != null && code.isNotEmpty) {
+        byRoute[code] = folder;
+      }
+    }
+
+    final fromCatalog = _catalog
+        .map(
+          (supply) => folderFromSupply(
+            areaId: widget.areaId,
+            areaName: widget.areaName,
+            supply: supply,
+            existing: byRoute[supply.routeCode],
+          ),
+        )
+        .toList();
+    final used = fromCatalog.map((folder) => folder.routeCode).toSet();
+    final extra = _folders.where(
+      (folder) => folder.isSupplyFolder && !used.contains(folder.routeCode),
+    );
+    final custom = _folders.where((folder) => !folder.isSupplyFolder);
+    return [...extra, ...fromCatalog, ...custom];
+  }
+
+  List<ImageFolder> get _filteredFolders {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return _displayFolders;
+    final digits = normalizeRouteCode(_query);
+
+    final matched = _displayFolders.where((folder) {
+      final name = folder.name.toLowerCase();
+      final description = folder.description.toLowerCase();
+      final code = folder.routeCode ?? folder.name;
+      return name.contains(query) ||
+          description.contains(query) ||
+          supplyCodeMatchesQuery(code, digits);
+    }).toList();
+
+    if (digits.length >= supplySearchMinDigits) {
+      matched.sort((left, right) {
+        final leftScore = scoreSupplyCode(left.routeCode ?? left.name, digits);
+        final rightScore = scoreSupplyCode(right.routeCode ?? right.name, digits);
+        if (leftScore != rightScore) return leftScore.compareTo(rightScore);
+        return (left.routeCode ?? left.name)
+            .compareTo(right.routeCode ?? right.name);
+      });
+    }
+    return matched;
   }
 
   Future<void> _load() async {
@@ -92,9 +129,16 @@ class _FoldersPageState extends State<FoldersPage> {
         user,
         areaId: widget.areaId,
       );
+      final status = await deps.getSupplyCatalogStatusUseCase.execute(user);
+      final prefix = normalizeRouteCode(_query);
+      final supplies = prefix.length < supplySearchMinDigits
+          ? const <Supply>[]
+          : await deps.listSupplyCatalogUseCase.execute(user, prefix);
       if (!mounted) return;
       setState(() {
         _folders = folders;
+        _catalogCount = status?.supplyCount ?? 0;
+        _catalog = supplies;
         _loading = false;
       });
     } on DomainException catch (error) {
@@ -110,6 +154,44 @@ class _FoldersPageState extends State<FoldersPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadCatalog() async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null || !mounted) return;
+
+    final prefix = normalizeRouteCode(_query);
+    if (prefix.length < supplySearchMinDigits) {
+      setState(() => _catalog = []);
+      return;
+    }
+
+    try {
+      final supplies = await deps.listSupplyCatalogUseCase.execute(user, prefix);
+      if (!mounted) return;
+      setState(() => _catalog = supplies);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _catalog = []);
+    }
+  }
+
+  Future<void> _openFolder(ImageFolder folder) async {
+    final code = normalizeRouteCode(folder.routeCode ?? folder.name);
+    final folderId = isRouteCode(code) || isVirtualSupplyFolderId(folder.id)
+        ? supplyFolderDocId(widget.areaId, code)
+        : folder.id;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FolderDetailPage(
+          folderId: folderId,
+          areaName: widget.areaName,
+        ),
+      ),
+    );
+    await _load();
   }
 
   Future<void> _openCreate() async {
@@ -226,9 +308,19 @@ class _FoldersPageState extends State<FoldersPage> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Rutas de esta área. El técnico se ve en el detalle.',
+                      'Busca el código completo, sin el 12 o por los últimos dígitos.',
                       style: TextStyle(color: Colors.white70),
                     ),
+                    if (_catalogCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '$_catalogCount suministros',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -236,9 +328,15 @@ class _FoldersPageState extends State<FoldersPage> {
             TextField(
               controller: _searchController,
               textInputAction: TextInputAction.search,
-              onChanged: (value) => setState(() => _query = value),
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              onSubmitted: (_) {
+                if (_filteredFolders.isNotEmpty) {
+                  _openFolder(_filteredFolders.first);
+                }
+              },
               decoration: InputDecoration(
-                hintText: 'Buscar por nombre, fecha o descripción',
+                hintText: 'Código, últimos dígitos o sin el 12',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: hasQuery
                     ? IconButton(
@@ -252,7 +350,7 @@ class _FoldersPageState extends State<FoldersPage> {
                     : null,
               ),
             ),
-            if (!_loading && _error == null && _folders.isNotEmpty) ...[
+            if (!_loading && _error == null && _displayFolders.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
                 hasQuery
@@ -279,21 +377,21 @@ class _FoldersPageState extends State<FoldersPage> {
                 actionLabel: 'Reintentar',
                 onAction: _load,
               )
-            else if (_folders.isEmpty)
+            else if (_displayFolders.isEmpty && _catalogCount == 0)
               _EmptyState(
                 icon: Icons.folder_open_rounded,
-                title: 'Aún no tienes carpetas',
+                title: 'Catálogo pendiente',
                 subtitle:
-                    'Toca “Nueva carpeta”, ponle nombre y sube fotos del trabajo.',
-                actionLabel: 'Crear carpeta',
-                onAction: _openCreate,
+                    'Aún no hay suministros importados. Cuando existan, estarán fijos en cada área.',
+                actionLabel: 'Reintentar',
+                onAction: _load,
               )
             else if (filtered.isEmpty)
               _EmptyState(
                 icon: Icons.search_off_rounded,
                 title: 'Sin resultados',
                 subtitle:
-                    'No hay carpetas que coincidan con “${_query.trim()}”.',
+                    'Código completo, últimos 5 a 8 dígitos o sin el 12 inicial.',
                 actionLabel: 'Limpiar búsqueda',
                 onAction: () {
                   _searchController.clear();
@@ -307,15 +405,7 @@ class _FoldersPageState extends State<FoldersPage> {
                   child: Card(
                     child: InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                FolderDetailPage(folderId: folder.id),
-                          ),
-                        );
-                        await _load();
-                      },
+                      onTap: () => _openFolder(folder),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Row(
@@ -341,7 +431,11 @@ class _FoldersPageState extends State<FoldersPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    folder.name,
+                                    folder.isSupplyFolder
+                                        ? formatRouteCode(
+                                            folder.routeCode ?? folder.name,
+                                          )
+                                        : folder.name,
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w800,
@@ -349,9 +443,11 @@ class _FoldersPageState extends State<FoldersPage> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    folder.description.isEmpty
-                                        ? 'Sin descripción'
-                                        : folder.description,
+                                    folder.isSupplyFolder
+                                        ? 'Suministro del catálogo'
+                                        : (folder.description.isEmpty
+                                            ? 'Sin descripción'
+                                            : folder.description),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(

@@ -1,0 +1,173 @@
+.roles-page {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.roles-page .page-header {
+  margin-bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.roles-page__eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-blue);
+}
+
+.roles-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.roles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.75rem;
+}
+
+.roles-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+}
+
+.roles-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.roles-card__glyph {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 12px;
+  background: var(--brand-blue-soft);
+  color: var(--brand-blue-deep);
+}
+
+.roles-card__icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.roles-card__badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.roles-card h2 {
+  font-size: 1.05rem;
+}
+
+.roles-card__code {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.roles-card__meta {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.roles-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.roles-empty {
+  padding: 1.5rem 1rem;
+  border-radius: 14px;
+  border: 1px dashed var(--line);
+  background: var(--card-bg);
+}
+
+.roles-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.roles-form__hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.roles-permissions {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.roles-permissions__group h3,
+.roles-activities__group h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.roles-permissions__list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.roles-permissions__item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.88rem;
+}
+
+.roles-activities {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.roles-activities ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.roles-activities li {
+  margin: 0.15rem 0;
+}
+
+.personal-page__subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.personal-page__subnav .btn.is-active {
+  background: var(--brand-blue-soft);
+  color: var(--brand-blue-deep);
+  border-color: rgba(30, 136, 229, 0.22);
+}
+
+.personal-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}

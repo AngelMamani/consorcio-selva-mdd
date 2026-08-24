@@ -7,6 +7,8 @@ import '../state/session_controller.dart';
 import '../widgets/app_update_dialog.dart';
 import 'attendance_page.dart';
 import 'areas_page.dart';
+import 'tasks_map_page.dart';
+import 'tasks_page.dart';
 
 class TechnicianHomePage extends StatefulWidget {
   const TechnicianHomePage({super.key});
@@ -82,6 +84,8 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
       body: IndexedStack(
         index: _index,
         children: const [
+          TasksPage(),
+          TasksMapPage(),
           AreasPage(),
           AttendancePage(),
         ],
@@ -91,9 +95,19 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
           NavigationDestination(
+            icon: Icon(Icons.checklist_outlined),
+            selectedIcon: Icon(Icons.checklist_rounded),
+            label: 'Tareas',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map_rounded),
+            label: 'Mapa',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.layers_outlined),
             selectedIcon: Icon(Icons.layers_rounded),
-            label: 'Áreas',
+            label: 'Actividades',
           ),
           NavigationDestination(
             icon: Icon(Icons.fact_check_outlined),

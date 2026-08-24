@@ -7,6 +7,7 @@ import '../../application/composition_root.dart';
 import '../../domain/entities/folder_date.dart';
 import '../../domain/entities/image_folder.dart';
 import '../../domain/errors/domain_exception.dart';
+import '../../domain/services/supply_folder_service.dart';
 import '../services/device_location_service.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
@@ -14,9 +15,14 @@ import 'create_edit_folder_page.dart';
 import 'folder_date_detail_page.dart';
 
 class FolderDetailPage extends StatefulWidget {
-  const FolderDetailPage({super.key, required this.folderId});
+  const FolderDetailPage({
+    super.key,
+    required this.folderId,
+    this.areaName,
+  });
 
   final String folderId;
+  final String? areaName;
 
   @override
   State<FolderDetailPage> createState() => _FolderDetailPageState();
@@ -52,8 +58,24 @@ class _FolderDetailPageState extends State<FolderDetailPage> {
     });
 
     try {
-      final detail =
-          await deps.getFolderDetailUseCase.execute(user, widget.folderId);
+      var detail = await () async {
+        try {
+          return await deps.getFolderDetailUseCase.execute(
+            user,
+            widget.folderId,
+          );
+        } on DomainException {
+          final parsed = parseSupplyFolderDocId(widget.folderId);
+          if (parsed == null) rethrow;
+          await deps.ensureSupplyFolderUseCase.execute(
+            user,
+            areaId: parsed.areaId,
+            routeCode: parsed.routeCode,
+            areaName: widget.areaName,
+          );
+          return deps.getFolderDetailUseCase.execute(user, widget.folderId);
+        }
+      }();
       if (!mounted) return;
       setState(() {
         _folder = detail.folder;

@@ -28,7 +28,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
     final session = context.read<SessionController>();
     final ok = await session.login(
-      email: _emailController.text,
+      identifier: _emailController.text,
       password: _passwordController.text,
     );
     if (!mounted) return;
@@ -96,15 +96,19 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 28),
                     TextFormField(
                       controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
+                      keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
+                      maxLength: 8,
                       decoration: const InputDecoration(
-                        labelText: 'Correo',
-                        prefixIcon: Icon(Icons.mail_outline_rounded),
+                        labelText: 'Código (DNI)',
+                        hintText: '8 dígitos',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                        counterText: '',
                       ),
                       validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Ingresa tu correo';
+                        final dni = (value ?? '').replaceAll(RegExp(r'\D'), '');
+                        if (dni.length != 8) {
+                          return 'Ingresa tu DNI de 8 dígitos';
                         }
                         return null;
                       },

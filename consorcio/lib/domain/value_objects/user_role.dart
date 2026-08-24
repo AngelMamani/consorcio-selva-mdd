@@ -1,9 +1,12 @@
 enum UserRole {
+  superAdministrador,
   administrador,
   tecnico;
 
   static UserRole fromString(String value) {
     switch (value) {
+      case 'SUPER_ADMINISTRADOR':
+        return UserRole.superAdministrador;
       case 'ADMINISTRADOR':
         return UserRole.administrador;
       case 'TECNICO':
@@ -15,6 +18,8 @@ enum UserRole {
 
   String get firestoreValue {
     switch (this) {
+      case UserRole.superAdministrador:
+        return 'SUPER_ADMINISTRADOR';
       case UserRole.administrador:
         return 'ADMINISTRADOR';
       case UserRole.tecnico:
@@ -24,6 +29,8 @@ enum UserRole {
 
   String get label {
     switch (this) {
+      case UserRole.superAdministrador:
+        return 'Super Administrador';
       case UserRole.administrador:
         return 'Administrador';
       case UserRole.tecnico:

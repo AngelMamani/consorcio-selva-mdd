@@ -1,4 +1,5 @@
 import type { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers } from '@/domain/value-objects/UserRole'
 import type { ThemePreference } from '@/domain/value-objects/ThemePreference'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 
@@ -6,6 +7,7 @@ export interface User {
   id: string
   email: string
   displayName: string
+  dni: string
   role: UserRole
   theme: ThemePreference
   mustChangePassword: boolean
@@ -15,7 +17,7 @@ export interface User {
 }
 
 export function assertUserCanManageUsers(user: User): boolean {
-  return user.role === 'ADMINISTRADOR' && user.active
+  return canManageUsers(user.role) && user.active
 }
 
 export function assertUserCanAccessFolder(
@@ -28,14 +30,19 @@ export function assertUserCanAccessFolder(
   >,
 ): boolean {
   if (!user.active) return false
-  if (user.role === 'ADMINISTRADOR') return true
+  if (user.role === 'SUPER_ADMINISTRADOR' || user.role === 'ADMINISTRADOR') {
+    return true
+  }
   if (folder.ownerId === user.id) return true
   if (folder.assignToAllTechnicians) return true
   return (folder.assignedTechnicianIds ?? []).includes(user.id)
 }
 
 export function assertUserCanDeleteContent(user: User): boolean {
-  return user.role === 'ADMINISTRADOR' && user.active
+  return (
+    (user.role === 'SUPER_ADMINISTRADOR' || user.role === 'ADMINISTRADOR') &&
+    user.active
+  )
 }
 
 export function assertUserCanEditFolder(

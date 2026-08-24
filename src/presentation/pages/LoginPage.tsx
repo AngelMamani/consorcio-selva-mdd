@@ -45,7 +45,7 @@ export function LoginPage() {
     setSubmitting(true)
 
     try {
-      const user = await loginUseCase.execute({ email, password })
+      const user = await loginUseCase.execute({ identifier: email, password })
       setUser(user)
       navigate(user.mustChangePassword ? '/cambiar-contrasena' : '/carpetas', {
         replace: true,
@@ -84,13 +84,14 @@ export function LoginPage() {
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Correo electrónico</span>
+            <span>Correo o código (DNI)</span>
             <input
-              type="email"
+              type="text"
+              inputMode="email"
               autoComplete="username"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="correo@empresa.com"
+              placeholder="correo@empresa.com o 00000000"
               required
             />
           </label>

@@ -1,3 +1,4 @@
+import { FirebaseError } from 'firebase/app'
 import {
   addDoc,
   collection,
@@ -8,6 +9,7 @@ import {
   increment,
   orderBy,
   query,
+  runTransaction,
   updateDoc,
   where,
   Timestamp,
@@ -20,7 +22,8 @@ import type {
 } from '@/domain/repositories/ImageFolderRepository'
 import type { GeoLocation } from '@/domain/value-objects/GeoLocation'
 import { isValidGeoLocation } from '@/domain/value-objects/GeoLocation'
-import { NotFoundError } from '@/domain/errors/DomainError'
+import { isRouteCode } from '@/domain/value-objects/RouteCode'
+import { NotFoundError, UnauthorizedError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
 
 interface FolderDoc {
@@ -34,6 +37,7 @@ interface FolderDoc {
   assignedTechnicianIds?: string[]
   assignedTechnicianNames?: string[]
   imageCount: number
+  routeCode?: string
   latitude?: number
   longitude?: number
   locationAccuracy?: number
@@ -72,6 +76,9 @@ function mapFolder(id: string, data: FolderDoc): ImageFolder {
       ? data.assignedTechnicianNames
       : [],
     imageCount: data.imageCount,
+    routeCode:
+      data.routeCode ||
+      (isRouteCode(data.name) ? data.name : undefined),
     location: mapLocation(data),
     createdAt: data.createdAt.toDate(),
     updatedAt: data.updatedAt.toDate(),
@@ -186,8 +193,29 @@ export class FirebaseImageFolderRepository implements ImageFolderRepository {
         : now
     }
 
-    const created = await addDoc(this.collectionRef, payload)
-    return mapFolder(created.id, payload)
+    try {
+      if (input.id) {
+        const ref = doc(this.collectionRef, input.id)
+        return await runTransaction(firestoreDb, async (transaction) => {
+          const snapshot = await transaction.get(ref)
+          if (snapshot.exists()) {
+            return mapFolder(snapshot.id, snapshot.data() as FolderDoc)
+          }
+          transaction.set(ref, payload)
+          return mapFolder(input.id as string, payload)
+        })
+      }
+
+      const created = await addDoc(this.collectionRef, payload)
+      return mapFolder(created.id, payload)
+    } catch (error) {
+      if (error instanceof FirebaseError && error.code === 'permission-denied') {
+        throw new UnauthorizedError(
+          'Firestore rechazó la carpeta del suministro. Hay que publicar las reglas nuevas.',
+        )
+      }
+      throw error
+    }
   }
 
   async update(

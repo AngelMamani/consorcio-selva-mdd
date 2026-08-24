@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { FolderDate } from '@/domain/entities/FolderDate'
 import { formatDateKey, toDateKey } from '@/domain/entities/FolderDate'
@@ -7,7 +7,8 @@ import type { FolderImage } from '@/domain/entities/FolderImage'
 import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { hasGeoLocation } from '@/domain/value-objects/GeoLocation'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers } from '@/domain/value-objects/UserRole'
+import { parseSupplyFolderDocId } from '@/domain/services/SupplyFolderService'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -121,9 +122,13 @@ function IconEmpty() {
 export function FolderDetailPage() {
   const { folderId = '' } = useParams()
   const navigate = useNavigate()
+  const routeState = useLocation().state as
+    | { areaName?: string; routeCode?: string }
+    | null
   const { user } = useAuth()
   const {
     getFolderUseCase,
+    ensureSupplyFolderUseCase,
     listFolderDatesUseCase,
     createFolderDateUseCase,
     deleteFolderDateUseCase,
@@ -140,13 +145,46 @@ export function FolderDetailPage() {
   const [dateKey, setDateKey] = useState(toDateKey(new Date()))
   const [dateNote, setDateNote] = useState('')
 
-  const isAdmin = user?.role === UserRole.Administrador
+  const isAdmin = Boolean(user && canManageUsers(user.role))
 
   async function loadData() {
     if (!user || !folderId) return
-    setLoading(true)
+    const parsed = parseSupplyFolderDocId(folderId)
+    if (parsed && !folder) {
+      const now = new Date()
+      setFolder({
+        id: folderId,
+        areaId: parsed.areaId,
+        areaName: routeState?.areaName ?? '',
+        name: parsed.routeCode,
+        description: 'Suministro',
+        ownerId: user.id,
+        ownerName: user.displayName,
+        assignToAllTechnicians: true,
+        assignedTechnicianIds: [],
+        assignedTechnicianNames: [],
+        imageCount: 0,
+        routeCode: parsed.routeCode,
+        createdAt: now,
+        updatedAt: now,
+      })
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
-      const folderData = await getFolderUseCase.execute(user, folderId)
+      let folderData
+      try {
+        folderData = await getFolderUseCase.execute(user, folderId)
+      } catch (err) {
+        if (!parsed) throw err
+        folderData = await ensureSupplyFolderUseCase.execute(
+          user,
+          parsed.areaId,
+          parsed.routeCode,
+          { areaName: routeState?.areaName },
+        )
+      }
       setFolder(folderData)
 
       const [dateResult, imageResult] = await Promise.allSettled([

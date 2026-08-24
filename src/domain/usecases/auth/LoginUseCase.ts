@@ -2,6 +2,7 @@ import type { AuthCredentials, AuthRepository } from '@/domain/repositories/Auth
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { User } from '@/domain/entities/User'
 import { UnauthorizedError, ValidationError } from '@/domain/errors/DomainError'
+import { digitsOnly, DNI_PATTERN } from '@/domain/value-objects/Dni'
 
 export class LoginUseCase {
   private readonly authRepository: AuthRepository
@@ -13,14 +14,18 @@ export class LoginUseCase {
   }
 
   async execute(credentials: AuthCredentials): Promise<User> {
-    const email = credentials.email.trim().toLowerCase()
+    const identifier = credentials.identifier.trim()
     const password = credentials.password
 
-    if (!email || !password) {
-      throw new ValidationError('Correo y contraseña son obligatorios')
+    if (!identifier || !password) {
+      throw new ValidationError('Correo o código (DNI) y contraseña son obligatorios')
     }
 
-    const userId = await this.authRepository.login({ email, password })
+    const email = identifier.includes('@')
+      ? identifier.toLowerCase()
+      : await this.resolveDniEmail(identifier)
+
+    const userId = await this.authRepository.login(email, password)
     const user = await this.userRepository.getById(userId)
 
     if (!user) {
@@ -34,5 +39,15 @@ export class LoginUseCase {
     }
 
     return user
+  }
+
+  private async resolveDniEmail(identifier: string): Promise<string> {
+    const dni = digitsOnly(identifier)
+    if (!DNI_PATTERN.test(dni)) {
+      throw new ValidationError(
+        'Ingresa tu correo electrónico o tu código (DNI de 8 dígitos)',
+      )
+    }
+    return this.authRepository.resolveEmailByDni(dni)
   }
 }

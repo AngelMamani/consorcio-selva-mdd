@@ -4,6 +4,7 @@ import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { swalError, swalSuccess } from '@/presentation/utils/appSwal'
+import { readApkReleaseVersion } from '@/presentation/utils/readApkReleaseVersion'
 import './MobileAppPage.css'
 
 function formatWhen(date: Date): string {
@@ -22,12 +23,14 @@ export function MobileAppPage() {
   const [current, setCurrent] = useState<MobileAppRelease | null>(null)
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
+  const [readingApk, setReadingApk] = useState(false)
   const [progress, setProgress] = useState(0)
   const [versionName, setVersionName] = useState('')
-  const [versionCode, setVersionCode] = useState('')
+  const [versionCode, setVersionCode] = useState<number | null>(null)
   const [notes, setNotes] = useState('')
   const [forceUpdate, setForceUpdate] = useState(false)
   const [apkFile, setApkFile] = useState<File | null>(null)
+  const [apkHint, setApkHint] = useState('')
 
   async function load() {
     if (!user) return
@@ -35,11 +38,6 @@ export function MobileAppPage() {
     try {
       const release = await getMobileAppReleaseUseCase.execute(user)
       setCurrent(release)
-      if (release) {
-        setVersionCode(String(release.versionCode + 1))
-      } else {
-        setVersionCode('5')
-      }
     } catch (err) {
       swalError(
         err instanceof DomainError
@@ -56,11 +54,52 @@ export function MobileAppPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
+  async function handleApkSelected(file: File | null) {
+    setApkFile(file)
+    setVersionName('')
+    setVersionCode(null)
+    setApkHint('')
+    if (!file) return
+
+    setReadingApk(true)
+    try {
+      const meta = await readApkReleaseVersion(file)
+      setVersionName(meta.versionName)
+      setVersionCode(meta.versionCode)
+
+      if (current && meta.versionCode <= current.versionCode) {
+        setApkHint(
+          `Este APK trae código ${meta.versionCode}, pero ya publicaste ${current.versionCode}. Genera un APK nuevo con código mayor.`,
+        )
+      } else {
+        setApkHint(
+          `Leído del APK: ${meta.versionName} · código ${meta.versionCode}`,
+        )
+      }
+    } catch (err) {
+      setApkFile(null)
+      setApkHint('')
+      swalError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo leer la versión del APK',
+      )
+    } finally {
+      setReadingApk(false)
+    }
+  }
+
   async function handlePublish(event: FormEvent) {
     event.preventDefault()
-    if (!user || publishing) return
-    if (!apkFile) {
-      swalError('Elige el archivo APK')
+    if (!user || publishing || readingApk) return
+    if (!apkFile || !versionName || versionCode == null) {
+      swalError('Elige el APK; la versión se lee sola')
+      return
+    }
+    if (current && versionCode <= current.versionCode) {
+      swalError(
+        `Este APK trae código ${versionCode}. Debe ser mayor que ${current.versionCode}.`,
+      )
       return
     }
 
@@ -70,7 +109,7 @@ export function MobileAppPage() {
       const buffer = await apkFile.arrayBuffer()
       const published = await publishMobileAppReleaseUseCase.execute(user, {
         versionName,
-        versionCode: Number(versionCode),
+        versionCode,
         notes,
         forceUpdate,
         apkFileName: apkFile.name,
@@ -83,7 +122,8 @@ export function MobileAppPage() {
       setNotes('')
       setForceUpdate(false)
       setVersionName('')
-      setVersionCode(String(published.versionCode + 1))
+      setVersionCode(null)
+      setApkHint('')
       swalSuccess(`Publicada ${published.versionName} (${published.versionCode})`)
     } catch (err) {
       swalError(
@@ -95,6 +135,11 @@ export function MobileAppPage() {
     }
   }
 
+  const canPublish =
+    Boolean(apkFile && versionName && versionCode != null) &&
+    !readingApk &&
+    !(current && versionCode != null && versionCode <= current.versionCode)
+
   return (
     <section className="mobile-app-page">
       <header className="mobile-app-page__header">
@@ -102,8 +147,8 @@ export function MobileAppPage() {
           <p className="mobile-app-page__eyebrow">App de técnicos</p>
           <h2>Actualización del APK</h2>
           <p>
-            El aviso solo aparece si el celular tiene un <strong>código menor</strong> al
-            publicado. Si ya instalaste la misma versión, no sale nada.
+            Sube el APK y la <strong>versión</strong> y el <strong>código</strong> se
+            leen solos del archivo. Así no hay desfase con lo que tiene el celular.
           </p>
         </div>
       </header>
@@ -128,7 +173,11 @@ export function MobileAppPage() {
             </div>
             <div>
               <dt>Obligatoria</dt>
-              <dd>{current.forceUpdate ? 'Sí, no se puede omitir' : 'No, pueden seguir por ahora'}</dd>
+              <dd>
+                {current.forceUpdate
+                  ? 'Sí, no se puede omitir'
+                  : 'No, pueden seguir por ahora'}
+              </dd>
             </div>
             {current.notes ? (
               <div>
@@ -139,34 +188,60 @@ export function MobileAppPage() {
           </dl>
         ) : (
           <p>
-            Todavía no hay una versión publicada. Sube el APK que ya incluye el
-            aviso de actualización.
+            Todavía no hay una versión publicada. Sube el APK de release.
           </p>
         )}
       </article>
 
-      <form className="mobile-app-form" onSubmit={(event) => void handlePublish(event)}>
+      <form
+        className="mobile-app-form"
+        onSubmit={(event) => void handlePublish(event)}
+      >
         <h3>Publicar nueva versión</h3>
+
         <label className="field">
-          <span>Versión visible</span>
+          <span>Archivo APK</span>
           <input
-            value={versionName}
-            onChange={(event) => setVersionName(event.target.value)}
-            placeholder="1.2.2"
-            required
+            type="file"
+            accept=".apk,application/vnd.android.package-archive"
+            onChange={(event) =>
+              void handleApkSelected(event.target.files?.[0] ?? null)
+            }
+            required={!apkFile}
+            disabled={publishing || readingApk}
           />
+          {readingApk ? <em>Leyendo versión del APK…</em> : null}
+          {apkFile && !readingApk ? (
+            <em>
+              {apkFile.name} · {(apkFile.size / (1024 * 1024)).toFixed(1)} MB
+            </em>
+          ) : null}
+          {apkHint ? (
+            <em
+              className={
+                current &&
+                versionCode != null &&
+                versionCode <= current.versionCode
+                  ? 'mobile-app-hint mobile-app-hint--warn'
+                  : 'mobile-app-hint'
+              }
+            >
+              {apkHint}
+            </em>
+          ) : null}
         </label>
-        <label className="field">
-          <span>Código (entero, siempre mayor al anterior)</span>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={versionCode}
-            onChange={(event) => setVersionCode(event.target.value)}
-            required
-          />
-        </label>
+
+        <div className="mobile-app-auto">
+          <div>
+            <span>Versión (automática)</span>
+            <strong>{versionName || '—'}</strong>
+          </div>
+          <div>
+            <span>Código (automático)</span>
+            <strong>{versionCode ?? '—'}</strong>
+          </div>
+        </div>
+
         <label className="field">
           <span>Qué hay de nuevo (opcional)</span>
           <textarea
@@ -174,22 +249,8 @@ export function MobileAppPage() {
             maxLength={500}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="Asistencia de campo sin área, foto opcional..."
+            placeholder="Tareas por GPS, suministros cercanos..."
           />
-        </label>
-        <label className="field">
-          <span>Archivo APK</span>
-          <input
-            type="file"
-            accept=".apk,application/vnd.android.package-archive"
-            onChange={(event) => setApkFile(event.target.files?.[0] ?? null)}
-            required={!apkFile}
-          />
-          {apkFile ? (
-            <em>
-              {apkFile.name} · {(apkFile.size / (1024 * 1024)).toFixed(1)} MB
-            </em>
-          ) : null}
         </label>
         <label className="mobile-app-check">
           <input
@@ -207,9 +268,13 @@ export function MobileAppPage() {
         <button
           type="submit"
           className="btn btn--soft-primary"
-          disabled={publishing}
+          disabled={publishing || readingApk || !canPublish}
         >
-          {publishing ? 'Publicando...' : 'Publicar APK'}
+          {publishing
+            ? 'Publicando...'
+            : readingApk
+              ? 'Leyendo APK...'
+              : 'Publicar APK'}
         </button>
       </form>
     </section>

@@ -53,7 +53,7 @@ class _AreasPageState extends State<AreasPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = 'No se pudieron cargar las áreas';
+        _error = 'No se pudieron cargar las actividades';
         _loading = false;
       });
     }
@@ -73,7 +73,7 @@ class _AreasPageState extends State<AreasPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Áreas'),
+        title: const Text('Actividades'),
         actions: [
           IconButton(
             tooltip: session.isDarkTheme ? 'Modo claro' : 'Modo oscuro',
@@ -171,7 +171,7 @@ class _AreasPageState extends State<AreasPage> {
               const Padding(
                 padding: EdgeInsets.only(top: 24),
                 child: Text(
-                  'Aún no hay áreas. Un administrador debe crearlas en el panel web.',
+                  'Aún no hay actividades. Un administrador debe crearlas en el panel web.',
                   textAlign: TextAlign.center,
                 ),
               )

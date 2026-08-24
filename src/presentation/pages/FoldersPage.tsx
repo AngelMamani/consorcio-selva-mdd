@@ -2,22 +2,41 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { Area } from '@/domain/entities/Area'
 import type { User } from '@/domain/entities/User'
+import type { Supply } from '@/domain/entities/Supply'
 import { formatFolderAssignees } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers, UserRole } from '@/domain/value-objects/UserRole'
+import {
+  isRouteCode,
+  normalizeRouteCode,
+} from '@/domain/value-objects/RouteCode'
 import {
   folderMatchesSearch,
   sortFolders,
   type FolderSortOption,
 } from '@/domain/services/FolderSearchService'
+import {
+  findCodeHighlight,
+  formatRouteCode,
+  scoreSupplyCode,
+  SUPPLY_SEARCH_MIN_DIGITS,
+} from '@/domain/services/SupplySearchService'
+import {
+  folderFromSupply,
+  isSupplyFolder,
+  isVirtualSupplyFolderId,
+  supplyFolderDocId,
+} from '@/domain/services/SupplyFolderService'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -26,7 +45,42 @@ import {
   swalError,
   swalSuccess,
 } from '@/presentation/utils/appSwal'
+import {
+  readRecentSupplies,
+  rememberRecentSupply,
+} from '@/presentation/utils/recentSupplies'
 import './FoldersPage.css'
+
+function HighlightRouteCode({
+  code,
+  query,
+}: {
+  code: string
+  query: string
+}) {
+  const formatted = formatRouteCode(code)
+  const highlight = findCodeHighlight(code, query)
+  if (!highlight) {
+    return <span className="folders-code">{formatted}</span>
+  }
+
+  const nodes: ReactNode[] = []
+  let digitIndex = 0
+  for (let index = 0; index < formatted.length; index += 1) {
+    const char = formatted[index]
+    if (char === ' ') {
+      nodes.push(' ')
+      continue
+    }
+    const active = digitIndex >= highlight.start && digitIndex < highlight.end
+    nodes.push(
+      active ? <mark key={index}>{char}</mark> : <span key={index}>{char}</span>,
+    )
+    digitIndex += 1
+  }
+
+  return <span className="folders-code">{nodes}</span>
+}
 
 function formatDateTime(date: Date): string {
   return date.toLocaleString('es-PE', {
@@ -418,6 +472,8 @@ function FolderActions({
   onEdit: (folder: ImageFolder) => void
   onDelete: (folder: ImageFolder) => void
 }) {
+  if (isVirtualSupplyFolderId(folder.id)) return null
+
   return (
     <div
       className="folder-tile__actions"
@@ -455,12 +511,17 @@ export function FoldersPage() {
     createFolderUseCase,
     updateFolderUseCase,
     deleteFolderUseCase,
+    ensureSupplyFolderUseCase,
+    listSupplyCatalogUseCase,
+    getSupplyCatalogStatusUseCase,
     getAreaUseCase,
     listTechniciansUseCase,
   } = useDependencies()
 
   const [area, setArea] = useState<Area | null>(null)
   const [folders, setFolders] = useState<ImageFolder[]>([])
+  const [catalogSupplies, setCatalogSupplies] = useState<Supply[]>([])
+  const [catalogCount, setCatalogCount] = useState(0)
   const [technicianOptions, setTechnicianOptions] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -478,9 +539,11 @@ export function FoldersPage() {
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [sortBy, setSortBy] = useState<FolderSortOption>('newest')
   const [viewMode, setViewMode] = useState<FolderViewMode>(readStoredViewMode)
-  const deferredSearch = useDeferredValue(searchTerm)
+  const [recentSupplies, setRecentSupplies] = useState(readRecentSupplies)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchDigits = normalizeRouteCode(searchTerm)
 
-  const isAdmin = user?.role === UserRole.Administrador
+  const isAdmin = Boolean(user && canManageUsers(user.role))
 
   useEffect(() => {
     localStorage.setItem(FOLDER_VIEW_STORAGE_KEY, viewMode)
@@ -511,9 +574,31 @@ export function FoldersPage() {
     return [...names].sort((a, b) => a.localeCompare(b, 'es'))
   }, [folders])
 
+  const displayFolders = useMemo(() => {
+    const byRoute = new Map<string, ImageFolder>()
+    for (const folder of folders) {
+      if (folder.routeCode) byRoute.set(folder.routeCode, folder)
+    }
+
+    const fromCatalog = catalogSupplies.map((supply) =>
+      folderFromSupply({
+        areaId,
+        areaName: area?.name ?? '',
+        supply,
+        existing: byRoute.get(supply.routeCode),
+      }),
+    )
+    const catalogRoutes = new Set(fromCatalog.map((item) => item.routeCode))
+    const extraSupply = folders.filter(
+      (folder) => folder.routeCode && !catalogRoutes.has(folder.routeCode),
+    )
+    const custom = folders.filter((folder) => !folder.routeCode)
+    return [...extraSupply, ...fromCatalog, ...custom]
+  }, [folders, catalogSupplies, areaId, area?.name])
+
   const filteredFolders = useMemo(() => {
-    const matched = folders.filter((folder) => {
-      const matchesSearch = folderMatchesSearch(folder, deferredSearch)
+    const matched = displayFolders.filter((folder) => {
+      const matchesSearch = folderMatchesSearch(folder, searchTerm)
       const label = formatFolderAssignees(folder)
       const matchesOwner =
         ownerFilter === 'all' ||
@@ -522,8 +607,24 @@ export function FoldersPage() {
         folder.ownerName === ownerFilter
       return matchesSearch && matchesOwner
     })
+    if (searchDigits.length >= SUPPLY_SEARCH_MIN_DIGITS) {
+      return [...matched].sort((left, right) => {
+        const leftScore = scoreSupplyCode(
+          left.routeCode ?? left.name,
+          searchDigits,
+        )
+        const rightScore = scoreSupplyCode(
+          right.routeCode ?? right.name,
+          searchDigits,
+        )
+        if (leftScore !== rightScore) return leftScore - rightScore
+        return (left.routeCode ?? left.name).localeCompare(
+          right.routeCode ?? right.name,
+        )
+      })
+    }
     return sortFolders(matched, sortBy)
-  }, [folders, deferredSearch, ownerFilter, sortBy])
+  }, [displayFolders, searchTerm, searchDigits, ownerFilter, sortBy])
 
   const totalImages = useMemo(
     () => folders.reduce((sum, folder) => sum + folder.imageCount, 0),
@@ -532,22 +633,23 @@ export function FoldersPage() {
 
   async function loadFolders() {
     if (!user || !areaId) return
-    setLoading(true)
     setError(null)
     try {
-      const [nextArea, result] = await Promise.all([
-        getAreaUseCase.execute(user, areaId),
-        listFoldersUseCase.execute(user, areaId),
-      ])
+      const nextArea = await getAreaUseCase.execute(user, areaId)
       setArea(nextArea)
+      setLoading(false)
+      const [result, status] = await Promise.all([
+        listFoldersUseCase.execute(user, areaId),
+        getSupplyCatalogStatusUseCase.execute(user),
+      ])
       setFolders(result)
+      setCatalogCount(status?.count ?? 0)
     } catch (err) {
       setArea(null)
+      setLoading(false)
       swalError(
         err instanceof DomainError ? err.message : 'Error al cargar carpetas',
       )
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -555,6 +657,74 @@ export function FoldersPage() {
     void loadFolders()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, areaId])
+
+  useEffect(() => {
+    if (!user) return
+    if (searchDigits.length > 0 && searchDigits.length < SUPPLY_SEARCH_MIN_DIGITS) {
+      setCatalogSupplies([])
+      return
+    }
+    let cancelled = false
+    void listSupplyCatalogUseCase
+      .execute(user, searchDigits)
+      .then((rows) => {
+        if (!cancelled) setCatalogSupplies(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogSupplies([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user, searchDigits, listSupplyCatalogUseCase])
+
+  function openFolder(folder: ImageFolder) {
+    if (!areaId) return
+    const routeCode = folder.routeCode || normalizeRouteCode(folder.name)
+    const folderId =
+      isRouteCode(routeCode) || isVirtualSupplyFolderId(folder.id)
+        ? supplyFolderDocId(areaId, routeCode)
+        : folder.id
+    if (isRouteCode(routeCode)) {
+      setRecentSupplies(rememberRecentSupply(routeCode))
+    }
+    navigate(`/carpetas/${folderId}`, {
+      state: {
+        areaName: area?.name ?? folder.areaName,
+        routeCode: isRouteCode(routeCode) ? routeCode : undefined,
+      },
+    })
+  }
+
+  function openSupplyCode(routeCode: string) {
+    if (!areaId) return
+    const folder =
+      displayFolders.find((item) => item.routeCode === routeCode) ??
+      ({
+        id: supplyFolderDocId(areaId, routeCode),
+        areaId,
+        areaName: area?.name ?? '',
+        name: routeCode,
+        description: 'Suministro',
+        ownerId: '',
+        ownerName: '',
+        assignToAllTechnicians: true,
+        assignedTechnicianIds: [],
+        assignedTechnicianNames: [],
+        imageCount: 0,
+        routeCode,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } satisfies ImageFolder)
+    openFolder(folder)
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    const first = filteredFolders[0]
+    if (first) openFolder(first)
+  }
 
   function openCreateModal() {
     setActiveFolder(null)
@@ -618,13 +788,16 @@ export function FoldersPage() {
     swalSuccess('Carpeta creada')
 
     try {
-      const folder = await createFolderUseCase.execute(user, {
-        name: form.name,
-        description: form.description,
-        areaId,
-        assignToAllTechnicians: form.assignToAllTechnicians,
-        assignedTechnicianIds: form.assignedTechnicianIds,
-      })
+      const typedCode = normalizeRouteCode(form.name)
+      const folder = isRouteCode(typedCode)
+        ? await ensureSupplyFolderUseCase.execute(user, areaId, typedCode)
+        : await createFolderUseCase.execute(user, {
+            name: form.name,
+            description: form.description,
+            areaId,
+            assignToAllTechnicians: form.assignToAllTechnicians,
+            assignedTechnicianIds: form.assignedTechnicianIds,
+          })
 
       await loadFolders()
       navigate(`/carpetas/${folder.id}`)
@@ -723,23 +896,30 @@ export function FoldersPage() {
     content = (
       <div className="folders-empty">
         <div className="folders-empty__spinner" />
-        <p>Cargando carpetas...</p>
+        <p>Cargando suministros...</p>
       </div>
     )
-  } else if (folders.length === 0) {
+  } else if (displayFolders.length === 0 && catalogCount === 0) {
     content = (
       <div className="folders-empty panel">
         <IconEmpty />
-        <h3>Todavía no hay carpetas</h3>
-        <p>Crea la primera para organizar las fotos de campo.</p>
-        <button
-          type="button"
-          className="btn btn--soft-primary"
-          onClick={openCreateModal}
-        >
-          <IconFolderPlus />
-          Nueva carpeta
-        </button>
+        <h3>Catálogo de suministros pendiente</h3>
+        <p>
+          Importa los suministros en Estaciones. Cada área trabaja con ese
+          catálogo completo.
+        </p>
+      </div>
+    )
+  } else if (filteredFolders.length === 0 && !searchTerm.trim()) {
+    content = (
+      <div className="folders-empty panel">
+        <IconSearch />
+        <h3>Busca un suministro</h3>
+        <p>
+          Código completo, sin el 12 o los últimos dígitos. Hay{' '}
+          {catalogCount.toLocaleString('es-PE')} suministros en esta
+          actividad.
+        </p>
       </div>
     )
   } else if (filteredFolders.length === 0) {
@@ -747,7 +927,10 @@ export function FoldersPage() {
       <div className="folders-empty panel">
         <IconSearch />
         <h3>Sin resultados</h3>
-        <p>Prueba otro término o limpia los filtros.</p>
+        <p>
+          Prueba el código completo, los últimos 5 a 8 dígitos o quita el 12
+          inicial.
+        </p>
         <button
           type="button"
           className="btn btn--soft-blue btn--small"
@@ -770,11 +953,11 @@ export function FoldersPage() {
             role="link"
             tabIndex={0}
             aria-label={`Abrir carpeta ${folder.name}`}
-            onClick={() => navigate(`/carpetas/${folder.id}`)}
+            onClick={() => openFolder(folder)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
-                navigate(`/carpetas/${folder.id}`)
+                openFolder(folder)
               }
             }}
           >
@@ -784,13 +967,26 @@ export function FoldersPage() {
               </div>
               <div className="folder-tile__copy">
                 <div className="folder-tile__title-row">
-                  <h3>{folder.name}</h3>
+                  <h3>
+                    {isSupplyFolder(folder) ? (
+                      <HighlightRouteCode
+                        code={folder.routeCode ?? folder.name}
+                        query={searchTerm}
+                      />
+                    ) : (
+                      folder.name
+                    )}
+                  </h3>
                   <span className="folder-tile__open-hint">
                     Abrir
                     <IconChevron />
                   </span>
                 </div>
-                <p>{folder.description || 'Sin descripción'}</p>
+                <p>
+                  {isSupplyFolder(folder)
+                    ? 'Suministro del catálogo'
+                    : folder.description || 'Sin descripción'}
+                </p>
               </div>
             </div>
 
@@ -806,7 +1002,9 @@ export function FoldersPage() {
               </span>
             </div>
 
-            <FolderSchedule folder={folder} />
+            {isVirtualSupplyFolderId(folder.id) ? null : (
+              <FolderSchedule folder={folder} />
+            )}
 
             <FolderActions
               folder={folder}
@@ -840,11 +1038,11 @@ export function FoldersPage() {
                   className="folders-list-row"
                   tabIndex={0}
                   aria-label={`Abrir carpeta ${folder.name}`}
-                  onClick={() => navigate(`/carpetas/${folder.id}`)}
+                  onClick={() => openFolder(folder)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      navigate(`/carpetas/${folder.id}`)
+                      openFolder(folder)
                     }
                   }}
                 >
@@ -857,9 +1055,20 @@ export function FoldersPage() {
                         <IconFolder />
                       </span>
                       <span>
-                        <strong className="folder-list-name">{folder.name}</strong>
+                        <strong className="folder-list-name">
+                          {isSupplyFolder(folder) ? (
+                            <HighlightRouteCode
+                              code={folder.routeCode ?? folder.name}
+                              query={searchTerm}
+                            />
+                          ) : (
+                            folder.name
+                          )}
+                        </strong>
                         <span className="folder-list-desc">
-                          {folder.description || 'Sin descripción'}
+                          {isSupplyFolder(folder)
+                            ? 'Suministro del catálogo'
+                            : folder.description || 'Sin descripción'}
                         </span>
                       </span>
                     </div>
@@ -900,11 +1109,11 @@ export function FoldersPage() {
               role="link"
               tabIndex={0}
               aria-label={`Abrir carpeta ${folder.name}`}
-              onClick={() => navigate(`/carpetas/${folder.id}`)}
+              onClick={() => openFolder(folder)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  navigate(`/carpetas/${folder.id}`)
+                  openFolder(folder)
                 }
               }}
             >
@@ -916,8 +1125,21 @@ export function FoldersPage() {
                   <IconFolder />
                 </span>
                 <div className="folders-list-item__copy">
-                  <strong>{folder.name}</strong>
-                  <p>{folder.description || 'Sin descripción'}</p>
+                  <strong>
+                    {isSupplyFolder(folder) ? (
+                      <HighlightRouteCode
+                        code={folder.routeCode ?? folder.name}
+                        query={searchTerm}
+                      />
+                    ) : (
+                      folder.name
+                    )}
+                  </strong>
+                  <p>
+                    {isSupplyFolder(folder)
+                      ? 'Suministro del catálogo'
+                      : folder.description || 'Sin descripción'}
+                  </p>
                 </div>
                 <IconChevron />
               </div>
@@ -956,16 +1178,14 @@ export function FoldersPage() {
         <div>
           <p className="folders-page__eyebrow">
             <Link to="/areas" className="folders-page__back">
-              ← Áreas
+              ← Actividades
             </Link>
           </p>
           <h2>{area?.name || 'Carpetas'}</h2>
           <p>
             {area?.description?.trim()
               ? area.description
-              : isAdmin
-                ? 'Rutas/carpetas de esta área. Puedes asignar uno o más técnicos, o a todos.'
-                : 'Organiza tus rutas de esta área y sube las fotos de campo.'}
+              : 'Busca por código, sin el 12 o por los últimos dígitos. La carpeta se crea solo al abrirla.'}
           </p>
         </div>
         <button
@@ -979,11 +1199,11 @@ export function FoldersPage() {
         </button>
       </div>
 
-      {!loading && folders.length > 0 ? (
+      {!loading ? (
         <div className="folders-summary" aria-label="Resumen de carpetas">
           <div className="folders-summary__item">
-            <strong>{folders.length}</strong>
-            <span>carpetas</span>
+            <strong>{catalogCount.toLocaleString('es-PE')}</strong>
+            <span>suministros</span>
           </div>
           <div className="folders-summary__item">
             <strong>{totalImages}</strong>
@@ -1000,32 +1220,58 @@ export function FoldersPage() {
         <p className="form-alert form-alert--error">{error}</p>
       ) : null}
 
-      {!loading && folders.length > 0 ? (
+      {!loading ? (
         <div className="folder-toolbar folders-toolbar">
-          <label className="folder-search">
-            <span className="sr-only">Buscar carpetas</span>
-            <IconSearch />
-            <input
-              type="search"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder={
-                isAdmin
-                  ? 'Buscar por nombre, descripción o técnico...'
-                  : 'Buscar carpeta...'
-              }
-              autoComplete="off"
-            />
-            {searchTerm ? (
-              <button
-                type="button"
-                className="folder-search__clear"
-                onClick={() => setSearchTerm('')}
-              >
-                Limpiar
-              </button>
+          <div className="folders-search-block">
+            <label className="folder-search">
+              <span className="sr-only">Buscar suministros</span>
+              <IconSearch />
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Código, últimos dígitos o sin el 12…"
+                inputMode="numeric"
+                autoComplete="off"
+                autoFocus
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  className="folder-search__clear"
+                  onClick={() => {
+                    setSearchTerm('')
+                    searchInputRef.current?.focus()
+                  }}
+                >
+                  Limpiar
+                </button>
+              ) : null}
+            </label>
+            <p className="folders-search-hint">
+              {searchDigits.length === 0
+                ? 'Enter abre el primer resultado. También puedes omitir el 12.'
+                : searchDigits.length < SUPPLY_SEARCH_MIN_DIGITS
+                  ? 'Sigue escribiendo…'
+                  : `${filteredFolders.length} coincidencia${filteredFolders.length === 1 ? '' : 's'}`}
+            </p>
+            {recentSupplies.length > 0 && searchDigits.length === 0 ? (
+              <div className="folders-recent" aria-label="Suministros recientes">
+                <span>Recientes</span>
+                {recentSupplies.map((code) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => openSupplyCode(code)}
+                  >
+                    {formatRouteCode(code)}
+                  </button>
+                ))}
+              </div>
             ) : null}
-          </label>
+          </div>
 
           <div className="folder-toolbar__filters">
             {isAdmin ? (
@@ -1220,6 +1466,7 @@ export function FoldersPage() {
                 setForm((prev) => ({ ...prev, name: event.target.value }))
               }
               required
+              disabled={Boolean(activeFolder?.routeCode)}
             />
           </label>
           <label className="field">

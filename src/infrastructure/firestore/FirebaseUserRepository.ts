@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -24,6 +25,7 @@ import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
 interface UserDoc {
   email: string
   displayName: string
+  dni?: string
   role: string
   theme?: string
   mustChangePassword?: boolean
@@ -41,6 +43,7 @@ function mapUser(id: string, data: UserDoc): User {
     id,
     email: data.email,
     displayName: data.displayName,
+    dni: data.dni ?? '',
     role: data.role,
     theme: normalizeThemePreference(data.theme),
     mustChangePassword: data.mustChangePassword === true,
@@ -52,6 +55,7 @@ function mapUser(id: string, data: UserDoc): User {
 
 export class FirebaseUserRepository implements UserRepository {
   private readonly collectionRef = collection(firestoreDb, 'users')
+  private readonly loginAliasRef = collection(firestoreDb, 'loginByDni')
 
   async getById(id: string): Promise<User | null> {
     const snapshot = await getDoc(doc(this.collectionRef, id))
@@ -75,11 +79,22 @@ export class FirebaseUserRepository implements UserRepository {
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
   }
 
+  async findByDni(dni: string): Promise<User | null> {
+    if (!dni) return null
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('dni', '==', dni)),
+    )
+    const first = snapshot.docs[0]
+    if (!first) return null
+    return mapUser(first.id, first.data() as UserDoc)
+  }
+
   async create(input: CreateUserInput): Promise<User> {
     const now = Timestamp.now()
     const payload: UserDoc = {
       email: input.email,
       displayName: input.displayName,
+      dni: input.dni ?? '',
       role: input.role,
       theme: ThemePreference.Light,
       mustChangePassword: true,
@@ -89,6 +104,7 @@ export class FirebaseUserRepository implements UserRepository {
     }
 
     await setDoc(doc(this.collectionRef, input.id), payload)
+    await this.syncLoginAlias(input.id, input.email, '', input.dni ?? '')
     return mapUser(input.id, payload)
   }
 
@@ -105,6 +121,7 @@ export class FirebaseUserRepository implements UserRepository {
 
     if (input.displayName !== undefined) patch.displayName = input.displayName
     if (input.role !== undefined) patch.role = input.role
+    if (input.dni !== undefined) patch.dni = input.dni
     if (input.active !== undefined) patch.active = input.active
     if (input.theme !== undefined) patch.theme = input.theme
     if (input.mustChangePassword !== undefined) {
@@ -112,7 +129,33 @@ export class FirebaseUserRepository implements UserRepository {
     }
 
     await updateDoc(ref, patch)
+    if (input.dni !== undefined) {
+      const current = existing.data() as UserDoc
+      await this.syncLoginAlias(
+        id,
+        current.email,
+        current.dni ?? '',
+        input.dni,
+      )
+    }
     const updated = await getDoc(ref)
     return mapUser(id, updated.data() as UserDoc)
+  }
+
+  private async syncLoginAlias(
+    userId: string,
+    email: string,
+    previousDni: string,
+    nextDni: string,
+  ): Promise<void> {
+    if (previousDni && previousDni !== nextDni) {
+      await deleteDoc(doc(this.loginAliasRef, previousDni)).catch(() => undefined)
+    }
+    if (nextDni) {
+      await setDoc(doc(this.loginAliasRef, nextDni), {
+        email: email.trim().toLowerCase(),
+        userId,
+      })
+    }
   }
 }

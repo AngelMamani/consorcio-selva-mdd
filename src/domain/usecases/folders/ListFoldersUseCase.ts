@@ -20,7 +20,7 @@ export class ListFoldersUseCase {
     const trimmedAreaId = areaId?.trim()
 
     let folders: ImageFolder[]
-    if (actor.role === UserRole.Administrador) {
+    if (actor.role === UserRole.Administrador || actor.role === UserRole.SuperAdministrador) {
       folders = trimmedAreaId
         ? await this.folderRepository.listByArea(trimmedAreaId)
         : await this.folderRepository.listAll()

@@ -91,6 +91,62 @@
   font-size: 0.7rem;
 }
 
+.folders-search-block {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.folders-search-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.folders-recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.folders-recent > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.folders-recent button {
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.folders-recent button:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.folders-code {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.folders-code mark {
+  background: rgba(30, 136, 229, 0.18);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 0.05em;
+}
+
 .folders-page .folder-toolbar__filters {
   gap: 0.55rem;
 }

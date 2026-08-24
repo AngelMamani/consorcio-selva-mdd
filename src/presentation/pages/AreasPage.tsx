@@ -10,7 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
 import { DomainError } from '@/domain/errors/DomainError'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers } from '@/domain/value-objects/UserRole'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -141,8 +141,10 @@ export function AreasPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const cancelledTempIds = useRef(new Set<string>())
+  const deletedIds = useRef(new Set<string>())
 
-  const isAdmin = user?.role === UserRole.Administrador
+  const isAdmin = Boolean(user && canManageUsers(user.role))
 
   useEffect(() => {
     localStorage.setItem(AREAS_VIEW_STORAGE_KEY, viewMode)
@@ -162,12 +164,12 @@ export function AreasPage() {
     setLoading(true)
     try {
       const next = await listAreasUseCase.execute(user)
-      setAreas(next)
+      setAreas(next.filter((item) => !deletedIds.current.has(item.id)))
     } catch (err) {
       swalError(
         err instanceof DomainError
           ? err.message
-          : 'No se pudieron cargar las áreas',
+          : 'No se pudieron cargar las actividades',
       )
     } finally {
       setLoading(false)
@@ -183,11 +185,12 @@ export function AreasPage() {
     try {
       await ensureDefaultNotificationsAreaUseCase.execute(user, {
         migrateOrphans: !alreadyReady,
+        createIfMissing: !alreadyReady,
       })
       sessionStorage.setItem('consorcio-areas-ready', '1')
 
       const next = await listAreasUseCase.execute(user)
-      setAreas(next)
+      setAreas(next.filter((item) => !deletedIds.current.has(item.id)))
     } catch {
       // No bloquea la pantalla; el listado principal ya cargó.
       ensureStartedRef.current = false
@@ -228,30 +231,35 @@ export function AreasPage() {
   async function confirmDelete(event: MouseEvent, area: Area) {
     event.preventDefault()
     event.stopPropagation()
-    if (!user || busy) return
+    if (!user) return
 
     const confirmed = await swalConfirmDelete({
-      title: '¿Eliminar área?',
-      text: `"${area.name}" se eliminará. Solo es posible si no tiene carpetas.`,
+      title: '¿Eliminar actividad?',
+      text: `"${area.name}" se eliminará junto con sus carpetas, fechas y fotos.`,
     })
     if (!confirmed) return
 
-    setBusy(true)
+    deletedIds.current.add(area.id)
     setAreas((current) => current.filter((item) => item.id !== area.id))
-    swalSuccess('Área eliminada')
+    swalSuccess('Actividad eliminada')
+
+    if (area.id.startsWith('temp:')) {
+      cancelledTempIds.current.add(area.id)
+      return
+    }
+
     try {
       await deleteAreaUseCase.execute(user, area.id)
     } catch (err) {
+      deletedIds.current.delete(area.id)
       setAreas((current) =>
         [...current, area].sort((a, b) => a.name.localeCompare(b.name, 'es')),
       )
       swalError(
         err instanceof DomainError
           ? err.message
-          : 'No se pudo eliminar el área',
+          : 'No se pudo eliminar la actividad',
       )
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -278,7 +286,7 @@ export function AreasPage() {
             .sort((a, b) => a.name.localeCompare(b.name, 'es')),
         )
         setModalOpen(false)
-        swalSuccess('Área actualizada')
+        swalSuccess('Actividad actualizada')
         const updated = await updateAreaUseCase.execute(user, previous.id, {
           name,
           description,
@@ -289,22 +297,43 @@ export function AreasPage() {
             .sort((a, b) => a.name.localeCompare(b.name, 'es')),
         )
       } else {
+        const optimistic: Area = {
+          id: `temp:${crypto.randomUUID()}`,
+          name: name.trim(),
+          description: description.trim(),
+          createdById: user.id,
+          createdByName: user.displayName,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+        setAreas((current) =>
+          [...current, optimistic].sort((a, b) =>
+            a.name.localeCompare(b.name, 'es'),
+          ),
+        )
         setModalOpen(false)
-        swalSuccess('Área creada')
+        swalSuccess('Actividad creada')
         const created = await createAreaUseCase.execute(user, {
           name,
           description,
         })
+        if (cancelledTempIds.current.has(optimistic.id)) {
+          cancelledTempIds.current.delete(optimistic.id)
+          await deleteAreaUseCase.execute(user, created.id)
+          return
+        }
         setAreas((current) =>
-          [...current, created].sort((a, b) =>
-            a.name.localeCompare(b.name, 'es'),
-          ),
+          current
+            .map((item) => (item.id === optimistic.id ? created : item))
+            .sort((a, b) => a.name.localeCompare(b.name, 'es')),
         )
       }
     } catch (err) {
       setModalOpen(true)
       swalError(
-        err instanceof DomainError ? err.message : 'No se pudo guardar el área',
+        err instanceof DomainError
+          ? err.message
+          : 'No se pudo guardar la actividad',
       )
       await loadAreasFast()
     } finally {
@@ -325,7 +354,6 @@ export function AreasPage() {
           title="Editar"
           aria-label={`Editar ${area.name}`}
           onClick={(event) => openEdit(event, area)}
-          disabled={busy}
         >
           <IconEdit />
         </button>
@@ -335,7 +363,6 @@ export function AreasPage() {
           title="Eliminar"
           aria-label={`Eliminar ${area.name}`}
           onClick={(event) => void confirmDelete(event, area)}
-          disabled={busy}
         >
           <IconTrash />
         </button>
@@ -349,10 +376,12 @@ export function AreasPage() {
     <section className="areas-page">
       <div className="page-header">
         <div>
-          <p className="areas-page__eyebrow">Organización</p>
-          <h1>Áreas</h1>
+          <p className="areas-page__eyebrow">Campo</p>
+          <h1>Actividades</h1>
           <p>
-            Elige un área para ver sus rutas. Cambia entre tarjetas o lista.
+            Cada actividad (Notificaciones y las que agregues) usa el mismo
+            catálogo de suministros. No se copian los 60.803: se buscan por
+            código y la carpeta se crea al abrirla.
           </p>
         </div>
         {isAdmin ? (
@@ -363,16 +392,16 @@ export function AreasPage() {
             disabled={busy}
           >
             <IconPlus />
-            Nueva área
+            Nueva actividad
           </button>
         ) : null}
       </div>
 
       {!loading && areas.length > 0 ? (
-        <div className="areas-summary" aria-label="Resumen de áreas">
+        <div className="areas-summary" aria-label="Resumen de actividades">
           <div className="areas-summary__item">
             <strong>{areas.length}</strong>
-            <span>áreas</span>
+            <span>actividades</span>
           </div>
           <div className="areas-summary__item">
             <strong>{filteredAreas.length}</strong>
@@ -384,7 +413,7 @@ export function AreasPage() {
       {!loading && areas.length > 0 ? (
         <div className="areas-toolbar">
           <label className="areas-search">
-            <span className="sr-only">Buscar áreas</span>
+            <span className="sr-only">Buscar actividades</span>
             <IconSearch />
             <input
               type="search"
@@ -407,7 +436,7 @@ export function AreasPage() {
           <div
             className="areas-view-toggle"
             role="group"
-            aria-label="Vista de áreas"
+            aria-label="Vista de actividades"
           >
             <span>Vista</span>
             <div className="areas-view-toggle__buttons">
@@ -443,10 +472,10 @@ export function AreasPage() {
         </div>
       ) : areas.length === 0 ? (
         <div className="areas-empty">
-          <h2>Sin áreas</h2>
+          <h2>Sin actividades</h2>
           <p>
-            Un administrador debe crear al menos un área para organizar las
-            rutas.
+            Un administrador debe crear al menos una actividad. Todas usan el
+            mismo catálogo de suministros.
           </p>
           {isAdmin ? (
             <button
@@ -455,14 +484,14 @@ export function AreasPage() {
               onClick={openCreate}
             >
               <IconPlus />
-              Crear área
+              Crear actividad
             </button>
           ) : null}
         </div>
       ) : filteredAreas.length === 0 ? (
         <div className="areas-empty">
           <h2>Sin resultados</h2>
-          <p>No hay áreas que coincidan con “{searchTerm.trim()}”.</p>
+          <p>No hay actividades que coincidan con “{searchTerm.trim()}”.</p>
           <button
             type="button"
             className="btn btn--soft-muted btn--small"
@@ -516,7 +545,7 @@ export function AreasPage() {
           <table className="areas-table">
             <thead>
               <tr>
-                <th>Área</th>
+                <th>Actividad</th>
                 <th>Descripción</th>
                 <th>Actualizada</th>
                 <th>Acciones</th>
@@ -566,8 +595,8 @@ export function AreasPage() {
 
       <AppModal
         open={modalOpen}
-        title={editing ? 'Editar área' : 'Nueva área'}
-        description="Nombre corto y claro. Ej. Área de Notificaciones."
+        title={editing ? 'Editar actividad' : 'Nueva actividad'}
+        description="Nombre de la actividad. Ej. Notificaciones, Cortes, Reclamos."
         size="sm"
         onClose={() => !busy && setModalOpen(false)}
         footer={
@@ -599,7 +628,7 @@ export function AreasPage() {
                 ref={nameInputRef}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Ej. Área de Notificaciones"
+                placeholder="Ej. Notificaciones"
                 required
                 maxLength={120}
               />

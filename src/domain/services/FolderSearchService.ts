@@ -1,4 +1,6 @@
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
+import { normalizeRouteCode } from '@/domain/value-objects/RouteCode'
+import { supplyCodeMatchesQuery } from '@/domain/services/SupplySearchService'
 
 export function normalizeSearchText(value: string): string {
   return value
@@ -15,8 +17,15 @@ export function folderMatchesSearch(
   const term = normalizeSearchText(searchTerm)
   if (!term) return true
 
+  const digits = normalizeRouteCode(searchTerm)
+  if (digits && supplyCodeMatchesQuery(folder.routeCode ?? folder.name, digits)) {
+    return true
+  }
+
   const haystack = normalizeSearchText(
     `${folder.name} ${folder.description} ${folder.ownerName} ${
+      folder.routeCode ?? ''
+    } ${
       folder.assignToAllTechnicians
         ? 'todos los tecnicos'
         : (folder.assignedTechnicianNames ?? []).join(' ')

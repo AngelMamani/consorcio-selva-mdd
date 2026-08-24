@@ -73,3 +73,19 @@ export async function swalConfirm(options: {
   })
   return result.isConfirmed
 }
+
+export async function swalNotice(options: {
+  title: string
+  text?: string
+  html?: string
+}): Promise<void> {
+  await Swal.fire({
+    icon: 'success',
+    title: options.title,
+    text: options.text,
+    html: options.html,
+    confirmButtonText: 'Entendido',
+    confirmButtonColor: '#1e88e5',
+    animation: false,
+  })
+}

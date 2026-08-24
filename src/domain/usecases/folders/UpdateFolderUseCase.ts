@@ -40,7 +40,9 @@ export class UpdateFolderUseCase {
       throw new UnauthorizedError('No tienes permiso para editar esta carpeta')
     }
 
-    const name = request.name.trim()
+    const name = folder.routeCode
+      ? folder.name
+      : request.name.trim()
     const description = request.description.trim()
 
     if (!name) {

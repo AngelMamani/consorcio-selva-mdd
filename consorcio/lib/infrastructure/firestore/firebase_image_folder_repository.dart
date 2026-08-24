@@ -102,6 +102,18 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
       );
     }
 
+    if (input.id != null && input.id!.isNotEmpty) {
+      final ref = _folders.doc(input.id);
+      return _firestore.runTransaction((tx) async {
+        final snapshot = await tx.get(ref);
+        if (snapshot.exists && snapshot.data() != null) {
+          return _map(snapshot.id, snapshot.data()!);
+        }
+        tx.set(ref, payload);
+        return _map(input.id!, payload);
+      });
+    }
+
     final created = await _folders.add(payload);
     return _map(created.id, payload);
   }
@@ -198,6 +210,7 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
       assignedTechnicianIds: assignedIds,
       assignedTechnicianNames: assignedNames,
       imageCount: (data['imageCount'] as num?)?.toInt() ?? 0,
+      routeCode: _routeCodeOf(data),
       location: GeoLocation.tryParse({
         'latitude': data['latitude'],
         'longitude': data['longitude'],
@@ -208,5 +221,12 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
+  }
+
+  String? _routeCodeOf(Map<String, dynamic> data) {
+    final stored = data['routeCode'] as String?;
+    if (stored != null && stored.isNotEmpty) return stored;
+    final name = data['name'] as String? ?? '';
+    return RegExp(r'^\d{7,12}$').hasMatch(name) ? name : null;
   }
 }

@@ -57,8 +57,8 @@ export function ChangePasswordPage() {
             <p className="login-card__eyebrow">Seguridad de acceso</p>
             <h1 id="change-password-title">Cambia tu contraseña</h1>
             <p className="login-card__subtitle">
-              Estás usando la contraseña temporal. Debes crear una más segura
-              para continuar.
+              Estás usando la contraseña temporal 87654321. Elige otra para
+              continuar: puede ser sencilla.
             </p>
           </div>
         </div>

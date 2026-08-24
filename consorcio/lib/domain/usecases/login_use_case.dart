@@ -10,16 +10,20 @@ class LoginUseCase {
   final UserRepository _userRepository;
 
   Future<AppUser> execute({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
-    final cleanEmail = email.trim().toLowerCase();
-    if (cleanEmail.isEmpty || password.isEmpty) {
-      throw DomainException('Correo y contraseña son obligatorios');
+    final raw = identifier.trim();
+    if (raw.isEmpty || password.isEmpty) {
+      throw DomainException('Código y contraseña son obligatorios');
     }
 
+    final email = raw.contains('@')
+        ? raw.toLowerCase()
+        : await _resolveDniEmail(raw);
+
     final userId = await _authRepository.login(
-      email: cleanEmail,
+      email: email,
       password: password,
     );
     final user = await _userRepository.getById(userId);
@@ -42,5 +46,15 @@ class LoginUseCase {
     }
 
     return user;
+  }
+
+  Future<String> _resolveDniEmail(String identifier) async {
+    final dni = identifier.replaceAll(RegExp(r'\D'), '');
+    if (!RegExp(r'^\d{8}$').hasMatch(dni)) {
+      throw DomainException(
+        'Ingresa tu código (DNI de 8 dígitos)',
+      );
+    }
+    return _authRepository.resolveEmailByDni(dni);
   }
 }

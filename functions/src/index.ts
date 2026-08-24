@@ -10,8 +10,18 @@ import { onInit, setGlobalOptions } from 'firebase-functions/v2'
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 })
 
-const ALLOWED_ROLES = new Set(['ADMINISTRADOR', 'TECNICO'])
+const ALLOWED_ROLES = new Set([
+  'SUPER_ADMINISTRADOR',
+  'ADMINISTRADOR',
+  'TECNICO',
+])
+const CONFIGURED_SUPER_ADMIN_EMAIL = 'amamanim@unamad.edu.pe'
 const DEFAULT_TEMPORARY_PASSWORD = '87654321'
+const TECHNICIAN_EMAIL_DOMAIN = 'tecnicos.consorcio-selva-mdd.firebaseapp.com'
+
+function technicianLoginEmail(dni: string): string {
+  return `${dni}@${TECHNICIAN_EMAIL_DOMAIN}`
+}
 
 const callableOptions = {
   region: 'us-central1' as const,
@@ -23,13 +33,26 @@ onInit(() => {
   initializeApp()
 })
 
+function isPrivilegedRole(role: unknown): boolean {
+  return role === 'ADMINISTRADOR' || role === 'SUPER_ADMINISTRADOR'
+}
+
 function assertAdmin(actor: Record<string, unknown> | undefined) {
-  if (!actor || actor.active !== true || actor.role !== 'ADMINISTRADOR') {
+  if (!actor || actor.active !== true || !isPrivilegedRole(actor.role)) {
     throw new HttpsError(
       'permission-denied',
       'Solo el administrador puede realizar esta acción',
     )
   }
+}
+
+function normalizeDni(value: unknown): string {
+  const dni = String(value ?? '').replace(/\D/g, '')
+  if (!dni) return ''
+  if (!/^\d{8}$/.test(dni)) {
+    throw new HttpsError('invalid-argument', 'El DNI debe tener 8 dígitos')
+  }
+  return dni
 }
 
 function normalizeEmail(value: unknown): string {
@@ -75,14 +98,32 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
 
   const db = getFirestore()
   const actorSnap = await db.collection('users').doc(request.auth.uid).get()
-  assertAdmin(actorSnap.data() as Record<string, unknown> | undefined)
+  const actor = actorSnap.data() as Record<string, unknown> | undefined
+  assertAdmin(actor)
 
-  const email = normalizeEmail(request.data?.email)
   const displayName = normalizeDisplayName(request.data?.displayName)
   const role = String(request.data?.role ?? '').trim()
+  const dni = normalizeDni(request.data?.dni)
+  let email = normalizeEmail(request.data?.email)
+
+  if (role === 'TECNICO' && !dni) {
+    throw new HttpsError(
+      'invalid-argument',
+      'El DNI es el código de acceso del técnico',
+    )
+  }
+
+  if (!email && dni) {
+    email = technicianLoginEmail(dni)
+  }
 
   if (!email || !displayName) {
-    throw new HttpsError('invalid-argument', 'Nombre y correo son obligatorios')
+    throw new HttpsError(
+      'invalid-argument',
+      role === 'TECNICO'
+        ? 'Nombre y DNI son obligatorios para el técnico'
+        : 'Nombre y correo o DNI son obligatorios',
+    )
   }
 
   if (displayName.length > 120) {
@@ -91,6 +132,20 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
 
   if (!ALLOWED_ROLES.has(role)) {
     throw new HttpsError('invalid-argument', 'Rol inválido')
+  }
+
+  if (role === 'SUPER_ADMINISTRADOR' && actor?.role !== 'SUPER_ADMINISTRADOR') {
+    throw new HttpsError(
+      'permission-denied',
+      'Solo el Super Administrador puede crear otro Super Administrador',
+    )
+  }
+
+  if (dni) {
+    const aliasSnap = await db.collection('loginByDni').doc(dni).get()
+    if (aliasSnap.exists) {
+      throw new HttpsError('already-exists', 'Ya existe un usuario con ese DNI')
+    }
   }
 
   const temporaryPassword = DEFAULT_TEMPORARY_PASSWORD
@@ -112,6 +167,7 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
     await db.collection('users').doc(userId).set({
       email,
       displayName,
+      dni,
       role,
       theme: 'light',
       mustChangePassword: true,
@@ -119,6 +175,12 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     })
+    if (dni) {
+      await db.collection('loginByDni').doc(dni).set({
+        email,
+        userId,
+      })
+    }
   } catch (error) {
     await getAuth()
       .deleteUser(userId)
@@ -301,3 +363,31 @@ export const updateManagedUserDisplayName = onCall(
     }
   },
 )
+
+export const claimConfiguredSuperAdmin = onCall(
+  callableOptions,
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Debes iniciar sesión')
+    }
+
+    const email = String(request.auth.token.email ?? '')
+      .trim()
+      .toLowerCase()
+    if (email !== CONFIGURED_SUPER_ADMIN_EMAIL) {
+      throw new HttpsError(
+        'permission-denied',
+        'Esta cuenta no está configurada como Super Administrador',
+      )
+    }
+
+    const db = getFirestore()
+    await db.collection('users').doc(request.auth.uid).update({
+      role: 'SUPER_ADMINISTRADOR',
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+
+    return { ok: true }
+  },
+)
+

@@ -34,7 +34,7 @@ class SessionController extends ChangeNotifier {
   bool get isDarkTheme => ThemePreference.isDark(user?.theme);
 
   Future<bool> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     busy = true;
@@ -43,7 +43,7 @@ class SessionController extends ChangeNotifier {
 
     try {
       user = await _dependencies.loginUseCase.execute(
-        email: email,
+        identifier: identifier,
         password: password,
       );
       return true;

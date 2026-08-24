@@ -1,13 +1,16 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
 
 class FirebaseAuthRepository implements AuthRepository {
-  FirebaseAuthRepository({FirebaseAuth? auth})
-      : _auth = auth ?? FirebaseAuth.instance;
+  FirebaseAuthRepository({FirebaseAuth? auth, FirebaseFirestore? firestore})
+      : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
 
   @override
   String? get currentUserId => _auth.currentUser?.uid;
@@ -26,6 +29,16 @@ class FirebaseAuthRepository implements AuthRepository {
     } on FirebaseAuthException catch (error) {
       throw DomainException(_mapAuthError(error));
     }
+  }
+
+  @override
+  Future<String> resolveEmailByDni(String dni) async {
+    final snapshot = await _firestore.collection('loginByDni').doc(dni).get();
+    final email = snapshot.data()?['email'];
+    if (!snapshot.exists || email is! String || email.trim().isEmpty) {
+      throw DomainException('Correo, DNI o contraseña incorrectos');
+    }
+    return email.trim().toLowerCase();
   }
 
   @override
@@ -57,7 +70,7 @@ class FirebaseAuthRepository implements AuthRepository {
       case 'invalid-credential':
       case 'wrong-password':
       case 'user-not-found':
-        return 'Correo o contraseña incorrectos';
+        return 'Correo, DNI o contraseña incorrectos';
       case 'weak-password':
         return 'La contraseña es demasiado débil';
       case 'requires-recent-login':

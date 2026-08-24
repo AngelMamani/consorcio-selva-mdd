@@ -1,20 +1,29 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/presentation/providers/AuthProvider'
-import type { UserRole } from '@/domain/value-objects/UserRole'
+import { usePermissions } from '@/presentation/providers/PermissionsProvider'
+import { UserRole } from '@/domain/value-objects/UserRole'
+import {
+  pathToMenuKey,
+  AppMenuKey,
+  type AppMenuKey as AppMenuKeyType,
+} from '@/domain/value-objects/AppMenuPermission'
 
 interface ProtectedRouteProps {
   roles?: UserRole[]
+  menuKey?: AppMenuKeyType
   allowPasswordChange?: boolean
 }
 
 export function ProtectedRoute({
   roles,
+  menuKey,
   allowPasswordChange = false,
 }: ProtectedRouteProps) {
   const { user, loading } = useAuth()
+  const { canAccessMenu, loading: permissionsLoading } = usePermissions()
   const location = useLocation()
 
-  if (loading) {
+  if (loading || permissionsLoading) {
     return (
       <div className="boot-screen">
         <div className="boot-spinner" />
@@ -46,6 +55,21 @@ export function ProtectedRoute({
   }
 
   if (roles && !roles.includes(user.role)) {
+    return <Navigate to="/areas" replace />
+  }
+
+  const requiredMenuKey = menuKey ?? pathToMenuKey(location.pathname)
+  if (
+    requiredMenuKey &&
+    !canAccessMenu(requiredMenuKey)
+  ) {
+    if (
+      requiredMenuKey === AppMenuKey.Roles &&
+      (user.role === UserRole.SuperAdministrador ||
+        user.role === UserRole.Administrador)
+    ) {
+      return <Outlet />
+    }
     return <Navigate to="/areas" replace />
   }
 

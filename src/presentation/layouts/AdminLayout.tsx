@@ -3,7 +3,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import logo from '@/assets/logo.png'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
-import { UserRole, userRoleLabel } from '@/domain/value-objects/UserRole'
+import { usePermissions } from '@/presentation/providers/PermissionsProvider'
+import { userRoleLabel } from '@/domain/value-objects/UserRole'
+import {
+  APP_MENU_DEFINITIONS,
+  APP_MENU_MODULES,
+  AppMenuKey,
+} from '@/domain/value-objects/AppMenuPermission'
 import { ThemePreference } from '@/domain/value-objects/ThemePreference'
 import './AdminLayout.css'
 
@@ -52,6 +58,26 @@ function AttendanceIcon() {
   )
 }
 
+function StaffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M8.5 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM16.5 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M3.8 19.2c.5-2.8 2.8-4.4 5.7-4.4s5.2 1.6 5.7 4.4M13.4 14.2c1 .4 2.2.6 3.4.6 2.4 0 4.2-1.1 4.6-3.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function UsersIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
@@ -81,6 +107,28 @@ function PhoneIcon() {
         stroke="currentColor"
         strokeWidth="1.7"
         strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function StationIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M12 3.5c-3.4 0-6.2 2.7-6.2 6.1 0 4.6 6.2 10.9 6.2 10.9s6.2-6.3 6.2-10.9c0-3.4-2.8-6.1-6.2-6.1Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx="12"
+        cy="9.6"
+        r="2.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
       />
     </svg>
   )
@@ -191,12 +239,83 @@ function ExpandSidebarIcon() {
   )
 }
 
+function RolesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M12 3.5 5.5 6.2v5.2c0 4.3 3.1 8.4 6.5 9.4 3.4-1 6.5-5.1 6.5-9.4V6.2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.2 12.1 11 13.9l3.8-3.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function TasksIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <path
+        d="M8 4.5h8A2.5 2.5 0 0 1 18.5 7v12A2.5 2.5 0 0 1 16 21.5H8A2.5 2.5 0 0 1 5.5 19V7A2.5 2.5 0 0 1 8 4.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M9 9.5h6M9 13h6M9 16.5h3.5M8.3 3.2 10.1 5l2.4-2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function navIcon(key: AppMenuKey) {
+  switch (key) {
+    case AppMenuKey.Estaciones:
+      return <StationIcon />
+    case AppMenuKey.Personal:
+      return <StaffIcon />
+    case AppMenuKey.Roles:
+      return <RolesIcon />
+    case AppMenuKey.Areas:
+      return <AreasIcon />
+    case AppMenuKey.Tareas:
+      return <TasksIcon />
+    case AppMenuKey.Asistencias:
+      return <AttendanceIcon />
+    case AppMenuKey.Mapa:
+      return <MapIcon />
+    case AppMenuKey.Documentacion:
+      return <DocsIcon />
+    case AppMenuKey.Usuarios:
+      return <UsersIcon />
+    case AppMenuKey.AppMovil:
+      return <PhoneIcon />
+    default:
+      return null
+  }
+}
+
 function readCollapsedPreference(): boolean {
   return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
 }
 
 export function AdminLayout() {
   const { user, setUser } = useAuth()
+  const { canAccessMenu } = usePermissions()
   const { logoutUseCase, updateOwnThemeUseCase } = useDependencies()
   const navigate = useNavigate()
   const [themeBusy, setThemeBusy] = useState(false)
@@ -205,6 +324,15 @@ export function AdminLayout() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0')
   }, [sidebarCollapsed])
+
+  useEffect(() => {
+    document.documentElement.classList.add('admin-locked')
+    document.body.classList.add('admin-locked')
+    return () => {
+      document.documentElement.classList.remove('admin-locked')
+      document.body.classList.remove('admin-locked')
+    }
+  }, [])
 
   if (!user) return null
 
@@ -250,6 +378,18 @@ export function AdminLayout() {
     .join('')
 
   const isDark = user.theme === ThemePreference.Dark
+  const menuByKey = new Map(
+    APP_MENU_DEFINITIONS.map((item) => [item.key, item]),
+  )
+  const menuModules = APP_MENU_MODULES.map((mod) => ({
+    ...mod,
+    items: mod.keys
+      .map((key) => menuByKey.get(key))
+      .filter(
+        (item): item is (typeof APP_MENU_DEFINITIONS)[number] =>
+          item != null && canAccessMenu(item.key),
+      ),
+  })).filter((mod) => mod.items.length > 0)
 
   return (
     <div
@@ -266,72 +406,28 @@ export function AdminLayout() {
           </div>
 
           <div className="admin-sidebar__section">
-            <p className="admin-sidebar__label">Menú</p>
-            <nav className="admin-nav" aria-label="Navegación principal">
-              <NavLink
-                to="/areas"
-                title="Áreas"
-                className={({ isActive }) =>
-                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                }
-              >
-                <AreasIcon />
-                <span>Áreas</span>
-              </NavLink>
-              <NavLink
-                to="/asistencias"
-                title="Asistencias"
-                className={({ isActive }) =>
-                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                }
-              >
-                <AttendanceIcon />
-                <span>Asistencias</span>
-              </NavLink>
-              <NavLink
-                to="/mapa"
-                title="Mapa"
-                className={({ isActive }) =>
-                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                }
-              >
-                <MapIcon />
-                <span>Mapa</span>
-              </NavLink>
-              <NavLink
-                to="/documentacion"
-                title="Documentación"
-                className={({ isActive }) =>
-                  isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                }
-              >
-                <DocsIcon />
-                <span>Documentación</span>
-              </NavLink>
-              {user.role === UserRole.Administrador ? (
-                <NavLink
-                  to="/usuarios"
-                  title="Usuarios"
-                  className={({ isActive }) =>
-                    isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                  }
-                >
-                  <UsersIcon />
-                  <span>Usuarios</span>
-                </NavLink>
-              ) : null}
-              {user.role === UserRole.Administrador ? (
-                <NavLink
-                  to="/app-movil"
-                  title="App móvil"
-                  className={({ isActive }) =>
-                    isActive ? 'admin-nav__link active' : 'admin-nav__link'
-                  }
-                >
-                  <PhoneIcon />
-                  <span>App móvil</span>
-                </NavLink>
-              ) : null}
+            <nav className="admin-nav-modules" aria-label="Navegación principal">
+              {menuModules.map((mod) => (
+                <div key={mod.id} className="admin-nav-module">
+                  <p className="admin-sidebar__label">{mod.label}</p>
+                  <div className="admin-nav">
+                    {mod.items.map((item) => (
+                      <NavLink
+                        key={item.key}
+                        to={item.path}
+                        end={item.key === AppMenuKey.Personal}
+                        title={item.label}
+                        className={({ isActive }) =>
+                          isActive ? 'admin-nav__link active' : 'admin-nav__link'
+                        }
+                      >
+                        {navIcon(item.key)}
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </nav>
           </div>
 

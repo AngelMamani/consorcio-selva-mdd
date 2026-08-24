@@ -4,7 +4,20 @@ App Flutter **solo para técnicos** en campo. Comparte el mismo Firebase del pan
 
 ## Compartir con técnicos (APK Android)
 
-### 1. Generar el APK
+### 1. Generar el APK (código automático)
+
+```bash
+cd consorcio
+powershell -File tool/build_release.ps1
+```
+
+Eso sube solo el número después del `+` (ej. `1.3.0+8` → `1.3.0+9`), compila y copia a:
+
+`../releases/ConsorcioTecnico-1.3.0+9.apk`
+
+En el panel **App móvil** solo subes ese archivo: versión y código se leen del APK.
+
+### Alternativa manual
 
 ```bash
 cd consorcio
@@ -15,10 +28,6 @@ flutter build apk --release
 El archivo queda en:
 
 `build/app/outputs/flutter-apk/app-release.apk`
-
-También se copia a:
-
-`../releases/ConsorcioTecnico-1.0.0.apk` (si ejecutas el script de build abajo).
 
 ### 2. Cómo instalarlo en el celular
 

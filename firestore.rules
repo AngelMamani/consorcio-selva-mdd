@@ -19,8 +19,15 @@ service cloud.firestore {
         && userDoc().active == true;
     }
 
+    function isSuperAdmin() {
+      return isActiveUser() && userDoc().role == 'SUPER_ADMINISTRADOR';
+    }
+
     function isAdmin() {
-      return isActiveUser() && userDoc().role == 'ADMINISTRADOR';
+      return isActiveUser() && (
+        userDoc().role == 'ADMINISTRADOR'
+        || userDoc().role == 'SUPER_ADMINISTRADOR'
+      );
     }
 
     function folderPath(folderId) {
@@ -42,6 +49,63 @@ service cloud.firestore {
       return isActiveUser()
         && exists(folderPath(folderId))
         && canAccessFolderData(folderData(folderId));
+    }
+
+    function canAccessTaskData(data) {
+      return isAdmin()
+        || data.createdById == request.auth.uid
+        || data.get('assignToAllTechnicians', false) == true
+        || request.auth.uid in data.get('assignedTechnicianIds', []);
+    }
+
+    function validTaskWrite() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 1000
+        && request.resource.data.status is string
+        && request.resource.data.status in ['PENDIENTE', 'EN_PROGRESO', 'COMPLETADA']
+        && request.resource.data.areaId is string
+        && request.resource.data.areaId.size() <= 80
+        && request.resource.data.areaName is string
+        && request.resource.data.areaName.size() <= 120
+        && request.resource.data.routeCode is string
+        && (
+          request.resource.data.routeCode.size() == 0
+          || request.resource.data.routeCode.matches('^[0-9]{7,12}$')
+        )
+        && (
+          !('latitude' in request.resource.data)
+          || (
+            request.resource.data.latitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+          )
+        )
+        && (
+          !('longitude' in request.resource.data)
+          || (
+            request.resource.data.longitude is number
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180
+          )
+        )
+        && validAssignment(request.resource.data)
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120
+        && request.resource.data.completedById is string
+        && request.resource.data.completedByName is string
+        && request.resource.data.completedByName.size() <= 120
+        && request.resource.data.keys().hasOnly([
+          'title', 'description', 'status', 'dueDate',
+          'areaId', 'areaName', 'routeCode', 'latitude', 'longitude',
+          'assignToAllTechnicians', 'assignedTechnicianIds', 'assignedTechnicianNames',
+          'createdById', 'createdByName',
+          'completedAt', 'completedById', 'completedByName',
+          'createdAt', 'updatedAt'
+        ]);
     }
 
     function isOwnAttendanceId(attendanceId) {
@@ -133,6 +197,55 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /loginByDni/{dni} {
+      allow get: if dni.matches('^[0-9]{8}$');
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && dni.matches('^[0-9]{8}$')
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 3
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0;
+      allow delete: if isAdmin();
+    }
+
+    match /supplies/{supplyId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin()
+        && supplyId == request.resource.data.routeCode
+        && request.resource.data.routeCode is string
+        && request.resource.data.routeCode.matches('^[0-9]{7,12}$')
+        && request.resource.data.prefix is string
+        && request.resource.data.prefix.matches('^[0-9]{4}$')
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90
+        && request.resource.data.latitude <= 90
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180
+        && request.resource.data.longitude <= 180
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if isAdmin();
+    }
+
+    match /seds/{sedId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin()
+        && sedId == request.resource.data.code
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^20[0-9]{5}$')
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 180
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90
+        && request.resource.data.latitude <= 90
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180
+        && request.resource.data.longitude <= 180
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if isAdmin();
+    }
+
     match /areas/{areaId} {
       allow read: if isActiveUser();
       allow create: if isAdmin()
@@ -153,8 +266,159 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /tasks/{taskId} {
+      allow get: if isActiveUser()
+        && (resource == null || canAccessTaskData(resource.data));
+      allow list: if isActiveUser() && canAccessTaskData(resource.data);
+      allow create: if isAdmin()
+        && validTaskWrite()
+        && request.resource.data.createdById == request.auth.uid
+        && request.resource.data.status == 'PENDIENTE'
+        && request.resource.data.completedById == ''
+        && request.resource.data.completedByName == ''
+        && request.resource.data.completedAt == null
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number;
+      allow update: if isActiveUser()
+        && canAccessTaskData(resource.data)
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt'])
+        && validTaskWrite()
+        && (
+          isAdmin()
+          || (
+            request.resource.data.title == resource.data.title
+            && request.resource.data.description == resource.data.description
+            && request.resource.data.dueDate == resource.data.dueDate
+            && request.resource.data.areaId == resource.data.areaId
+            && request.resource.data.areaName == resource.data.areaName
+            && request.resource.data.routeCode == resource.data.routeCode
+            && (
+              !('latitude' in resource.data)
+              || request.resource.data.latitude == resource.data.latitude
+            )
+            && (
+              !('longitude' in resource.data)
+              || request.resource.data.longitude == resource.data.longitude
+            )
+            && request.resource.data.assignToAllTechnicians
+              == resource.data.assignToAllTechnicians
+            && request.resource.data.assignedTechnicianIds
+              == resource.data.assignedTechnicianIds
+            && request.resource.data.assignedTechnicianNames
+              == resource.data.assignedTechnicianNames
+            && request.resource.data.status in ['EN_PROGRESO', 'COMPLETADA']
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
+    function validCatalogWrite() {
+      return request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.nameKey is string
+        && request.resource.data.nameKey.size() > 0
+        && request.resource.data.nameKey.size() <= 80
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120;
+    }
+
+    match /cargos/{cargoId} {
+      allow read: if isActiveUser();
+      allow create: if isAdmin()
+        && validCatalogWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isAdmin()
+        && validCatalogWrite()
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /localidades/{localidadId} {
+      allow read: if isActiveUser();
+      allow create: if isAdmin()
+        && validCatalogWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isAdmin()
+        && validCatalogWrite()
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt']);
+      allow delete: if isAdmin();
+    }
+
+    function validPersonalWrite() {
+      return request.resource.data.nombres is string
+        && request.resource.data.nombres.size() > 0
+        && request.resource.data.nombres.size() <= 80
+        && request.resource.data.apellidoPaterno is string
+        && request.resource.data.apellidoPaterno.size() > 0
+        && request.resource.data.apellidoPaterno.size() <= 60
+        && request.resource.data.apellidoMaterno is string
+        && request.resource.data.apellidoMaterno.size() > 0
+        && request.resource.data.apellidoMaterno.size() <= 60
+        && request.resource.data.dni is string
+        && request.resource.data.dni.matches('^[0-9]{8}$')
+        && request.resource.data.cargoId is string
+        && request.resource.data.cargoId.size() > 0
+        && request.resource.data.cargoName is string
+        && request.resource.data.cargoName.size() > 0
+        && request.resource.data.cargoName.size() <= 80
+        && request.resource.data.localidadId is string
+        && request.resource.data.localidadId.size() > 0
+        && request.resource.data.localidadName is string
+        && request.resource.data.localidadName.size() > 0
+        && request.resource.data.localidadName.size() <= 80
+        && request.resource.data.condicion is string
+        && request.resource.data.condicion in ['', 'VIGENTE', 'RETIRADO', 'INGRESO']
+        && request.resource.data.roleId is string
+        && request.resource.data.roleName is string
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120;
+    }
+
+    match /personal/{personId} {
+      allow read: if isActiveUser();
+      allow create: if isAdmin()
+        && validPersonalWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isAdmin()
+        && validPersonalWrite()
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt']);
+      allow delete: if isAdmin();
+    }
+
+    function validOperationalRoleWrite() {
+      return request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.code is string
+        && request.resource.data.code.size() > 0
+        && request.resource.data.code.size() <= 40
+        && request.resource.data.permissions is list
+        && request.resource.data.permissions.size() > 0
+        && request.resource.data.isSystem is bool
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120;
+    }
+
+    match /operationalRoles/{roleId} {
+      allow read: if isActiveUser();
+      allow create: if isSuperAdmin()
+        && validOperationalRoleWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isSuperAdmin()
+        && validOperationalRoleWrite()
+        && unchangedKeys(['code', 'isSystem', 'createdById', 'createdByName', 'createdAt']);
+      allow delete: if isSuperAdmin();
+    }
+
     match /folders/{folderId} {
-      allow read: if isActiveUser() && canAccessFolderData(resource.data);
+      allow get: if isActiveUser()
+        && (resource == null || canAccessFolderData(resource.data));
+
+      allow list: if isActiveUser() && canAccessFolderData(resource.data);
 
       allow create: if isActiveUser()
         && request.resource.data.ownerId == request.auth.uid
@@ -185,11 +449,15 @@ service cloud.firestore {
           || request.resource.data.locationAccuracy is number)
         && (!('locationCapturedAt' in request.resource.data)
           || request.resource.data.locationCapturedAt is timestamp)
+        && (!('routeCode' in request.resource.data)
+          || (request.resource.data.routeCode is string
+            && request.resource.data.routeCode.matches('^[0-9]{7,12}$')))
         && request.resource.data.keys().hasOnly([
           'name', 'description', 'ownerId', 'ownerName',
           'areaId', 'areaName',
           'assignToAllTechnicians', 'assignedTechnicianIds', 'assignedTechnicianNames',
           'imageCount', 'createdAt', 'updatedAt',
+          'routeCode',
           'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt'
         ]);
 
@@ -204,6 +472,10 @@ service cloud.firestore {
         && request.resource.data.description.size() <= 500
         && request.resource.data.imageCount is int
         && request.resource.data.imageCount >= 0
+        && (
+          !('routeCode' in resource.data)
+          || request.resource.data.routeCode == resource.data.routeCode
+        )
         && (
           !('assignToAllTechnicians' in request.resource.data)
           || validAssignment(request.resource.data)
@@ -334,6 +606,22 @@ service cloud.firestore {
         && request.resource.data.officeRadiusMeters <= 20;
     }
 
+    function validSuppliesCatalog() {
+      return request.resource.data.count is number
+        && request.resource.data.count >= 0
+        && request.resource.data.sedCount is number
+        && request.resource.data.sedCount >= 0
+        && request.resource.data.skipped is number
+        && request.resource.data.skipped >= 0
+        && request.resource.data.skippedSeds is number
+        && request.resource.data.skippedSeds >= 0
+        && request.resource.data.importedById == request.auth.uid
+        && request.resource.data.importedByName is string
+        && request.resource.data.importedByName.size() > 0
+        && request.resource.data.importedByName.size() <= 120
+        && request.resource.data.importedAt is timestamp;
+    }
+
     function validMobileAppSettings() {
       return request.resource.data.versionName is string
         && request.resource.data.versionName.matches('^[0-9]+[.][0-9]+[.][0-9]+$')
@@ -357,6 +645,7 @@ service cloud.firestore {
       allow create, update: if isAdmin() && (
         (docId == 'attendance' && validAttendanceSettings())
         || (docId == 'mobileApp' && validMobileAppSettings())
+        || (docId == 'suppliesCatalog' && validSuppliesCatalog())
       );
       allow delete: if false;
     }

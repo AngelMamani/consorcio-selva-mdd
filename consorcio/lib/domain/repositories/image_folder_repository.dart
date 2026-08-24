@@ -12,9 +12,12 @@ class CreateImageFolderInput {
     required this.assignToAllTechnicians,
     required this.assignedTechnicianIds,
     required this.assignedTechnicianNames,
+    this.id,
+    this.routeCode,
     this.location,
   });
 
+  final String? id;
   final String areaId;
   final String areaName;
   final String name;
@@ -24,6 +27,7 @@ class CreateImageFolderInput {
   final bool assignToAllTechnicians;
   final List<String> assignedTechnicianIds;
   final List<String> assignedTechnicianNames;
+  final String? routeCode;
   final GeoLocation? location;
 }
 

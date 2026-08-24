@@ -2,6 +2,7 @@ import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { GeoLocation } from '@/domain/value-objects/GeoLocation'
 
 export interface CreateImageFolderInput {
+  id?: string
   areaId: string
   areaName: string
   name: string
@@ -11,6 +12,7 @@ export interface CreateImageFolderInput {
   assignToAllTechnicians: boolean
   assignedTechnicianIds: string[]
   assignedTechnicianNames: string[]
+  routeCode?: string
   location?: GeoLocation
 }
 

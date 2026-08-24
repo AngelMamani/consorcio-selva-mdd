@@ -1,6 +1,10 @@
 import type { AuthRepository } from '@/domain/repositories/AuthRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { User } from '@/domain/entities/User'
+import {
+  CONFIGURED_SUPER_ADMIN_EMAIL,
+  UserRole,
+} from '@/domain/value-objects/UserRole'
 
 export class ObserveSessionUseCase {
   private readonly authRepository: AuthRepository
@@ -19,12 +23,27 @@ export class ObserveSessionUseCase {
           return
         }
 
-        const user = await this.userRepository.getById(userId)
+        let user = await this.userRepository.getById(userId)
         if (!user || !user.active) {
-          // Cierra la sesión Auth si el perfil no existe o está inactivo.
           await this.authRepository.logout()
           onChange(null)
           return
+        }
+
+        if (
+          user.email === CONFIGURED_SUPER_ADMIN_EMAIL &&
+          user.role !== UserRole.SuperAdministrador
+        ) {
+          try {
+            await this.authRepository.claimConfiguredSuperAdmin()
+            user =
+              (await this.userRepository.getById(userId)) ?? {
+                ...user,
+                role: UserRole.SuperAdministrador,
+              }
+          } catch {
+            // Si la función aún no está desplegada, el siguiente ingreso lo reintenta.
+          }
         }
 
         onChange(user)

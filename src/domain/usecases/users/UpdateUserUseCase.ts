@@ -1,8 +1,9 @@
 import type { AuthRepository } from '@/domain/repositories/AuthRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { User } from '@/domain/entities/User'
-import { UserRole, isUserRole } from '@/domain/value-objects/UserRole'
+import { UserRole, isUserRole, canManageOperationalRoles } from '@/domain/value-objects/UserRole'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
+import { normalizeOptionalDni } from '@/domain/value-objects/Dni'
 import {
   NotFoundError,
   UnauthorizedError,
@@ -13,6 +14,7 @@ export interface UpdateUserRequest {
   userId: string
   displayName?: string
   role?: UserRole
+  dni?: string
   active?: boolean
 }
 
@@ -39,6 +41,15 @@ export class UpdateUserUseCase {
       throw new ValidationError('Rol inválido')
     }
 
+    if (
+      request.role === UserRole.SuperAdministrador &&
+      !canManageOperationalRoles(actor.role)
+    ) {
+      throw new UnauthorizedError(
+        'Solo el Super Administrador puede asignar ese rol',
+      )
+    }
+
     if (actor.id === request.userId && request.active === false) {
       throw new ValidationError('No puedes desactivar tu propia cuenta')
     }
@@ -53,14 +64,17 @@ export class UpdateUserUseCase {
 
     if (
       roleChanged &&
-      existing.role === UserRole.Administrador &&
-      nextRole !== UserRole.Administrador
+      (existing.role === UserRole.Administrador ||
+        existing.role === UserRole.SuperAdministrador) &&
+      nextRole !== UserRole.Administrador &&
+      nextRole !== UserRole.SuperAdministrador
     ) {
       const all = await this.userRepository.listAll()
       const otherActiveAdmins = all.filter(
         (item) =>
           item.id !== existing.id &&
-          item.role === UserRole.Administrador &&
+          (item.role === UserRole.Administrador ||
+            item.role === UserRole.SuperAdministrador) &&
           item.active,
       )
       if (otherActiveAdmins.length === 0) {
@@ -89,16 +103,34 @@ export class UpdateUserUseCase {
     }
 
     const shouldPatch =
-      nameChanged || roleChanged || request.active !== undefined
+      nameChanged || roleChanged || request.active !== undefined || request.dni !== undefined
 
     if (!shouldPatch) {
       return existing
+    }
+
+    let nextDni: string | undefined
+    if (request.dni !== undefined) {
+      nextDni = normalizeOptionalDni(request.dni)
+      if (nextDni && nextDni !== existing.dni) {
+        const duplicate = await this.userRepository.findByDni(nextDni)
+        if (duplicate && duplicate.id !== existing.id) {
+          throw new ValidationError('Ya existe un usuario con ese DNI')
+        }
+      }
+    }
+
+    const resolvedRole = nextRole ?? existing.role
+    const resolvedDni = nextDni !== undefined ? nextDni : existing.dni
+    if (resolvedRole === UserRole.Tecnico && !resolvedDni) {
+      throw new ValidationError('El DNI es el código de acceso del técnico')
     }
 
     return this.userRepository.update(request.userId, {
       ...(nameChanged ? { displayName } : {}),
       ...(request.role !== undefined ? { role: request.role } : {}),
       ...(request.active !== undefined ? { active: request.active } : {}),
+      ...(nextDni !== undefined ? { dni: nextDni } : {}),
     })
   }
 }

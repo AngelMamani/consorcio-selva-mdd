@@ -71,6 +71,43 @@
   font-size: 0.8rem;
 }
 
+.mobile-app-hint {
+  color: var(--brand-blue) !important;
+  font-weight: 700;
+}
+
+.mobile-app-hint--warn {
+  color: #b45309 !important;
+}
+
+.mobile-app-auto {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.mobile-app-auto div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+}
+
+.mobile-app-auto span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mobile-app-auto strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .mobile-app-check {
   display: flex;
   align-items: center;

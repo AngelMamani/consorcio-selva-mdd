@@ -16,3 +16,30 @@ export function distanceMeters(
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
   return 2 * earthRadius * Math.asin(Math.min(1, Math.sqrt(haversine)))
 }
+
+const METERS_PER_DEGREE_LAT = 111_320
+
+export interface GeoBoundingBox {
+  minLat: number
+  maxLat: number
+  minLng: number
+  maxLng: number
+}
+
+/** Caja alrededor de un punto, para consultar Firestore por lat/lng. */
+export function boundingBox(
+  latitude: number,
+  longitude: number,
+  radiusMeters: number,
+): GeoBoundingBox {
+  const latDelta = radiusMeters / METERS_PER_DEGREE_LAT
+  const lngDelta =
+    radiusMeters /
+    (METERS_PER_DEGREE_LAT * Math.max(0.2, Math.cos((latitude * Math.PI) / 180)))
+  return {
+    minLat: latitude - latDelta,
+    maxLat: latitude + latDelta,
+    minLng: longitude - lngDelta,
+    maxLng: longitude + lngDelta,
+  }
+}
