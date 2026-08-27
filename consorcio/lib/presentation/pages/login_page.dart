@@ -40,7 +40,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (session.mustChangePassword) {
+    if (session.mustChangePassword && !session.pendingRolePick) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -75,22 +75,22 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
+                    Text(
                       'Consorcio Selva MDD',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.ink,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 6),
-                    const Text(
-                      'App de campo para técnicos',
+                    Text(
+                      'App de campo para administrador y técnico',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 15,
-                        color: Color(0xFF6B7385),
+                        color: AppTheme.mutedOf(context),
                       ),
                     ),
                     const SizedBox(height: 28),
@@ -147,12 +147,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Solo personal técnico autorizado',
+                    Text(
+                      'Personal autorizado · Administrador o Técnico',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF8A95A8),
+                        color: AppTheme.mutedOf(context),
                       ),
                     ),
                   ],

@@ -24,6 +24,7 @@ export class ListFolderImagesUseCase {
     actor: User,
     folderId: string,
     dateId?: string,
+    uploadedById?: string,
   ): Promise<FolderImage[]> {
     const folder = await this.folderRepository.getById(folderId)
     if (!folder) {
@@ -34,10 +35,11 @@ export class ListFolderImagesUseCase {
       throw new UnauthorizedError('No tienes permiso para ver esta carpeta')
     }
 
-    if (dateId) {
-      return this.imageRepository.listByDate(folderId, dateId)
-    }
-
-    return this.imageRepository.listByFolder(folderId)
+    const images = dateId
+      ? await this.imageRepository.listByDate(folderId, dateId)
+      : await this.imageRepository.listByFolder(folderId)
+    const technicianId = uploadedById?.trim()
+    if (!technicianId) return images
+    return images.filter((image) => image.uploadedById === technicianId)
   }
 }

@@ -1,17 +1,43 @@
 export const AttendanceOrigin = {
   Oficina: 'OFICINA',
   Zona: 'ZONA',
+  Permiso: 'PERMISO',
 } as const
 
 export type AttendanceOrigin =
   (typeof AttendanceOrigin)[keyof typeof AttendanceOrigin]
 
 export function isAttendanceOrigin(value: string): value is AttendanceOrigin {
-  return value === AttendanceOrigin.Oficina || value === AttendanceOrigin.Zona
+  return (
+    value === AttendanceOrigin.Oficina ||
+    value === AttendanceOrigin.Zona ||
+    value === AttendanceOrigin.Permiso
+  )
 }
 
 export function attendanceOriginLabel(origin: AttendanceOrigin): string {
-  return origin === AttendanceOrigin.Oficina ? 'Oficina' : 'Zona de trabajo'
+  if (origin === AttendanceOrigin.Oficina) return 'Oficina'
+  if (origin === AttendanceOrigin.Permiso) return 'Permiso'
+  return 'Campo'
+}
+
+export function attendanceHasGpsPin(attendance: Attendance): boolean {
+  if (attendance.origin === AttendanceOrigin.Permiso) return false
+  return attendance.latitude !== 0 || attendance.longitude !== 0
+}
+
+export function attendanceAttendedLabel(
+  attendance: Attendance | null,
+): 'Sí' | 'No' {
+  if (!attendance) return 'No'
+  if (attendance.origin === AttendanceOrigin.Permiso) return 'No'
+  return 'Sí'
+}
+
+export function attendanceStatusLabel(attendance: Attendance | null): string {
+  if (!attendance) return 'No asistió'
+  if (attendance.origin === AttendanceOrigin.Permiso) return 'Permiso'
+  return 'Asistió'
 }
 
 export interface Attendance {
@@ -27,6 +53,9 @@ export interface Attendance {
   accuracyMeters?: number
   distanceToOfficeMeters?: number
   officeValidated: boolean
+  permissionNote?: string
+  markedById?: string
+  markedByName?: string
   environmentPhotoUrl?: string
   environmentPhotoPath?: string
   createdAt: Date

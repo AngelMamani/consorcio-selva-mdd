@@ -264,7 +264,7 @@ export function AreasPage() {
   }
 
   function openArea(areaId: string) {
-    navigate(`/areas/${areaId}/carpetas`)
+    navigate(`/areas/${areaId}/tecnicos`)
   }
 
   async function handleSave(event: FormEvent) {
@@ -379,9 +379,9 @@ export function AreasPage() {
           <p className="areas-page__eyebrow">Campo</p>
           <h1>Actividades</h1>
           <p>
-            Cada actividad (Notificaciones y las que agregues) usa el mismo
-            catálogo de suministros. No se copian los 60.803: se buscan por
-            código y la carpeta se crea al abrirla.
+            Cada actividad agrupa el trabajo de campo: carpeta del técnico,
+            luego la carpeta de la ruta con la fecha publicada, y dentro las
+            fotos para exportar a PDF.
           </p>
         </div>
         {isAdmin ? (

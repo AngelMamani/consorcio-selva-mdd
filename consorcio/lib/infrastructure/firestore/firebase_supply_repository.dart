@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../domain/entities/supply.dart';
+import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/supply_repository.dart';
 import '../../domain/services/geo_distance_service.dart';
 
@@ -67,20 +68,65 @@ class FirebaseSupplyRepository implements SupplyRepository {
     }
 
     return docs
+        .where((supply) => supply.hasLocation)
         .where(
           (supply) =>
-              supply.longitude >= box.minLng &&
-              supply.longitude <= box.maxLng &&
+              supply.longitude! >= box.minLng &&
+              supply.longitude! <= box.maxLng &&
               distanceMeters(
                     latitudeA: latitude,
                     longitudeA: longitude,
-                    latitudeB: supply.latitude,
-                    longitudeB: supply.longitude,
+                    latitudeB: supply.latitude!,
+                    longitudeB: supply.longitude!,
                   ) <=
                   radiusMeters,
         )
         .take(limit)
         .toList();
+  }
+
+  @override
+  Future<Supply> ensureManual({
+    required String routeCode,
+    String note = '',
+  }) async {
+    final existing = await getByRouteCode(routeCode);
+    if (existing != null) return existing;
+    final payload = <String, dynamic>{
+      'routeCode': routeCode,
+      'prefix': routeCode.substring(0, 4),
+      'updatedAt': Timestamp.now(),
+    };
+    final cleanNote = note.trim();
+    if (cleanNote.isNotEmpty) payload['note'] = cleanNote;
+    await _supplies.doc(routeCode).set(payload);
+    return _map(routeCode, payload);
+  }
+
+  @override
+  Future<Supply> setLocation({
+    required String routeCode,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final existing = await getByRouteCode(routeCode);
+    if (existing == null) {
+      throw DomainException('No hay suministro con ese código');
+    }
+    if (existing.hasLocation) return existing;
+    await _supplies.doc(routeCode).update({
+      'latitude': latitude,
+      'longitude': longitude,
+      'updatedAt': Timestamp.now(),
+    });
+    return Supply(
+      id: existing.id,
+      routeCode: existing.routeCode,
+      latitude: latitude,
+      longitude: longitude,
+      prefix: existing.prefix,
+      note: existing.note,
+    );
   }
 
   CollectionReference<Map<String, dynamic>> get _seds =>
@@ -117,12 +163,20 @@ class FirebaseSupplyRepository implements SupplyRepository {
   }
 
   Supply _map(String id, Map<String, dynamic> data) {
+    final latitude = (data['latitude'] as num?)?.toDouble();
+    final longitude = (data['longitude'] as num?)?.toDouble();
+    final hasPoint = latitude != null &&
+        longitude != null &&
+        latitude.isFinite &&
+        longitude.isFinite &&
+        !(latitude == 0 && longitude == 0);
     return Supply(
       id: id,
       routeCode: data['routeCode'] as String? ?? id,
-      latitude: (data['latitude'] as num?)?.toDouble() ?? 0,
-      longitude: (data['longitude'] as num?)?.toDouble() ?? 0,
+      latitude: hasPoint ? latitude : null,
+      longitude: hasPoint ? longitude : null,
       prefix: data['prefix'] as String? ?? '',
+      note: data['note'] as String? ?? '',
     );
   }
 

@@ -36,7 +36,9 @@ class UploadTaskPhotosUseCase {
   Future<UploadTaskPhotosResult> execute(
     AppUser actor, {
     required FieldTask task,
+    String? routeCode,
     required List<ImageFilePayload> files,
+    String note = '',
     GeoLocation? location,
     void Function(String status)? onStatus,
     void Function(int current, int total)? onProgress,
@@ -50,8 +52,8 @@ class UploadTaskPhotosUseCase {
       );
     }
 
-    final routeCode = task.routeCode.trim();
-    if (routeCode.isEmpty) {
+    final selectedRoute = (routeCode ?? task.routeCode).trim();
+    if (selectedRoute.isEmpty) {
       throw DomainException('Esta tarea no tiene código de suministro');
     }
 
@@ -63,12 +65,15 @@ class UploadTaskPhotosUseCase {
     final folder = await _ensureSupplyFolderUseCase.execute(
       actor,
       areaId: areaId,
-      routeCode: routeCode,
+      routeCode: selectedRoute,
       areaName: task.areaName,
     );
 
     onStatus?.call('Creando carpeta de hoy...');
-    final rawNote = 'Fotos de tarea: ${task.title}';
+    final trimmedNote = note.trim();
+    final rawNote = trimmedNote.isEmpty
+        ? 'Fotos de tarea: ${task.title}'
+        : trimmedNote;
     final folderDate = await _ensureFolderDateUseCase.execute(
       actor,
       folderId: folder.id,

@@ -33,12 +33,13 @@ export const DEFAULT_OPERATIONAL_ROLES: Array<{
   {
     name: 'Administrador',
     code: UserRole.Administrador,
-    permissions: [...ALL_APP_MENU_KEYS],
+    permissions: ALL_APP_MENU_KEYS.filter((key) => key !== MenuKey.Roles),
   },
   {
     name: 'Técnico',
     code: UserRole.Tecnico,
     permissions: [
+      MenuKey.Inicio,
       MenuKey.Estaciones,
       MenuKey.Areas,
       MenuKey.Tareas,

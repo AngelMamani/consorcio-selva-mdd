@@ -7,7 +7,7 @@ import type {
   Supply,
   SupplyCatalogStatus,
 } from '@/domain/entities/Supply'
-import { SED_FEEDER_RADIUS_METERS } from '@/domain/entities/Supply'
+import { SED_FEEDER_RADIUS_METERS, supplyHasLocation } from '@/domain/entities/Supply'
 import { distanceMeters } from '@/domain/services/GeoDistanceService'
 import {
   stationHitFromSed,
@@ -54,6 +54,17 @@ export class GetSupplyByRouteCodeUseCase {
       throw new NotFoundError('No hay estación con ese código de ruta')
     }
     return supply
+  }
+
+  async find(actor: User, routeCode: string): Promise<Supply | null> {
+    if (!actor.active) {
+      throw new UnauthorizedError('Usuario inactivo')
+    }
+    const code = normalizeRouteCode(routeCode)
+    if (!isRouteCode(code)) {
+      throw new ValidationError('Ingresa un código de ruta válido')
+    }
+    return this.supplyRepository.getByRouteCode(code)
   }
 }
 
@@ -154,7 +165,9 @@ export class GetStationByCodeUseCase {
     const candidates = [...new Set([code, ...exactCodes])].filter(isRouteCode)
     for (const candidate of candidates) {
       const supply = await this.supplyRepository.getByRouteCode(candidate)
-      if (supply) return stationHitFromSupply(supply)
+      if (supply && supplyHasLocation(supply)) {
+        return stationHitFromSupply(supply)
+      }
     }
 
     throw new NotFoundError('No hay suministro ni SED con ese código')
@@ -195,7 +208,7 @@ export class SearchStationsUseCase {
     )
     const hits: StationHit[] = [
       ...[...seds.values()].map(stationHitFromSed),
-      ...supplies.map(stationHitFromSupply),
+      ...supplies.filter(supplyHasLocation).map(stationHitFromSupply),
     ]
 
     hits.sort((left, right) => {
@@ -234,18 +247,20 @@ export class ListSuppliesNearUseCase {
       250,
     )
 
-    const nearby: NearbySupply[] = supplies.map((supply) => ({
-      id: supply.id,
-      routeCode: supply.routeCode,
-      latitude: supply.latitude,
-      longitude: supply.longitude,
-      distanceMeters: distanceMeters(
-        latitude,
-        longitude,
-        supply.latitude,
-        supply.longitude,
-      ),
-    }))
+    const nearby: NearbySupply[] = supplies
+      .filter(supplyHasLocation)
+      .map((supply) => ({
+        id: supply.id,
+        routeCode: supply.routeCode,
+        latitude: supply.latitude,
+        longitude: supply.longitude,
+        distanceMeters: distanceMeters(
+          latitude,
+          longitude,
+          supply.latitude,
+          supply.longitude,
+        ),
+      }))
 
     nearby.sort((left, right) => left.distanceMeters - right.distanceMeters)
     return nearby

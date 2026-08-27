@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -9,9 +10,13 @@ import {
   orderBy,
   query,
   setDoc,
+  startAfter,
   Timestamp,
+  updateDoc,
   where,
   writeBatch,
+  type DocumentData,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import type { Personal } from '@/domain/entities/Personal'
 import type {
@@ -22,42 +27,58 @@ import type { PersonalCondition } from '@/domain/value-objects/PersonalCondition
 import { NotFoundError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
 
-interface PersonalDoc {
-  nombres: string
-  apellidoPaterno: string
-  apellidoMaterno: string
-  dni: string
-  cargoId: string
-  cargoName: string
-  localidadId: string
-  localidadName: string
-  condicion: string
-  roleId: string
-  roleName: string
-  createdById: string
-  createdByName: string
-  createdAt: Timestamp
-  updatedAt: Timestamp
+const PAGE_SIZE = 500
+
+function asText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
 }
 
-function mapPersonal(id: string, data: PersonalDoc): Personal {
+function asDate(value: unknown): Date {
+  if (value instanceof Timestamp) return value.toDate()
+  if (value instanceof Date) return value
+  return new Date(0)
+}
+
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((item) => asText(item)).filter(Boolean))]
+}
+
+function mapPersonal(id: string, data: DocumentData): Personal {
+  const nombres = asText(data.nombres || data.nombre || data.names)
+  const apellidoPaterno = asText(
+    data.apellidoPaterno || data.apellido_paterno || data.paterno,
+  )
+  const apellidoMaterno = asText(
+    data.apellidoMaterno || data.apellido_materno || data.materno,
+  )
+  const roleIds = asStringList(data.roleIds)
+  const roleNames = asStringList(data.roleNames)
+  const roleId = asText(data.roleId || data.role || data.rolId) || roleIds[0] || ''
+  const roleName =
+    asText(data.roleName || data.rol) || roleNames.join(' · ')
+
   return {
     id,
-    nombres: data.nombres,
-    apellidoPaterno: data.apellidoPaterno,
-    apellidoMaterno: data.apellidoMaterno,
-    dni: data.dni,
-    cargoId: data.cargoId,
-    cargoName: data.cargoName,
-    localidadId: data.localidadId,
-    localidadName: data.localidadName,
-    condicion: (data.condicion as PersonalCondition | '') ?? '',
-    roleId: data.roleId ?? '',
-    roleName: data.roleName ?? '',
-    createdById: data.createdById,
-    createdByName: data.createdByName,
-    createdAt: data.createdAt?.toDate() ?? new Date(),
-    updatedAt: data.updatedAt?.toDate() ?? new Date(),
+    nombres,
+    apellidoPaterno,
+    apellidoMaterno,
+    dni: asText(data.dni).replace(/\D/g, ''),
+    cargoId: asText(data.cargoId),
+    cargoName: asText(data.cargoName || data.cargo),
+    localidadId: asText(data.localidadId),
+    localidadName: asText(data.localidadName || data.localidad),
+    condicion: (asText(data.condicion) as PersonalCondition | '') ?? '',
+    roleId,
+    roleName,
+    roleIds: roleIds.length > 0 ? roleIds : roleId ? [roleId] : [],
+    roleNames: roleNames.length > 0 ? roleNames : roleName ? [roleName] : [],
+    createdById: asText(data.createdById),
+    createdByName: asText(data.createdByName),
+    createdAt: asDate(data.createdAt),
+    updatedAt: asDate(data.updatedAt),
   }
 }
 
@@ -65,7 +86,7 @@ function toDoc(
   input: PersonalWriteInput,
   createdAt: Timestamp,
   updatedAt: Timestamp,
-): PersonalDoc {
+) {
   return {
     nombres: input.nombres,
     apellidoPaterno: input.apellidoPaterno,
@@ -78,6 +99,8 @@ function toDoc(
     condicion: input.condicion,
     roleId: input.roleId ?? '',
     roleName: input.roleName ?? '',
+    roleIds: input.roleIds ?? (input.roleId ? [input.roleId] : []),
+    roleNames: input.roleNames ?? (input.roleName ? [input.roleName] : []),
     createdById: input.createdById,
     createdByName: input.createdByName,
     createdAt,
@@ -89,18 +112,41 @@ export class FirebasePersonalRepository implements PersonalRepository {
   private readonly collectionRef = collection(firestoreDb, 'personal')
 
   async listAll(): Promise<Personal[]> {
-    const snapshot = await getDocs(
-      query(this.collectionRef, orderBy('apellidoPaterno', 'asc')),
-    )
-    return snapshot.docs.map((item) =>
-      mapPersonal(item.id, item.data() as PersonalDoc),
-    )
+    const people: Personal[] = []
+    let cursor: QueryDocumentSnapshot | undefined
+
+    for (;;) {
+      const page = cursor
+        ? query(
+            this.collectionRef,
+            orderBy(documentId()),
+            startAfter(cursor),
+            limit(PAGE_SIZE),
+          )
+        : query(this.collectionRef, orderBy(documentId()), limit(PAGE_SIZE))
+
+      const snapshot = await getDocs(page)
+      if (snapshot.empty) break
+
+      for (const item of snapshot.docs) {
+        try {
+          people.push(mapPersonal(item.id, item.data()))
+        } catch {
+          // Un documento mal formado no debe ocultar el resto.
+        }
+      }
+
+      if (snapshot.size < PAGE_SIZE) break
+      cursor = snapshot.docs[snapshot.docs.length - 1]
+    }
+
+    return people
   }
 
   async getById(id: string): Promise<Personal | null> {
     const snapshot = await getDoc(doc(this.collectionRef, id))
     if (!snapshot.exists()) return null
-    return mapPersonal(snapshot.id, snapshot.data() as PersonalDoc)
+    return mapPersonal(snapshot.id, snapshot.data())
   }
 
   async findByDni(dni: string): Promise<Personal | null> {
@@ -109,7 +155,7 @@ export class FirebasePersonalRepository implements PersonalRepository {
     )
     const first = snapshot.docs[0]
     if (!first) return null
-    return mapPersonal(first.id, first.data() as PersonalDoc)
+    return mapPersonal(first.id, first.data())
   }
 
   async create(input: PersonalWriteInput): Promise<Personal> {
@@ -126,10 +172,58 @@ export class FirebasePersonalRepository implements PersonalRepository {
     if (!snapshot.exists()) {
       throw new NotFoundError('Persona no encontrada')
     }
-    const current = snapshot.data() as PersonalDoc
-    const payload = toDoc(input, current.createdAt, Timestamp.now())
-    await setDoc(refDoc, payload)
-    return mapPersonal(id, payload)
+    await updateDoc(refDoc, {
+      nombres: input.nombres,
+      apellidoPaterno: input.apellidoPaterno,
+      apellidoMaterno: input.apellidoMaterno,
+      dni: input.dni,
+      cargoId: input.cargoId,
+      cargoName: input.cargoName,
+      localidadId: input.localidadId,
+      localidadName: input.localidadName,
+      condicion: input.condicion,
+      roleId: input.roleId ?? '',
+      roleName: input.roleName ?? '',
+      roleIds: input.roleIds ?? (input.roleId ? [input.roleId] : []),
+      roleNames: input.roleNames ?? (input.roleName ? [input.roleName] : []),
+      updatedAt: Timestamp.now(),
+    })
+    const next = await getDoc(refDoc)
+    return mapPersonal(id, next.data() ?? {})
+  }
+
+  async assignRole(
+    id: string,
+    roleId: string,
+    roleName: string,
+  ): Promise<Personal> {
+    return this.assignRoles(id, roleId ? [{ id: roleId, name: roleName }] : [])
+  }
+
+  async assignRoles(
+    id: string,
+    roles: Array<{ id: string; name: string }>,
+  ): Promise<Personal> {
+    const refDoc = doc(this.collectionRef, id)
+    const snapshot = await getDoc(refDoc)
+    if (!snapshot.exists()) {
+      throw new NotFoundError('Persona no encontrada')
+    }
+    const unique: Array<{ id: string; name: string }> = []
+    for (const role of roles) {
+      if (!role.id || unique.some((item) => item.id === role.id)) continue
+      unique.push(role)
+    }
+    const clipped = unique.slice(0, 3)
+    await updateDoc(refDoc, {
+      roleId: clipped[0]?.id ?? '',
+      roleName: clipped.map((item) => item.name).join(' · '),
+      roleIds: clipped.map((item) => item.id),
+      roleNames: clipped.map((item) => item.name),
+      updatedAt: Timestamp.now(),
+    })
+    const next = await getDoc(refDoc)
+    return mapPersonal(id, next.data() ?? {})
   }
 
   async delete(id: string): Promise<void> {

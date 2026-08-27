@@ -11,13 +11,17 @@ import {
   where,
   Timestamp,
 } from 'firebase/firestore'
-import type { User } from '@/domain/entities/User'
+import {
+  pickCanonicalUser,
+  uniqueUsersByAccessDni,
+  type User,
+} from '@/domain/entities/User'
 import type {
   CreateUserInput,
   UpdateUserInput,
   UserRepository,
 } from '@/domain/repositories/UserRepository'
-import { isUserRole } from '@/domain/value-objects/UserRole'
+import { normalizeUserRoles, primaryUserRole } from '@/domain/value-objects/UserRole'
 import { ThemePreference, normalizeThemePreference } from '@/domain/value-objects/ThemePreference'
 import { DomainError, NotFoundError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
@@ -27,6 +31,7 @@ interface UserDoc {
   displayName: string
   dni?: string
   role: string
+  roles?: string[]
   theme?: string
   mustChangePassword?: boolean
   active: boolean
@@ -35,7 +40,12 @@ interface UserDoc {
 }
 
 function mapUser(id: string, data: UserDoc): User {
-  if (!isUserRole(data.role)) {
+  const roles = normalizeUserRoles([
+    ...(Array.isArray(data.roles) ? data.roles : []),
+    data.role,
+  ])
+  const role = primaryUserRole(roles)
+  if (!role) {
     throw new DomainError(`Rol inválido en usuario ${id}`)
   }
 
@@ -44,7 +54,8 @@ function mapUser(id: string, data: UserDoc): User {
     email: data.email,
     displayName: data.displayName,
     dni: data.dni ?? '',
-    role: data.role,
+    role,
+    roles,
     theme: normalizeThemePreference(data.theme),
     mustChangePassword: data.mustChangePassword === true,
     active: data.active,
@@ -71,22 +82,46 @@ export class FirebaseUserRepository implements UserRepository {
   }
 
   async listTechnicians(): Promise<User[]> {
-    const snapshot = await getDocs(
-      query(this.collectionRef, where('role', '==', 'TECNICO')),
+    const [byRole, byArray] = await Promise.all([
+      getDocs(query(this.collectionRef, where('role', '==', 'TECNICO'))),
+      getDocs(
+        query(this.collectionRef, where('roles', 'array-contains', 'TECNICO')),
+      ),
+    ])
+    const byId = new Map<string, User>()
+    for (const item of [...byRole.docs, ...byArray.docs]) {
+      try {
+        byId.set(item.id, mapUser(item.id, item.data() as UserDoc))
+      } catch {
+        // Perfil mal formado: no entra al listado de campo.
+      }
+    }
+    return uniqueUsersByAccessDni([...byId.values()]).sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, 'es'),
     )
-    return snapshot.docs
-      .map((item) => mapUser(item.id, item.data() as UserDoc))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
   }
 
-  async findByDni(dni: string): Promise<User | null> {
-    if (!dni) return null
+  async listByDni(dni: string): Promise<User[]> {
+    if (!dni) return []
     const snapshot = await getDocs(
       query(this.collectionRef, where('dni', '==', dni)),
     )
-    const first = snapshot.docs[0]
-    if (!first) return null
-    return mapUser(first.id, first.data() as UserDoc)
+    return snapshot.docs.map((item) => mapUser(item.id, item.data() as UserDoc))
+  }
+
+  async findByDni(dni: string): Promise<User | null> {
+    return pickCanonicalUser(await this.listByDni(dni))
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    const normalized = email.trim().toLowerCase()
+    if (!normalized) return null
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('email', '==', normalized)),
+    )
+    return pickCanonicalUser(
+      snapshot.docs.map((item) => mapUser(item.id, item.data() as UserDoc)),
+    )
   }
 
   async create(input: CreateUserInput): Promise<User> {
@@ -96,6 +131,7 @@ export class FirebaseUserRepository implements UserRepository {
       displayName: input.displayName,
       dni: input.dni ?? '',
       role: input.role,
+      roles: normalizeUserRoles(input.roles ?? [input.role]),
       theme: ThemePreference.Light,
       mustChangePassword: true,
       active: true,
@@ -121,6 +157,11 @@ export class FirebaseUserRepository implements UserRepository {
 
     if (input.displayName !== undefined) patch.displayName = input.displayName
     if (input.role !== undefined) patch.role = input.role
+    if (input.roles !== undefined) {
+      const roles = normalizeUserRoles(input.roles)
+      patch.roles = roles
+      patch.role = primaryUserRole(roles) ?? input.role ?? (existing.data() as UserDoc).role
+    }
     if (input.dni !== undefined) patch.dni = input.dni
     if (input.active !== undefined) patch.active = input.active
     if (input.theme !== undefined) patch.theme = input.theme

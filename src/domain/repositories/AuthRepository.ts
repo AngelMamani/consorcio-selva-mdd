@@ -35,4 +35,6 @@ export interface AuthRepository {
   ): Promise<void>
   updatePassword(newPassword: string): Promise<void>
   resetTemporaryPassword(userId: string): Promise<string>
+  setManagedUserActive(userId: string, active: boolean): Promise<void>
+  deleteManagedUser(userId: string): Promise<void>
 }

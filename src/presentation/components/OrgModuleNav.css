@@ -1,0 +1,25 @@
+.org-module-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.28rem;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.org-module-nav .btn {
+  border-radius: 10px;
+  padding: 0.48rem 0.85rem;
+  font-size: 0.82rem;
+  box-shadow: none;
+}
+
+.org-module-nav .btn.is-active {
+  background: var(--brand-blue-soft);
+  color: var(--brand-blue-deep);
+  border-color: rgba(26, 127, 212, 0.22);
+}

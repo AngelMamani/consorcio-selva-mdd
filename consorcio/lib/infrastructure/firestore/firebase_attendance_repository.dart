@@ -63,7 +63,7 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
     required GeoLocation location,
     required bool officeValidated,
     int? distanceToOfficeMeters,
-    String? officeQrToken,
+    String permissionNote = '',
     ImageFilePayload? environmentPhoto,
   }) async {
     final id = attendanceDocId(userId, dateKey);
@@ -118,15 +118,17 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
     if (distanceToOfficeMeters != null) {
       payload['distanceToOfficeMeters'] = distanceToOfficeMeters;
     }
-    if (officeQrToken != null && officeQrToken.isNotEmpty) {
-      payload['officeQrToken'] = officeQrToken;
+    final trimmedNote = permissionNote.trim();
+    if (trimmedNote.isNotEmpty) {
+      payload['permissionNote'] =
+          trimmedNote.length > 200 ? trimmedNote.substring(0, 200) : trimmedNote;
     }
     try {
       await ref.set(payload);
     } on FirebaseException catch (error) {
       if (error.code == 'permission-denied') {
         throw DomainException(
-          'QR inválido, vencido o no es de hoy. Pide el código actualizado en oficina.',
+          'No se pudo registrar. Revisa el GPS, el radio de oficina o si ya hay una marca hoy.',
         );
       }
       throw DomainException('No se pudo marcar la asistencia');
@@ -153,6 +155,7 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
       distanceToOfficeMeters: (data['distanceToOfficeMeters'] as num?)?.toInt(),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       environmentPhotoUrl: data['environmentPhotoUrl'] as String?,
+      permissionNote: data['permissionNote'] as String?,
     );
   }
 }

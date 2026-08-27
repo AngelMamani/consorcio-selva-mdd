@@ -119,8 +119,8 @@ StationHit _fromSupply(Supply supply) {
     kind: 'supply',
     code: supply.routeCode,
     detail: 'Suministro · código de ruta',
-    latitude: supply.latitude,
-    longitude: supply.longitude,
+    latitude: supply.latitude!,
+    longitude: supply.longitude!,
   );
 }
 
@@ -151,7 +151,7 @@ class GetStationByCodeUseCase {
     final candidates = {code, ...expansion.exactCodes}.where(isRouteCode);
     for (final candidate in candidates) {
       final supply = await _supplyRepository.getByRouteCode(candidate);
-      if (supply != null) return _fromSupply(supply);
+      if (supply != null && supply.hasLocation) return _fromSupply(supply);
     }
 
     final sed = await _supplyRepository.getSedByCode(code);
@@ -187,7 +187,7 @@ class SearchStationsUseCase {
     final seds = {for (final sed in sedGroups.expand((group) => group)) sed.code: sed}.values;
     final hits = <StationHit>[
       ...seds.map(_fromSed),
-      ...supplies.map(_fromSupply),
+      ...supplies.where((supply) => supply.hasLocation).map(_fromSupply),
     ];
     hits.sort((left, right) {
       final leftScore = scoreSupplyCode(left.code, expansion.digits);
@@ -218,16 +218,17 @@ class ListSuppliesNearUseCase {
       radiusMeters: radiusMeters,
     );
     final nearby = supplies
+        .where((supply) => supply.hasLocation)
         .map(
           (supply) => NearbySupply(
             routeCode: supply.routeCode,
-            latitude: supply.latitude,
-            longitude: supply.longitude,
+            latitude: supply.latitude!,
+            longitude: supply.longitude!,
             distanceMeters: distanceMeters(
               latitudeA: latitude,
               longitudeA: longitude,
-              latitudeB: supply.latitude,
-              longitudeB: supply.longitude,
+              latitudeB: supply.latitude!,
+              longitudeB: supply.longitude!,
             ),
           ),
         )

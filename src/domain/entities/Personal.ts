@@ -13,10 +13,19 @@ export interface Personal {
   condicion: PersonalCondition | ''
   roleId: string
   roleName: string
+  roleIds: string[]
+  roleNames: string[]
   createdById: string
   createdByName: string
   createdAt: Date
   updatedAt: Date
+}
+
+export function personalRoleIds(person: Pick<Personal, 'roleId' | 'roleIds'>): string[] {
+  if (person.roleIds && person.roleIds.length > 0) {
+    return [...new Set(person.roleIds.filter(Boolean))]
+  }
+  return person.roleId ? [person.roleId] : []
 }
 
 export function personalFullName(person: Pick<
@@ -37,6 +46,7 @@ export interface PersonalInput {
   localidadId: string
   condicion: PersonalCondition | ''
   roleId: string
+  roleIds?: string[]
 }
 
 export interface ParsedPersonalRow {

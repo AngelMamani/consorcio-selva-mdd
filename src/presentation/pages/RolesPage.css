@@ -152,22 +152,3 @@
 .roles-activities li {
   margin: 0.15rem 0;
 }
-
-.personal-page__subnav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.personal-page__subnav .btn.is-active {
-  background: var(--brand-blue-soft);
-  color: var(--brand-blue-deep);
-  border-color: rgba(30, 136, 229, 0.22);
-}
-
-.personal-toolbar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-left: auto;
-}

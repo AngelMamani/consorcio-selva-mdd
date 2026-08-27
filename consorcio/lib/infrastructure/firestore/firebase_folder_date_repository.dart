@@ -32,6 +32,22 @@ class FirebaseFolderDateRepository implements FolderDateRepository {
   }
 
   @override
+  Future<List<FolderDate>> listByFolderIds(List<String> folderIds) async {
+    final unique = folderIds.where((id) => id.isNotEmpty).toSet().toList();
+    if (unique.isEmpty) return [];
+    final dates = <FolderDate>[];
+    for (var index = 0; index < unique.length; index += 30) {
+      final end = index + 30 > unique.length ? unique.length : index + 30;
+      final chunk = unique.sublist(index, end);
+      final snapshot =
+          await _dates.where('folderId', whereIn: chunk).get();
+      dates.addAll(snapshot.docs.map((doc) => _map(doc.id, doc.data())));
+    }
+    dates.sort((a, b) => b.dateKey.compareTo(a.dateKey));
+    return dates;
+  }
+
+  @override
   Future<FolderDate?> findByFolderAndDateKey(
     String folderId,
     String dateKey,
@@ -61,6 +77,25 @@ class FirebaseFolderDateRepository implements FolderDateRepository {
     };
     final created = await _dates.add(payload);
     return _map(created.id, payload);
+  }
+
+  @override
+  Future<FolderDate> updateNote(String id, String note) async {
+    final ref = _dates.doc(id);
+    final snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data() == null) {
+      throw DomainException('Fecha no encontrada');
+    }
+    final payload = {
+      ...snapshot.data()!,
+      'note': note,
+      'updatedAt': Timestamp.now(),
+    };
+    await ref.update({
+      'note': note,
+      'updatedAt': Timestamp.now(),
+    });
+    return _map(id, payload);
   }
 
   @override

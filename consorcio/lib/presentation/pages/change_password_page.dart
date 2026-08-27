@@ -79,22 +79,22 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      const Text(
+                      Text(
                         'Cambia tu contraseña',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.ink,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
+                      Text(
                         'Tu cuenta es nueva o fue restablecida. Elige una contraseña nueva (puede ser sencilla) para usar la app.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 15,
-                          color: Color(0xFF6B7385),
+                          color: AppTheme.mutedOf(context),
                         ),
                       ),
                       const SizedBox(height: 28),
@@ -159,9 +159,9 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                       const SizedBox(height: 12),
                       Text(
                         securePasswordRequirementsMessage(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: Color(0xFF8A95A8),
+                          color: AppTheme.mutedOf(context),
                         ),
                       ),
                       const SizedBox(height: 22),

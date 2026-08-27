@@ -1,4 +1,5 @@
 export const AppMenuKey = {
+  Inicio: 'inicio',
   Estaciones: 'estaciones',
   Personal: 'personal',
   Roles: 'roles',
@@ -8,10 +9,12 @@ export const AppMenuKey = {
   Tareas: 'tareas',
   Asistencias: 'asistencias',
   Mapa: 'mapa',
-  Documentacion: 'documentacion',
   Usuarios: 'usuarios',
   AppMovil: 'app-movil',
+  Soporte: 'soporte',
 } as const
+
+export const HOME_PATH = '/inicio'
 
 export type AppMenuKey = (typeof AppMenuKey)[keyof typeof AppMenuKey]
 
@@ -25,6 +28,7 @@ export interface AppMenuDefinition {
 }
 
 export const AppMenuModuleId = {
+  Panel: 'panel',
   Campo: 'campo',
   Organizacion: 'organizacion',
   Sistema: 'sistema',
@@ -41,6 +45,11 @@ export interface AppMenuModule {
 
 export const APP_MENU_MODULES: AppMenuModule[] = [
   {
+    id: AppMenuModuleId.Panel,
+    label: '',
+    keys: [AppMenuKey.Inicio],
+  },
+  {
     id: AppMenuModuleId.Campo,
     label: 'Campo',
     keys: [
@@ -54,20 +63,22 @@ export const APP_MENU_MODULES: AppMenuModule[] = [
   {
     id: AppMenuModuleId.Organizacion,
     label: 'Organización',
-    keys: [
-      AppMenuKey.Personal,
-      AppMenuKey.Roles,
-      AppMenuKey.Documentacion,
-    ],
+    keys: [AppMenuKey.Personal, AppMenuKey.Cargos, AppMenuKey.Localidades],
   },
   {
     id: AppMenuModuleId.Sistema,
     label: 'Sistema',
-    keys: [AppMenuKey.Usuarios, AppMenuKey.AppMovil],
+    keys: [AppMenuKey.Roles, AppMenuKey.Usuarios, AppMenuKey.AppMovil, AppMenuKey.Soporte],
   },
 ]
 
 export const APP_MENU_DEFINITIONS: AppMenuDefinition[] = [
+  {
+    key: AppMenuKey.Inicio,
+    label: 'Inicio',
+    path: HOME_PATH,
+    module: AppMenuModuleId.Panel,
+  },
   {
     key: AppMenuKey.Estaciones,
     label: 'Estaciones',
@@ -88,15 +99,15 @@ export const APP_MENU_DEFINITIONS: AppMenuDefinition[] = [
   },
   {
     key: AppMenuKey.Personal,
-    label: 'Personal',
-    path: '/personal',
+    label: 'Recursos Humanos',
+    path: '/recursos-humanos',
     module: AppMenuModuleId.Organizacion,
   },
   {
     key: AppMenuKey.Roles,
     label: 'Roles',
-    path: '/personal/roles',
-    module: AppMenuModuleId.Organizacion,
+    path: '/roles',
+    module: AppMenuModuleId.Sistema,
   },
   {
     key: AppMenuKey.Cargos,
@@ -123,14 +134,8 @@ export const APP_MENU_DEFINITIONS: AppMenuDefinition[] = [
     module: AppMenuModuleId.Campo,
   },
   {
-    key: AppMenuKey.Documentacion,
-    label: 'Documentación',
-    path: '/documentacion',
-    module: AppMenuModuleId.Organizacion,
-  },
-  {
     key: AppMenuKey.Usuarios,
-    label: 'Cuentas app',
+    label: 'Cuentas',
     path: '/usuarios',
     module: AppMenuModuleId.Sistema,
   },
@@ -138,6 +143,12 @@ export const APP_MENU_DEFINITIONS: AppMenuDefinition[] = [
     key: AppMenuKey.AppMovil,
     label: 'App móvil',
     path: '/app-movil',
+    module: AppMenuModuleId.Sistema,
+  },
+  {
+    key: AppMenuKey.Soporte,
+    label: 'Soporte',
+    path: '/soporte',
     module: AppMenuModuleId.Sistema,
   },
 ]
@@ -151,8 +162,16 @@ export function isAppMenuKey(value: string): value is AppMenuKey {
 }
 
 export function pathToMenuKey(pathname: string): AppMenuKey | null {
-  if (pathname.startsWith('/personal/roles')) return AppMenuKey.Roles
-  if (pathname.startsWith('/personal')) return AppMenuKey.Personal
+  if (pathname === HOME_PATH || pathname.startsWith(`${HOME_PATH}/`)) {
+    return AppMenuKey.Inicio
+  }
+  if (pathname.startsWith('/roles')) return AppMenuKey.Roles
+  if (
+    pathname.startsWith('/recursos-humanos') ||
+    pathname.startsWith('/personal')
+  ) {
+    return AppMenuKey.Personal
+  }
   if (pathname.startsWith('/cargos')) return AppMenuKey.Cargos
   if (pathname.startsWith('/localidades')) return AppMenuKey.Localidades
   if (pathname.startsWith('/estaciones')) return AppMenuKey.Estaciones
@@ -162,8 +181,8 @@ export function pathToMenuKey(pathname: string): AppMenuKey | null {
   if (pathname.startsWith('/tareas')) return AppMenuKey.Tareas
   if (pathname.startsWith('/asistencias')) return AppMenuKey.Asistencias
   if (pathname.startsWith('/mapa')) return AppMenuKey.Mapa
-  if (pathname.startsWith('/documentacion')) return AppMenuKey.Documentacion
   if (pathname.startsWith('/usuarios')) return AppMenuKey.Usuarios
   if (pathname.startsWith('/app-movil')) return AppMenuKey.AppMovil
+  if (pathname.startsWith('/soporte')) return AppMenuKey.Soporte
   return null
 }

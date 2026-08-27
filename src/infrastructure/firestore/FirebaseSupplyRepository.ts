@@ -9,6 +9,7 @@ import {
   query,
   setDoc,
   Timestamp,
+  updateDoc,
   waitForPendingWrites,
   where,
   writeBatch,
@@ -19,6 +20,7 @@ import type {
   Supply,
   SupplyCatalogStatus,
 } from '@/domain/entities/Supply'
+import { supplyHasLocation } from '@/domain/entities/Supply'
 import type { ParsedSed, Sed } from '@/domain/entities/Sed'
 import type { SupplyRepository } from '@/domain/repositories/SupplyRepository'
 import {
@@ -30,9 +32,10 @@ import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
 
 interface SupplyDoc {
   routeCode: string
-  latitude: number
-  longitude: number
+  latitude?: number
+  longitude?: number
   prefix: string
+  note?: string
   updatedAt: Timestamp
 }
 
@@ -89,12 +92,25 @@ function mapWriteError(error: unknown, fallback: string): never {
 }
 
 function mapSupply(id: string, data: SupplyDoc): Supply {
+  const latitude =
+    typeof data.latitude === 'number' && Number.isFinite(data.latitude)
+      ? data.latitude
+      : null
+  const longitude =
+    typeof data.longitude === 'number' && Number.isFinite(data.longitude)
+      ? data.longitude
+      : null
+  const hasCoords =
+    latitude !== null &&
+    longitude !== null &&
+    !(latitude === 0 && longitude === 0)
   return {
     id,
     routeCode: data.routeCode,
-    latitude: data.latitude,
-    longitude: data.longitude,
+    latitude: hasCoords ? latitude : null,
+    longitude: hasCoords ? longitude : null,
     prefix: data.prefix,
+    note: (data.note ?? '').trim(),
     updatedAt: data.updatedAt.toDate(),
   }
 }
@@ -184,6 +200,7 @@ export class FirebaseSupplyRepository implements SupplyRepository {
     return docs
       .filter(
         (supply) =>
+          supplyHasLocation(supply) &&
           supply.longitude >= box.minLng &&
           supply.longitude <= box.maxLng &&
           distanceMeters(
@@ -194,6 +211,60 @@ export class FirebaseSupplyRepository implements SupplyRepository {
           ) <= radiusMeters,
       )
       .slice(0, max)
+  }
+
+  async ensureManual(input: {
+    routeCode: string
+    note?: string
+  }): Promise<Supply> {
+    const existing = await this.getByRouteCode(input.routeCode)
+    if (existing) {
+      const note = (input.note ?? '').trim()
+      if (note && !existing.note) {
+        await updateDoc(doc(this.collectionRef, existing.id), {
+          note,
+          updatedAt: Timestamp.now(),
+        })
+        return { ...existing, note, updatedAt: new Date() }
+      }
+      return existing
+    }
+
+    const now = Timestamp.now()
+    const payload: SupplyDoc = {
+      routeCode: input.routeCode,
+      prefix: input.routeCode.slice(0, 4),
+      updatedAt: now,
+    }
+    const note = (input.note ?? '').trim()
+    if (note) payload.note = note
+    await setDoc(doc(this.collectionRef, input.routeCode), payload)
+    return mapSupply(input.routeCode, payload)
+  }
+
+  async setLocation(
+    routeCode: string,
+    latitude: number,
+    longitude: number,
+  ): Promise<Supply> {
+    const existing = await this.getByRouteCode(routeCode)
+    if (!existing) {
+      throw new ValidationError('No hay suministro con ese código')
+    }
+    if (supplyHasLocation(existing)) return existing
+
+    const now = Timestamp.now()
+    await updateDoc(doc(this.collectionRef, routeCode), {
+      latitude,
+      longitude,
+      updatedAt: now,
+    })
+    return {
+      ...existing,
+      latitude,
+      longitude,
+      updatedAt: now.toDate(),
+    }
   }
 
   async getSedByCode(code: string): Promise<Sed | null> {

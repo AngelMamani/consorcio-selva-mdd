@@ -16,43 +16,41 @@ const EXCEL_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const LIST_HEADERS = [
-  'Técnico',
-  'Correo',
-  'Estado',
-  'Origen',
+  'N°',
+  'Nombre',
+  'DNI',
+  'Rol',
+  'Asistió',
+  'Tipo',
   'Hora',
-  'Área',
+  'Motivo permiso',
+  'Distancia oficina (m)',
   'Latitud',
   'Longitud',
-  'Precisión (m)',
-  'Distancia oficina (m)',
-  'GPS oficina validado',
-  'Foto entorno',
   'Mapa GPS',
 ]
 
-function lineToRow(line: AttendanceExportLine): (string | number)[] {
+function lineToRow(
+  line: AttendanceExportLine,
+  index: number,
+): (string | number)[] {
   return [
-    line.technicianName,
-    line.technicianEmail,
-    line.status,
+    index + 1,
+    line.personName,
+    line.personDni,
+    line.personRole,
+    line.attendedLabel,
     line.originLabel,
     line.timeLabel,
-    line.areaName,
+    line.permissionNote,
+    formatExportMeters(line.distanceToOfficeMeters),
     formatExportCoord(line.latitude),
     formatExportCoord(line.longitude),
-    formatExportMeters(line.accuracyMeters),
-    formatExportMeters(line.distanceToOfficeMeters),
-    line.officeValidatedLabel,
-    line.photoUrl,
     line.mapUrl,
   ]
 }
 
-function setColumnWidths(
-  sheet: XLSX.WorkSheet,
-  widths: number[],
-): void {
+function setColumnWidths(sheet: XLSX.WorkSheet, widths: number[]): void {
   sheet['!cols'] = widths.map((width) => ({ wch: width }))
 }
 
@@ -72,7 +70,7 @@ function applyListLayout(
   })
   sheet['!autofilter'] = { ref: range }
   freezeHeader(sheet, headerRowIndex)
-  setColumnWidths(sheet, [28, 32, 14, 16, 10, 22, 14, 14, 14, 20, 20, 40, 36])
+  setColumnWidths(sheet, [6, 32, 12, 18, 10, 14, 10, 28, 20, 14, 14, 36])
 }
 
 function addMapLinks(
@@ -106,7 +104,7 @@ function createListSheet(
     [purpose],
     [`Fecha: ${report.dateLabel}`],
     LIST_HEADERS,
-    ...lines.map(lineToRow),
+    ...lines.map((line, index) => lineToRow(line, index)),
   ]
   const sheet = XLSX.utils.aoa_to_sheet(matrix)
   applyListLayout(sheet, 4, lines.length)
@@ -117,86 +115,32 @@ function createListSheet(
 function createSummarySheet(report: AttendanceExportReport): XLSX.WorkSheet {
   const matrix: (string | number)[][] = [
     ['Consorcio Selva MDD'],
-    ['Control diario de asistencia (Excel)'],
-    [],
-    ['Para qué sirve este archivo'],
-    [
-      'Planillas, filtros, seguimiento y GPS. Las fotos van en el PDF de evidencia.',
-    ],
+    ['Asistencia del día'],
     [],
     ['Fecha', report.dateLabel],
     ['Generado', report.generatedAtLabel],
     ['Generado por', report.generatedByName],
     ['Oficina', report.officeName],
-    ['Latitud oficina', report.officeLatitude],
-    ['Longitud oficina', report.officeLongitude],
     ['Radio oficina (m)', report.officeRadiusMeters],
     [],
-    ['Indicadores del día'],
-    ['Técnicos', report.totals.technicians],
-    ['Presentes', report.totals.present],
+    ['Resumen'],
+    ['Personas', report.totals.people],
+    ['Asistieron', report.totals.present],
     ['En oficina', report.totals.office],
     ['En campo', report.totals.zone],
-    ['Sin marcar', report.totals.missing],
+    ['Con permiso', report.totals.permiso],
+    ['No asistieron', report.totals.missing],
     [],
-    ['Hojas de este Excel'],
-    ['01 Resumen', 'Indicadores y metadatos del día'],
-    ['02 Lista', 'Todos los técnicos, presentes y ausentes'],
-    ['03 Oficina', 'Solo marcas validadas en oficina'],
-    ['04 Campo', 'Solo marcas en zona de trabajo'],
-    ['05 Sin marcar', 'Pendientes de seguimiento'],
-    ['06 GPS', 'Coordenadas para ubicar en mapa'],
+    ['Hojas'],
+    ['01 Resumen', 'Indicadores del día'],
+    ['02 Lista', 'Todas las personas, asistió sí o no'],
+    ['03 Oficina', 'Marcas con GPS en oficina'],
+    ['04 Campo', 'Marcas con GPS en campo'],
+    ['05 Permiso', 'Personas con permiso'],
+    ['06 No asistió', 'Sin marca y sin permiso'],
   ]
   const sheet = XLSX.utils.aoa_to_sheet(matrix)
   setColumnWidths(sheet, [28, 56])
-  return sheet
-}
-
-function createGpsSheet(report: AttendanceExportReport): XLSX.WorkSheet {
-  const headers = [
-    'Técnico',
-    'Origen',
-    'Hora',
-    'Área',
-    'Latitud',
-    'Longitud',
-    'Mapa GPS',
-  ]
-  const present = report.present
-  const matrix: (string | number)[][] = [
-    ['GPS del día'],
-    ['Solo técnicos que marcaron. Úsala para ubicar puntos en un mapa.'],
-    [`Fecha: ${report.dateLabel}`],
-    headers,
-    ...present.map((line) => [
-      line.technicianName,
-      line.originLabel,
-      line.timeLabel,
-      line.areaName,
-      formatExportCoord(line.latitude),
-      formatExportCoord(line.longitude),
-      line.mapUrl,
-    ]),
-  ]
-  const sheet = XLSX.utils.aoa_to_sheet(matrix)
-  const lastRow = 4 + Math.max(present.length, 1)
-  sheet['!autofilter'] = {
-    ref: XLSX.utils.encode_range({
-      s: { r: 3, c: 0 },
-      e: { r: lastRow - 1, c: headers.length - 1 },
-    }),
-  }
-  freezeHeader(sheet, 4)
-  setColumnWidths(sheet, [28, 16, 10, 22, 14, 14, 36])
-  present.forEach((line, index) => {
-    if (!line.mapUrl) return
-    const cellRef = XLSX.utils.encode_cell({ r: 4 + index, c: 6 })
-    sheet[cellRef] = {
-      t: 's',
-      v: 'Abrir mapa',
-      l: { Target: line.mapUrl, Tooltip: 'Ver ubicación GPS' },
-    }
-  })
   return sheet
 }
 
@@ -206,15 +150,15 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
     book.Props = {
       Title: `Asistencia ${report.dateKey}`,
       Author: 'Consorcio Selva MDD',
-      Subject: 'Control diario de asistencia',
+      Subject: 'Asistencia del día',
     }
 
     XLSX.utils.book_append_sheet(book, createSummarySheet(report), '01 Resumen')
     XLSX.utils.book_append_sheet(
       book,
       createListSheet(
-        'Lista general',
-        'Control de RRHH: todos los técnicos del día.',
+        'Lista del día',
+        'Ordenada por nombre. Asistió: Sí / No. Tipo: Oficina, Campo o Permiso.',
         report,
         report.all,
       ),
@@ -224,7 +168,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Oficina',
-        'Marcas en oficina, con GPS validado dentro del radio.',
+        'Personas que marcaron en la oficina con GPS.',
         report,
         report.office,
       ),
@@ -234,7 +178,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Campo',
-        'Marcas en zona de trabajo, con GPS. Foto opcional.',
+        'Personas que marcaron en campo con GPS.',
         report,
         report.zone,
       ),
@@ -243,19 +187,28 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
     XLSX.utils.book_append_sheet(
       book,
       createListSheet(
-        'Sin marcar',
-        'Técnicos pendientes. Sirve para seguimiento del día.',
+        'Permiso',
+        'Personas con permiso registrado ese día.',
+        report,
+        report.permiso,
+      ),
+      '05 Permiso',
+    )
+    XLSX.utils.book_append_sheet(
+      book,
+      createListSheet(
+        'No asistió',
+        'Personas sin marca y sin permiso.',
         report,
         report.missing,
       ),
-      '05 Sin marcar',
+      '06 No asistió',
     )
-    XLSX.utils.book_append_sheet(book, createGpsSheet(report), '06 GPS')
 
     const buffer = XLSX.write(book, { bookType: 'xlsx', type: 'array' })
     return {
       blob: new Blob([buffer], { type: EXCEL_TYPE }),
-      fileName: `asistencia-${report.dateKey}-control.xlsx`,
+      fileName: `asistencia-${report.dateKey}.xlsx`,
     }
   }
 }

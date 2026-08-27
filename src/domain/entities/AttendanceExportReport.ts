@@ -1,6 +1,8 @@
 import {
   AttendanceOrigin,
+  attendanceAttendedLabel,
   attendanceOriginLabel,
+  attendanceStatusLabel,
   formatAttendanceTime,
   type Attendance,
 } from '@/domain/entities/Attendance'
@@ -8,18 +10,23 @@ import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
 import { formatDateKey } from '@/domain/entities/FolderDate'
 
 export interface AttendanceExportSourceRow {
-  technicianName: string
-  technicianEmail: string
+  personName: string
+  personEmail: string
+  personDni: string
+  personRole: string
   attendance: Attendance | null
 }
 
 export interface AttendanceExportLine {
-  technicianName: string
-  technicianEmail: string
-  status: 'Presente' | 'Sin marcar'
+  personName: string
+  personEmail: string
+  personDni: string
+  personRole: string
+  attendedLabel: 'Sí' | 'No'
+  status: string
   originLabel: string
   timeLabel: string
-  areaName: string
+  permissionNote: string
   latitude: number | null
   longitude: number | null
   accuracyMeters: number | null
@@ -40,15 +47,17 @@ export interface AttendanceExportReport {
   officeLongitude: number
   officeRadiusMeters: number
   totals: {
-    technicians: number
+    people: number
     office: number
     zone: number
+    permiso: number
     present: number
     missing: number
   }
   all: AttendanceExportLine[]
   office: AttendanceExportLine[]
   zone: AttendanceExportLine[]
+  permiso: AttendanceExportLine[]
   missing: AttendanceExportLine[]
   present: AttendanceExportLine[]
 }
@@ -66,12 +75,15 @@ function toLine(row: AttendanceExportSourceRow): AttendanceExportLine {
   const attendance: Attendance | null = row.attendance
   if (!attendance) {
     return {
-      technicianName: row.technicianName,
-      technicianEmail: row.technicianEmail,
-      status: 'Sin marcar',
+      personName: row.personName,
+      personEmail: row.personEmail,
+      personDni: dash(row.personDni),
+      personRole: dash(row.personRole),
+      attendedLabel: 'No',
+      status: 'No asistió',
       originLabel: '—',
       timeLabel: '—',
-      areaName: '—',
+      permissionNote: '—',
       latitude: null,
       longitude: null,
       accuracyMeters: null,
@@ -83,21 +95,28 @@ function toLine(row: AttendanceExportSourceRow): AttendanceExportLine {
     }
   }
 
+  const hasGps = attendance.origin !== AttendanceOrigin.Permiso
   return {
-    technicianName: row.technicianName,
-    technicianEmail: row.technicianEmail,
-    status: 'Presente',
+    personName: row.personName,
+    personEmail: row.personEmail,
+    personDni: dash(row.personDni),
+    personRole: dash(row.personRole),
+    attendedLabel: attendanceAttendedLabel(attendance),
+    status: attendanceStatusLabel(attendance),
     originLabel: attendanceOriginLabel(attendance.origin),
-    timeLabel: formatAttendanceTime(attendance.createdAt),
-    areaName: dash(attendance.areaName),
-    latitude: attendance.latitude,
-    longitude: attendance.longitude,
-    accuracyMeters: attendance.accuracyMeters ?? null,
+    timeLabel:
+      attendance.origin === AttendanceOrigin.Permiso
+        ? dash(formatAttendanceTime(attendance.createdAt))
+        : formatAttendanceTime(attendance.createdAt),
+    permissionNote: dash(attendance.permissionNote ?? ''),
+    latitude: hasGps ? attendance.latitude : null,
+    longitude: hasGps ? attendance.longitude : null,
+    accuracyMeters: hasGps ? (attendance.accuracyMeters ?? null) : null,
     distanceToOfficeMeters: attendance.distanceToOfficeMeters ?? null,
     officeValidatedLabel: attendance.officeValidated ? 'Sí' : 'No',
     photoUrl: attendance.environmentPhotoUrl ?? '',
     photoPath: attendance.environmentPhotoPath ?? '',
-    mapUrl: mapUrl(attendance.latitude, attendance.longitude),
+    mapUrl: hasGps ? mapUrl(attendance.latitude, attendance.longitude) : '',
   }
 }
 
@@ -108,10 +127,17 @@ export function buildAttendanceExportReport(input: {
   generatedByName: string
 }): AttendanceExportReport {
   const all = input.rows.map(toLine)
-  const office = all.filter((line) => line.originLabel === attendanceOriginLabel(AttendanceOrigin.Oficina))
-  const zone = all.filter((line) => line.originLabel === attendanceOriginLabel(AttendanceOrigin.Zona))
-  const missing = all.filter((line) => line.status === 'Sin marcar')
-  const present = all.filter((line) => line.status === 'Presente')
+  const office = all.filter(
+    (line) => line.originLabel === attendanceOriginLabel(AttendanceOrigin.Oficina),
+  )
+  const zone = all.filter(
+    (line) => line.originLabel === attendanceOriginLabel(AttendanceOrigin.Zona),
+  )
+  const permiso = all.filter(
+    (line) => line.originLabel === attendanceOriginLabel(AttendanceOrigin.Permiso),
+  )
+  const missing = all.filter((line) => line.status === 'No asistió')
+  const present = all.filter((line) => line.status === 'Asistió')
 
   return {
     dateKey: input.dateKey,
@@ -127,15 +153,17 @@ export function buildAttendanceExportReport(input: {
     officeLongitude: input.settings.officeLongitude,
     officeRadiusMeters: input.settings.officeRadiusMeters,
     totals: {
-      technicians: all.length,
+      people: all.length,
       office: office.length,
       zone: zone.length,
+      permiso: permiso.length,
       present: present.length,
       missing: missing.length,
     },
     all,
     office,
     zone,
+    permiso,
     missing,
     present,
   }

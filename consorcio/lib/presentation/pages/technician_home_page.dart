@@ -7,6 +7,7 @@ import '../state/session_controller.dart';
 import '../widgets/app_update_dialog.dart';
 import 'attendance_page.dart';
 import 'areas_page.dart';
+import 'support_page.dart';
 import 'tasks_map_page.dart';
 import 'tasks_page.dart';
 
@@ -20,6 +21,7 @@ class TechnicianHomePage extends StatefulWidget {
 class _TechnicianHomePageState extends State<TechnicianHomePage>
     with WidgetsBindingObserver {
   int _index = 0;
+  String? _focusedTaskId;
   bool _checkingUpdate = false;
   bool _updateDialogOpen = false;
 
@@ -83,11 +85,24 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: const [
-          TasksPage(),
-          TasksMapPage(),
-          AreasPage(),
-          AttendancePage(),
+        children: [
+          TasksPage(
+            onOpenTaskMap: (taskId) {
+              setState(() {
+                _focusedTaskId = taskId;
+                _index = 1;
+              });
+            },
+          ),
+          TasksMapPage(
+            focusedTaskId: _focusedTaskId,
+            onClearTaskFocus: () {
+              setState(() => _focusedTaskId = null);
+            },
+          ),
+          const AreasPage(),
+          const AttendancePage(),
+          const SupportPage(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -113,6 +128,11 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
             icon: Icon(Icons.fact_check_outlined),
             selectedIcon: Icon(Icons.fact_check_rounded),
             label: 'Asistencia',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.support_agent_outlined),
+            selectedIcon: Icon(Icons.support_agent_rounded),
+            label: 'Soporte',
           ),
         ],
       ),

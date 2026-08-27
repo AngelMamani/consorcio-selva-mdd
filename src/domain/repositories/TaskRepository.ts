@@ -1,4 +1,9 @@
-import type { Task, TaskStatus } from '@/domain/entities/Task'
+import type {
+  Task,
+  TaskNotice,
+  TaskRoute,
+  TaskStatus,
+} from '@/domain/entities/Task'
 
 export interface CreateTaskInput {
   title: string
@@ -8,8 +13,9 @@ export interface CreateTaskInput {
   areaId: string
   areaName: string
   routeCode: string
-  latitude: number
-  longitude: number
+  latitude: number | null
+  longitude: number | null
+  routes: TaskRoute[]
   assignToAllTechnicians: boolean
   assignedTechnicianIds: string[]
   assignedTechnicianNames: string[]
@@ -27,6 +33,8 @@ export interface UpdateTaskInput {
   routeCode?: string
   latitude?: number | null
   longitude?: number | null
+  routes?: TaskRoute[]
+  lastNotice?: TaskNotice | null
   assignToAllTechnicians?: boolean
   assignedTechnicianIds?: string[]
   assignedTechnicianNames?: string[]
@@ -39,6 +47,15 @@ export interface TaskRepository {
   getById(id: string): Promise<Task | null>
   listAll(): Promise<Task[]>
   listAccessibleForUser(userId: string): Promise<Task[]>
+  watchAll(
+    onData: (tasks: Task[]) => void,
+    onError?: (error: Error) => void,
+  ): () => void
+  watchAccessibleForUser(
+    userId: string,
+    onData: (tasks: Task[]) => void,
+    onError?: (error: Error) => void,
+  ): () => void
   create(input: CreateTaskInput): Promise<Task>
   update(id: string, input: UpdateTaskInput): Promise<Task>
   delete(id: string): Promise<void>

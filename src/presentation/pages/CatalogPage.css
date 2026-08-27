@@ -42,6 +42,13 @@
   gap: 0.5rem;
 }
 
+.personal-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
 .catalog-toolbar,
 .personal-toolbar {
   display: flex;
@@ -95,7 +102,7 @@
 
 .personal-kpis {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.65rem;
 }
 
@@ -168,6 +175,12 @@
   gap: 0.75rem;
 }
 
+.personal-form .field-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .personal-form__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -194,6 +207,12 @@
   color: #9a5b00;
 }
 
+.personal-chip--muted {
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
 .personal-progress {
   padding: 0.7rem 0.85rem 0.85rem;
   border-radius: 12px;
@@ -214,6 +233,12 @@
   margin: 0.45rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+@media (max-width: 960px) {
+  .personal-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {

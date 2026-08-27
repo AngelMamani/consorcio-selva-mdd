@@ -1,13 +1,9 @@
 import type { Attendance } from '@/domain/entities/Attendance'
 import {
   AttendanceOrigin,
-  createOfficeQrToken,
   isAttendanceOrigin,
-  limaDayUtcBounds,
-  parseOfficeQrPayload,
   toLimaDateKey,
 } from '@/domain/entities/Attendance'
-import type { AttendanceOfficeQr } from '@/domain/entities/AttendanceOfficeQr'
 import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
 import {
   defaultAttendanceSettings,
@@ -16,7 +12,10 @@ import {
   normalizeOfficeRadiusMeters,
 } from '@/domain/entities/AttendanceSettings'
 import type { User } from '@/domain/entities/User'
-import { assertUserCanManageUsers } from '@/domain/entities/User'
+import {
+  assertUserCanManageUsers,
+  uniqueUsersByAccessDni,
+} from '@/domain/entities/User'
 import type { AttendanceRepository } from '@/domain/repositories/AttendanceRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { GeoLocation } from '@/domain/value-objects/GeoLocation'
@@ -30,8 +29,14 @@ import {
 } from '@/domain/errors/DomainError'
 
 export interface AttendanceDayRow {
-  technician: User
+  person: User
   attendance: Attendance | null
+}
+
+const PERMISO_LOCATION: GeoLocation = { latitude: 0, longitude: 0 }
+
+function trimPermissionNote(note: string | undefined): string {
+  return (note ?? '').trim().slice(0, 200)
 }
 
 export class GetAttendanceSettingsUseCase {
@@ -150,76 +155,22 @@ export class ListAttendanceDayUseCase {
         actor.id,
         dateKey,
       )
-      return [{ technician: actor, attendance: own }]
+      return [{ person: actor, attendance: own }]
     }
 
-    const [technicians, attendances] = await Promise.all([
-      this.userRepository.listTechnicians(),
+    const [people, attendances] = await Promise.all([
+      this.userRepository.listAll(),
       this.attendanceRepository.listByDate(dateKey),
     ])
 
     const byUser = new Map(attendances.map((item) => [item.userId, item]))
-    return technicians
-      .filter((user) => user.role === UserRole.Tecnico && user.active)
+    return uniqueUsersByAccessDni(people)
+      .filter((user) => user.active)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
-      .map((technician) => ({
-        technician,
-        attendance: byUser.get(technician.id) ?? null,
+      .map((person) => ({
+        person,
+        attendance: byUser.get(person.id) ?? null,
       }))
-  }
-}
-
-export class GetOrCreateTodayOfficeQrUseCase {
-  private readonly attendanceRepository: AttendanceRepository
-
-  constructor(attendanceRepository: AttendanceRepository) {
-    this.attendanceRepository = attendanceRepository
-  }
-
-  async execute(actor: User): Promise<AttendanceOfficeQr> {
-    if (!assertUserCanManageUsers(actor)) {
-      throw new UnauthorizedError(
-        'Solo el administrador puede mostrar el QR de oficina',
-      )
-    }
-    const dateKey = toLimaDateKey()
-    const existing = await this.attendanceRepository.getOfficeQr(dateKey)
-    if (existing && existing.validUntil.getTime() > Date.now()) {
-      return existing
-    }
-    const bounds = limaDayUtcBounds(dateKey)
-    return this.attendanceRepository.saveOfficeQr({
-      dateKey,
-      token: createOfficeQrToken(),
-      validFrom: bounds.validFrom,
-      validUntil: bounds.validUntil,
-      createdById: actor.id,
-    })
-  }
-}
-
-export class RotateTodayOfficeQrUseCase {
-  private readonly attendanceRepository: AttendanceRepository
-
-  constructor(attendanceRepository: AttendanceRepository) {
-    this.attendanceRepository = attendanceRepository
-  }
-
-  async execute(actor: User): Promise<AttendanceOfficeQr> {
-    if (!assertUserCanManageUsers(actor)) {
-      throw new UnauthorizedError(
-        'Solo el administrador puede renovar el QR de oficina',
-      )
-    }
-    const dateKey = toLimaDateKey()
-    const bounds = limaDayUtcBounds(dateKey)
-    return this.attendanceRepository.saveOfficeQr({
-      dateKey,
-      token: createOfficeQrToken(),
-      validFrom: bounds.validFrom,
-      validUntil: bounds.validUntil,
-      createdById: actor.id,
-    })
   }
 }
 
@@ -234,8 +185,8 @@ export class MarkAttendanceUseCase {
     actor: User,
     request: {
       origin: AttendanceOrigin
-      location: GeoLocation
-      officeQrPayload?: string
+      location?: GeoLocation
+      permissionNote?: string
       environmentPhotoUrl?: string
       environmentPhotoPath?: string
     },
@@ -243,16 +194,8 @@ export class MarkAttendanceUseCase {
     if (!actor.active) {
       throw new UnauthorizedError('Cuenta inactiva')
     }
-    if (actor.role !== UserRole.Tecnico) {
-      throw new UnauthorizedError('Solo los técnicos marcan asistencia')
-    }
     if (!isAttendanceOrigin(request.origin)) {
       throw new ValidationError('El origen de asistencia no es válido')
-    }
-    if (
-      !isValidGeoLocation(request.location.latitude, request.location.longitude)
-    ) {
-      throw new ValidationError('Activa el GPS para marcar asistencia')
     }
 
     const environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
@@ -264,6 +207,9 @@ export class MarkAttendanceUseCase {
       throw new ValidationError('La foto de evidencia está incompleta')
     }
     const hasPhoto = Boolean(environmentPhotoUrl && environmentPhotoPath)
+    if (request.origin === AttendanceOrigin.Permiso && hasPhoto) {
+      throw new ValidationError('El permiso no lleva foto')
+    }
 
     const dateKey = toLimaDateKey()
     const existing = await this.attendanceRepository.getByUserAndDate(
@@ -271,34 +217,45 @@ export class MarkAttendanceUseCase {
       dateKey,
     )
     if (existing) {
-      throw new ValidationError('Ya marcaste asistencia hoy')
+      throw new ValidationError('Ya tienes asistencia o permiso registrado hoy')
+    }
+
+    if (request.origin === AttendanceOrigin.Permiso) {
+      const note = trimPermissionNote(request.permissionNote)
+      return this.attendanceRepository.create({
+        userId: actor.id,
+        userName: actor.displayName,
+        dateKey,
+        origin: AttendanceOrigin.Permiso,
+        areaId: '',
+        areaName: '',
+        location: PERMISO_LOCATION,
+        officeValidated: false,
+        permissionNote: note || undefined,
+        markedById: actor.id,
+        markedByName: actor.displayName,
+      })
+    }
+
+    const location = request.location
+    if (
+      !location ||
+      !isValidGeoLocation(location.latitude, location.longitude)
+    ) {
+      throw new ValidationError('Activa el GPS para marcar asistencia')
     }
 
     let distanceToOfficeMeters: number | undefined
     let officeValidated = false
-    let officeQrToken: string | undefined
 
     if (request.origin === AttendanceOrigin.Oficina) {
-      const qr = parseOfficeQrPayload(request.officeQrPayload ?? '')
-      if (!qr) {
-        throw new ValidationError(
-          'Escanea el QR de oficina de hoy. El código cambia cada día.',
-        )
-      }
-      if (qr.dateKey !== dateKey) {
-        throw new ValidationError(
-          'Ese QR no es de hoy. Pide el código actualizado en oficina.',
-        )
-      }
-      officeQrToken = qr.token
-
       const settings =
         (await this.attendanceRepository.getSettings()) ??
         defaultAttendanceSettings()
       distanceToOfficeMeters = Math.round(
         distanceMeters(
-          request.location.latitude,
-          request.location.longitude,
+          location.latitude,
+          location.longitude,
           settings.officeLatitude,
           settings.officeLongitude,
         ),
@@ -318,12 +275,75 @@ export class MarkAttendanceUseCase {
       origin: request.origin,
       areaId: '',
       areaName: '',
-      location: request.location,
+      location,
       distanceToOfficeMeters,
       officeValidated,
-      officeQrToken,
       environmentPhotoUrl: hasPhoto ? environmentPhotoUrl : undefined,
       environmentPhotoPath: hasPhoto ? environmentPhotoPath : undefined,
+    })
+  }
+}
+
+export class GrantAttendancePermissionUseCase {
+  private readonly attendanceRepository: AttendanceRepository
+  private readonly userRepository: UserRepository
+
+  constructor(
+    attendanceRepository: AttendanceRepository,
+    userRepository: UserRepository,
+  ) {
+    this.attendanceRepository = attendanceRepository
+    this.userRepository = userRepository
+  }
+
+  async execute(
+    actor: User,
+    request: {
+      targetUserId: string
+      dateKey: string
+      note?: string
+    },
+  ): Promise<Attendance> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError(
+        'Solo el administrador puede registrar un permiso',
+      )
+    }
+    if (!isDateKey(request.dateKey)) {
+      throw new ValidationError('La fecha no es válida')
+    }
+    if (request.dateKey > toLimaDateKey()) {
+      throw new ValidationError('No se puede registrar permiso a futuro')
+    }
+
+    const target = await this.userRepository.getById(request.targetUserId)
+    if (!target || !target.active) {
+      throw new ValidationError('La persona no está activa o no existe')
+    }
+
+    const existing = await this.attendanceRepository.getByUserAndDate(
+      target.id,
+      request.dateKey,
+    )
+    if (existing) {
+      throw new ValidationError(
+        `${target.displayName} ya tiene asistencia o permiso ese día`,
+      )
+    }
+
+    const note = trimPermissionNote(request.note)
+    return this.attendanceRepository.create({
+      userId: target.id,
+      userName: target.displayName,
+      dateKey: request.dateKey,
+      origin: AttendanceOrigin.Permiso,
+      areaId: '',
+      areaName: '',
+      location: PERMISO_LOCATION,
+      officeValidated: false,
+      permissionNote: note || undefined,
+      markedById: actor.id,
+      markedByName: actor.displayName,
     })
   }
 }

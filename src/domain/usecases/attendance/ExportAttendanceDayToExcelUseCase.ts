@@ -1,4 +1,5 @@
 import { buildAttendanceExportReport } from '@/domain/entities/AttendanceExportReport'
+import { userAccessDni } from '@/domain/entities/User'
 import type { User } from '@/domain/entities/User'
 import { UnauthorizedError } from '@/domain/errors/DomainError'
 import type {
@@ -9,6 +10,7 @@ import {
   GetAttendanceSettingsUseCase,
   ListAttendanceDayUseCase,
 } from '@/domain/usecases/attendance/AttendanceUseCases'
+import { userRoleLabel } from '@/domain/value-objects/UserRole'
 
 export class ExportAttendanceDayToExcelUseCase {
   private readonly listAttendanceDayUseCase: ListAttendanceDayUseCase
@@ -40,8 +42,10 @@ export class ExportAttendanceDayToExcelUseCase {
         dateKey,
         settings,
         rows: rows.map((row) => ({
-          technicianName: row.technician.displayName,
-          technicianEmail: row.technician.email,
+          personName: row.person.displayName,
+          personEmail: row.person.email,
+          personDni: userAccessDni(row.person),
+          personRole: userRoleLabel(row.person.role),
           attendance: row.attendance,
         })),
         generatedByName: actor.displayName,

@@ -34,6 +34,15 @@ function toDate(value: Timestamp | undefined): Date {
   return value?.toDate?.() ?? new Date()
 }
 
+function chunkIds(ids: string[], size = 30): string[][] {
+  const unique = [...new Set(ids.filter(Boolean))]
+  const chunks: string[][] = []
+  for (let index = 0; index < unique.length; index += size) {
+    chunks.push(unique.slice(index, index + size))
+  }
+  return chunks
+}
+
 function mapDate(id: string, data: FolderDateDoc): FolderDate {
   return {
     id,
@@ -63,6 +72,24 @@ export class FirebaseFolderDateRepository implements FolderDateRepository {
     )
     return snapshot.docs
       .map((item) => mapDate(item.id, item.data() as FolderDateDoc))
+      .sort((a, b) => b.dateKey.localeCompare(a.dateKey))
+  }
+
+  async listByFolderIds(folderIds: string[]): Promise<FolderDate[]> {
+    const chunks = chunkIds(folderIds)
+    if (chunks.length === 0) return []
+    const nested = await Promise.all(
+      chunks.map(async (chunk) => {
+        const snapshot = await getDocs(
+          query(this.collectionRef, where('folderId', 'in', chunk)),
+        )
+        return snapshot.docs.map((item) =>
+          mapDate(item.id, item.data() as FolderDateDoc),
+        )
+      }),
+    )
+    return nested
+      .flat()
       .sort((a, b) => b.dateKey.localeCompare(a.dateKey))
   }
 

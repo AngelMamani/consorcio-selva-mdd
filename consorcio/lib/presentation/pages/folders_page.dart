@@ -308,7 +308,7 @@ class _FoldersPageState extends State<FoldersPage> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Busca el código completo, sin el 12 o por los últimos dígitos.',
+                      'Solo ves lo que tú subes. Busca el código completo, sin el 12 o por los últimos dígitos.',
                       style: TextStyle(color: Colors.white70),
                     ),
                     if (_catalogCount > 0) ...[
@@ -458,7 +458,7 @@ class _FoldersPageState extends State<FoldersPage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    '${folder.imageCount} foto(s) · ${folder.assigneesLabel}',
+                                    '${folder.imageCount} foto(s) tuya(s)',
                                     style: const TextStyle(
                                       color: AppTheme.brandGreen,
                                       fontWeight: FontWeight.w700,

@@ -3,8 +3,13 @@ import type { OperationalRoleRepository } from '@/domain/repositories/Operationa
 import type { PersonalRepository } from '@/domain/repositories/PersonalRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { Personal } from '@/domain/entities/Personal'
-import { personalFullName } from '@/domain/entities/Personal'
-import type { User } from '@/domain/entities/User'
+import { personalFullName, personalRoleIds } from '@/domain/entities/Personal'
+import {
+  pickCanonicalUser,
+  uniqueUsersByAccessDni,
+  userAccessDni,
+  type User,
+} from '@/domain/entities/User'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
 import { DNI_PATTERN, digitsOnly } from '@/domain/value-objects/Dni'
 import { DEFAULT_TEMPORARY_PASSWORD } from '@/domain/value-objects/PasswordPolicy'
@@ -33,14 +38,21 @@ export interface ProvisionElectricistaResult {
 
 export type ProvisionProgress = (done: number, total: number) => void
 
-let provisionQueue: Promise<ProvisionElectricistaResult> | null = null
+let provisionChain: Promise<unknown> = Promise.resolve()
+
+function enqueueProvision<T>(work: () => Promise<T>): Promise<T> {
+  const next = provisionChain.catch(() => undefined).then(work)
+  provisionChain = next
+  return next as Promise<T>
+}
 
 function isAlreadyExistsMessage(message: string): boolean {
   const normalized = message.toLowerCase()
   return (
     normalized.includes('ya está registrado') ||
     normalized.includes('ya existe un usuario') ||
-    normalized.includes('already-exists')
+    normalized.includes('already-exists') ||
+    normalized.includes('el correo ya está registrado')
   )
 }
 
@@ -75,15 +87,7 @@ export class ProvisionElectricistaTechniciansUseCase {
       )
     }
 
-    const runNext = () => this.run(actor, onProgress)
-    const queued = (provisionQueue ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(runNext)
-    provisionQueue = queued
-    void queued.finally(() => {
-      if (provisionQueue === queued) provisionQueue = null
-    })
-    return queued
+    return enqueueProvision(() => this.run(onProgress))
   }
 
   async ensureForPerson(actor: User, person: Personal): Promise<void> {
@@ -92,40 +96,125 @@ export class ProvisionElectricistaTechniciansUseCase {
         'Solo el administrador puede sincronizar cuentas de acceso',
       )
     }
-    if (person.condicion === 'RETIRADO' || !person.roleId) return
+
+    return enqueueProvision(() => this.ensureForPersonLocked(actor, person))
+  }
+
+  private async ensureForPersonLocked(
+    actor: User,
+    person: Personal,
+  ): Promise<void> {
+    if (person.condicion === 'RETIRADO') return
 
     const dni = digitsOnly(person.dni)
     if (!DNI_PATTERN.test(dni)) return
 
-    const operationalRole = await this.operationalRoleRepository.getById(
-      person.roleId,
-    )
-    if (!operationalRole || !isUserRole(operationalRole.code)) return
+    const roleIds = personalRoleIds(person)
+    if (roleIds.length === 0) return
 
-    const targetRole = operationalRole.code
+    const codes: UserRole[] = []
+    for (const roleId of roleIds) {
+      const operationalRole =
+        (await this.operationalRoleRepository.getById(roleId)) ??
+        (await this.operationalRoleRepository.getByCode(roleId))
+      if (operationalRole && isUserRole(operationalRole.code)) {
+        if (!codes.includes(operationalRole.code)) {
+          codes.push(operationalRole.code)
+        }
+      }
+    }
+    if (codes.length === 0) return
+
+    const targetRole =
+      codes.includes(UserRole.SuperAdministrador)
+        ? UserRole.SuperAdministrador
+        : codes.includes(UserRole.Administrador)
+          ? UserRole.Administrador
+          : UserRole.Tecnico
     const name = personalFullName(person) || `USUARIO ${dni}`
-    const existing = await this.userRepository.findByDni(dni)
+    const existing = await this.findAccountForDni(dni)
 
     if (existing) {
-      await this.updateUserUseCase.execute(actor, {
-        userId: existing.id,
+      await this.updateCanonicalAccount(actor, existing, {
         displayName: name,
         role: targetRole,
+        roles: codes,
         dni,
       })
       return
     }
 
-    await this.authRepository.createManagedUser({
-      email: technicianEmailFromDni(dni),
+    try {
+      await this.authRepository.createManagedUser({
+        email: technicianEmailFromDni(dni),
+        displayName: name,
+        role: targetRole,
+        dni,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (!isAlreadyExistsMessage(message)) throw error
+    }
+
+    const created = await this.findAccountForDni(dni)
+    if (!created) return
+    await this.updateCanonicalAccount(actor, created, {
       displayName: name,
       role: targetRole,
+      roles: codes,
       dni,
     })
   }
 
-  private async run(
+  private async findAccountForDni(dni: string): Promise<User | null> {
+    const [byDni, byEmail] = await Promise.all([
+      this.userRepository.listByDni(dni),
+      this.userRepository.findByEmail(technicianEmailFromDni(dni)),
+    ])
+    const matches = [...byDni]
+    if (byEmail && !matches.some((item) => item.id === byEmail.id)) {
+      matches.push(byEmail)
+    }
+    return pickCanonicalUser(matches)
+  }
+
+  private async updateCanonicalAccount(
     actor: User,
+    canonical: User,
+    patch: {
+      displayName: string
+      role: UserRole
+      roles: UserRole[]
+      dni: string
+    },
+  ): Promise<void> {
+    await this.updateUserUseCase.execute(actor, {
+      userId: canonical.id,
+      displayName: patch.displayName,
+      role: patch.role,
+      roles: patch.roles,
+      dni: patch.dni,
+    })
+
+    const extras = await this.userRepository.listByDni(patch.dni)
+    const byEmail = await this.userRepository.findByEmail(
+      technicianEmailFromDni(patch.dni),
+    )
+    const all = [...extras]
+    if (byEmail && !all.some((item) => item.id === byEmail.id)) {
+      all.push(byEmail)
+    }
+
+    for (const extra of all) {
+      if (extra.id === canonical.id || extra.id === actor.id) continue
+      if (!extra.active) continue
+      await this.updateUserUseCase
+        .execute(actor, { userId: extra.id, active: false })
+        .catch(() => undefined)
+    }
+  }
+
+  private async run(
     onProgress?: ProvisionProgress,
   ): Promise<ProvisionElectricistaResult> {
     const [people, users, tecnicoRole] = await Promise.all([
@@ -134,10 +223,10 @@ export class ProvisionElectricistaTechniciansUseCase {
       this.operationalRoleRepository.getByCode(UserRole.Tecnico),
     ])
 
-    const usersByDni = new Map(
-      users
-        .filter((item) => item.dni)
-        .map((item) => [item.dni, item] as const),
+    const knownDnis = new Set(
+      uniqueUsersByAccessDni(users)
+        .map((item) => userAccessDni(item))
+        .filter(Boolean),
     )
 
     const electricistas = people.filter(
@@ -160,7 +249,7 @@ export class ProvisionElectricistaTechniciansUseCase {
       const shouldBeTechnician =
         !person.roleId || person.roleId === tecnicoRole?.id
       return (
-        DNI_PATTERN.test(dni) && !usersByDni.has(dni) && shouldBeTechnician
+        DNI_PATTERN.test(dni) && !knownDnis.has(dni) && shouldBeTechnician
       )
     })
 
@@ -177,24 +266,20 @@ export class ProvisionElectricistaTechniciansUseCase {
       const dni = digitsOnly(person.dni)
 
       try {
-        const created = await this.authRepository.createManagedUser({
+        const existing = await this.findAccountForDni(dni)
+        if (existing) {
+          knownDnis.add(dni)
+          result.skipped += 1
+          continue
+        }
+
+        await this.authRepository.createManagedUser({
           email: technicianEmailFromDni(dni),
           displayName: name || `TÉCNICO ${dni}`,
           role: UserRole.Tecnico,
           dni,
         })
-        usersByDni.set(dni, {
-          id: created.userId,
-          email: technicianEmailFromDni(dni),
-          displayName: name,
-          dni,
-          role: UserRole.Tecnico,
-          theme: actor.theme,
-          mustChangePassword: true,
-          active: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
+        knownDnis.add(dni)
         result.created += 1
         result.rolesAssigned += await this.assignTechnicianRole(
           person,
@@ -205,6 +290,7 @@ export class ProvisionElectricistaTechniciansUseCase {
         const message =
           error instanceof Error ? error.message : 'No se pudo crear la cuenta'
         if (isAlreadyExistsMessage(message)) {
+          knownDnis.add(dni)
           result.skipped += 1
         } else {
           result.failed.push({ dni: dni || person.dni, name, error: message })

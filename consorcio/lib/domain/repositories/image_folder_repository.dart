@@ -43,6 +43,7 @@ abstract class ImageFolderRepository {
     required String userId,
     required String areaId,
   });
+  Future<List<ImageFolder>> listByArea(String areaId);
   Future<ImageFolder> create(CreateImageFolderInput input);
   Future<ImageFolder> update({
     required String id,

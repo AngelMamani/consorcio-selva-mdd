@@ -14,14 +14,11 @@ class MarkAttendanceUseCase {
   Future<Attendance> execute(
     AppUser actor, {
     required AttendanceOrigin origin,
-    required GeoLocation location,
-    String? officeQrPayload,
+    GeoLocation? location,
+    String permissionNote = '',
     ImageFilePayload? environmentPhoto,
   }) async {
     actor.assertCanOperateApp();
-    if (!location.isValid) {
-      throw DomainException('Activa el GPS para marcar asistencia');
-    }
     if (environmentPhoto != null &&
         (environmentPhoto.sizeBytes <= 0 ||
             environmentPhoto.sizeBytes > 10 * 1024 * 1024)) {
@@ -32,27 +29,32 @@ class MarkAttendanceUseCase {
     final existing =
         await _attendanceRepository.getByUserAndDate(actor.id, dateKey);
     if (existing != null) {
-      throw DomainException('Ya marcaste asistencia hoy');
+      throw DomainException('Ya tienes asistencia o permiso registrado hoy');
+    }
+
+    if (origin == AttendanceOrigin.permiso) {
+      final note = permissionNote.trim();
+      return _attendanceRepository.create(
+        userId: actor.id,
+        userName: actor.displayName,
+        dateKey: dateKey,
+        origin: origin,
+        areaId: '',
+        areaName: '',
+        location: const GeoLocation(latitude: 0, longitude: 0),
+        officeValidated: false,
+        permissionNote: note.length > 200 ? note.substring(0, 200) : note,
+      );
+    }
+
+    if (location == null || !location.isValid) {
+      throw DomainException('Activa el GPS para marcar asistencia');
     }
 
     var officeValidated = false;
     int? distanceToOffice;
-    String? officeQrToken;
 
     if (origin == AttendanceOrigin.oficina) {
-      final qr = parseOfficeQrPayload(officeQrPayload ?? '');
-      if (qr == null) {
-        throw DomainException(
-          'Escanea el QR de oficina de hoy. El código cambia cada día.',
-        );
-      }
-      if (qr.dateKey != dateKey) {
-        throw DomainException(
-          'Ese QR no es de hoy. Pide el código actualizado en oficina.',
-        );
-      }
-      officeQrToken = qr.token;
-
       final settings = await _attendanceRepository.getSettings();
       distanceToOffice = distanceMeters(
         latitudeA: location.latitude,
@@ -79,7 +81,6 @@ class MarkAttendanceUseCase {
       location: location,
       officeValidated: officeValidated,
       distanceToOfficeMeters: distanceToOffice,
-      officeQrToken: officeQrToken,
       environmentPhoto: origin == AttendanceOrigin.zona ? environmentPhoto : null,
     );
   }

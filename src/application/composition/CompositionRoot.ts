@@ -13,6 +13,8 @@ import { UpdateUserUseCase } from '@/domain/usecases/users/UpdateUserUseCase'
 import { UpdateOwnThemeUseCase } from '@/domain/usecases/users/UpdateOwnThemeUseCase'
 import { ChangeOwnPasswordUseCase } from '@/domain/usecases/users/ChangeOwnPasswordUseCase'
 import { ResetUserPasswordUseCase } from '@/domain/usecases/users/ResetUserPasswordUseCase'
+import { DeleteUserUseCase } from '@/domain/usecases/users/DeleteUserUseCase'
+import { SyncHrAccountsUseCase } from '@/domain/usecases/users/SyncHrAccountsUseCase'
 import { ProvisionElectricistaTechniciansUseCase } from '@/domain/usecases/users/ProvisionElectricistaTechniciansUseCase'
 import { CreateFolderUseCase } from '@/domain/usecases/folders/CreateFolderUseCase'
 import { UpdateFolderUseCase } from '@/domain/usecases/folders/UpdateFolderUseCase'
@@ -24,6 +26,7 @@ import { UploadFolderImageUseCase } from '@/domain/usecases/folders/UploadFolder
 import { ListFolderImagesUseCase } from '@/domain/usecases/folders/ListFolderImagesUseCase'
 import { DeleteFolderImageUseCase } from '@/domain/usecases/folders/DeleteFolderImageUseCase'
 import { ExportFolderImagesToPdfUseCase } from '@/domain/usecases/folders/ExportFolderImagesToPdfUseCase'
+import { ListActivityPublishedWorkUseCase } from '@/domain/usecases/folders/ListActivityPublishedWorkUseCase'
 import {
   ListFolderDatesUseCase,
   GetFolderDateUseCase,
@@ -43,37 +46,18 @@ import {
   CreateTaskUseCase,
   UpdateTaskUseCase,
   CompleteTaskUseCase,
+  CompleteTaskRouteUseCase,
+  SaveTaskRouteLocationUseCase,
   StartTaskUseCase,
   DeleteTaskUseCase,
 } from '@/domain/usecases/tasks/TaskUseCases'
-import {
-  ListDocumentationTypesUseCase,
-  GetDocumentationTypeUseCase,
-  CreateDocumentationTypeUseCase,
-  UpdateDocumentationTypeUseCase,
-  DeleteDocumentationTypeUseCase,
-} from '@/domain/usecases/documentation/DocumentationTypeUseCases'
-import { SaveDocumentationColumnsUseCase } from '@/domain/usecases/documentation/SaveDocumentationColumnsUseCase'
-import {
-  ListDocumentationRowsUseCase,
-  CreateDocumentationRowUseCase,
-  UpdateDocumentationRowUseCase,
-  DeleteDocumentationRowUseCase,
-} from '@/domain/usecases/documentation/DocumentationRowUseCases'
-import {
-  ImportDocumentationFromExcelUseCase,
-  DownloadDocumentationExcelTemplateUseCase,
-  ExportDocumentationToWordUseCase,
-  UploadDocumentationCellImageUseCase,
-} from '@/domain/usecases/documentation/DocumentationImportExportUseCases'
 import {
   ListAttendanceDayUseCase,
   GetAttendanceSettingsUseCase,
   SaveAttendanceSettingsUseCase,
   GetMyTodayAttendanceUseCase,
   MarkAttendanceUseCase,
-  GetOrCreateTodayOfficeQrUseCase,
-  RotateTodayOfficeQrUseCase,
+  GrantAttendancePermissionUseCase,
 } from '@/domain/usecases/attendance/AttendanceUseCases'
 import { ExportAttendanceDayToExcelUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToExcelUseCase'
 import { ExportAttendanceDayToPdfUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToPdfUseCase'
@@ -96,7 +80,6 @@ import { FirebaseAttendanceRepository } from '@/infrastructure/firestore/Firebas
 import { FirebaseSupplyRepository } from '@/infrastructure/firestore/FirebaseSupplyRepository'
 import { FirebaseMobileAppReleaseRepository } from '@/infrastructure/firestore/FirebaseMobileAppReleaseRepository'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
-import { FirebaseDocumentationRepository } from '@/infrastructure/firestore/FirebaseDocumentationRepository'
 import { FirebaseAreaRepository } from '@/infrastructure/firestore/FirebaseAreaRepository'
 import { FirebaseTaskRepository } from '@/infrastructure/firestore/FirebaseTaskRepository'
 import { CatalogCrudUseCases } from '@/domain/usecases/personal/CatalogUseCases'
@@ -106,7 +89,10 @@ import {
   ImportPersonalUseCase,
   ListPersonalUseCase,
   UpdatePersonalUseCase,
+  AssignPersonalRoleUseCase,
 } from '@/domain/usecases/personal/PersonalUseCases'
+import { ExportPersonalToExcelUseCase } from '@/domain/usecases/personal/ExportPersonalToExcelUseCase'
+import { ExportPersonalToPdfUseCase } from '@/domain/usecases/personal/ExportPersonalToPdfUseCase'
 import { FirebaseCatalogRepository } from '@/infrastructure/firestore/FirebaseCatalogRepository'
 import { FirebasePersonalRepository } from '@/infrastructure/firestore/FirebasePersonalRepository'
 import { FirebaseOperationalRoleRepository } from '@/infrastructure/firestore/FirebaseOperationalRoleRepository'
@@ -118,10 +104,15 @@ import {
   ListOperationalRolesUseCase,
   UpdateOperationalRoleUseCase,
 } from '@/domain/usecases/roles/OperationalRoleUseCases'
+import {
+  ListSupportTicketsUseCase,
+  ResolveSupportTicketUseCase,
+} from '@/domain/usecases/support/SupportTicketUseCases'
+import { FirebaseSupportTicketRepository } from '@/infrastructure/firestore/FirebaseSupportTicketRepository'
 import { XlsxAttendanceExcelService } from '@/infrastructure/excel/XlsxAttendanceExcelService'
+import { XlsxPersonalExcelService } from '@/infrastructure/excel/XlsxPersonalExcelService'
 import { JsPdfAttendanceExportService } from '@/infrastructure/pdf/JsPdfAttendanceExportService'
-import { XlsxDocumentationExcelService } from '@/infrastructure/excel/XlsxDocumentationExcelService'
-import { DocxDocumentationWordExportService } from '@/infrastructure/word/DocxDocumentationWordExportService'
+import { JsPdfPersonalExportService } from '@/infrastructure/pdf/JsPdfPersonalExportService'
 
 export interface AppDependencies {
   loginUseCase: LoginUseCase
@@ -134,6 +125,8 @@ export interface AppDependencies {
   updateOwnThemeUseCase: UpdateOwnThemeUseCase
   changeOwnPasswordUseCase: ChangeOwnPasswordUseCase
   resetUserPasswordUseCase: ResetUserPasswordUseCase
+  deleteUserUseCase: DeleteUserUseCase
+  syncHrAccountsUseCase: SyncHrAccountsUseCase
   provisionElectricistaTechniciansUseCase: ProvisionElectricistaTechniciansUseCase
   createFolderUseCase: CreateFolderUseCase
   updateFolderUseCase: UpdateFolderUseCase
@@ -145,6 +138,7 @@ export interface AppDependencies {
   listFolderImagesUseCase: ListFolderImagesUseCase
   deleteFolderImageUseCase: DeleteFolderImageUseCase
   exportFolderImagesToPdfUseCase: ExportFolderImagesToPdfUseCase
+  listActivityPublishedWorkUseCase: ListActivityPublishedWorkUseCase
   listFolderDatesUseCase: ListFolderDatesUseCase
   getFolderDateUseCase: GetFolderDateUseCase
   createFolderDateUseCase: CreateFolderDateUseCase
@@ -159,33 +153,22 @@ export interface AppDependencies {
   createTaskUseCase: CreateTaskUseCase
   updateTaskUseCase: UpdateTaskUseCase
   completeTaskUseCase: CompleteTaskUseCase
+  completeTaskRouteUseCase: CompleteTaskRouteUseCase
+  saveTaskRouteLocationUseCase: SaveTaskRouteLocationUseCase
   startTaskUseCase: StartTaskUseCase
   deleteTaskUseCase: DeleteTaskUseCase
-  listDocumentationTypesUseCase: ListDocumentationTypesUseCase
-  getDocumentationTypeUseCase: GetDocumentationTypeUseCase
-  createDocumentationTypeUseCase: CreateDocumentationTypeUseCase
-  updateDocumentationTypeUseCase: UpdateDocumentationTypeUseCase
-  deleteDocumentationTypeUseCase: DeleteDocumentationTypeUseCase
-  saveDocumentationColumnsUseCase: SaveDocumentationColumnsUseCase
-  listDocumentationRowsUseCase: ListDocumentationRowsUseCase
-  createDocumentationRowUseCase: CreateDocumentationRowUseCase
-  updateDocumentationRowUseCase: UpdateDocumentationRowUseCase
-  deleteDocumentationRowUseCase: DeleteDocumentationRowUseCase
-  importDocumentationFromExcelUseCase: ImportDocumentationFromExcelUseCase
-  downloadDocumentationExcelTemplateUseCase: DownloadDocumentationExcelTemplateUseCase
-  exportDocumentationToWordUseCase: ExportDocumentationToWordUseCase
-  uploadDocumentationCellImageUseCase: UploadDocumentationCellImageUseCase
   listAttendanceDayUseCase: ListAttendanceDayUseCase
   getAttendanceSettingsUseCase: GetAttendanceSettingsUseCase
   saveAttendanceSettingsUseCase: SaveAttendanceSettingsUseCase
   getMyTodayAttendanceUseCase: GetMyTodayAttendanceUseCase
   markAttendanceUseCase: MarkAttendanceUseCase
-  getOrCreateTodayOfficeQrUseCase: GetOrCreateTodayOfficeQrUseCase
-  rotateTodayOfficeQrUseCase: RotateTodayOfficeQrUseCase
+  grantAttendancePermissionUseCase: GrantAttendancePermissionUseCase
   exportAttendanceDayToExcelUseCase: ExportAttendanceDayToExcelUseCase
   exportAttendanceDayToPdfUseCase: ExportAttendanceDayToPdfUseCase
   getMobileAppReleaseUseCase: GetMobileAppReleaseUseCase
   publishMobileAppReleaseUseCase: PublishMobileAppReleaseUseCase
+  listSupportTicketsUseCase: ListSupportTicketsUseCase
+  resolveSupportTicketUseCase: ResolveSupportTicketUseCase
   getSupplyByRouteCodeUseCase: GetSupplyByRouteCodeUseCase
   searchSuppliesUseCase: SearchSuppliesUseCase
   listSupplyCatalogUseCase: ListSupplyCatalogUseCase
@@ -200,8 +183,11 @@ export interface AppDependencies {
   listPersonalUseCase: ListPersonalUseCase
   createPersonalUseCase: CreatePersonalUseCase
   updatePersonalUseCase: UpdatePersonalUseCase
+  assignPersonalRoleUseCase: AssignPersonalRoleUseCase
   deletePersonalUseCase: DeletePersonalUseCase
   importPersonalUseCase: ImportPersonalUseCase
+  exportPersonalToExcelUseCase: ExportPersonalToExcelUseCase
+  exportPersonalToPdfUseCase: ExportPersonalToPdfUseCase
   listOperationalRolesUseCase: ListOperationalRolesUseCase
   getOperationalRolePermissionsUseCase: GetOperationalRolePermissionsUseCase
   ensureDefaultOperationalRolesUseCase: EnsureDefaultOperationalRolesUseCase
@@ -226,12 +212,11 @@ export function createAppDependencies(): AppDependencies {
   const pdfExportService = new JsPdfExportService()
   const attendanceExcelService = new XlsxAttendanceExcelService()
   const attendancePdfService = new JsPdfAttendanceExportService()
+  const personalExcelService = new XlsxPersonalExcelService()
+  const personalPdfService = new JsPdfPersonalExportService()
   const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
+  const supportTicketRepository = new FirebaseSupportTicketRepository()
   const supplyRepository = new FirebaseSupplyRepository()
-  const documentationRepository = new FirebaseDocumentationRepository()
-  const documentationExcelService = new XlsxDocumentationExcelService()
-  const documentationWordExportService =
-    new DocxDocumentationWordExportService()
   const listAttendanceDayUseCase = new ListAttendanceDayUseCase(
     attendanceRepository,
     userRepository,
@@ -242,6 +227,26 @@ export function createAppDependencies(): AppDependencies {
   const updateUserUseCase = new UpdateUserUseCase(
     authRepository,
     userRepository,
+  )
+  const provisionElectricistaTechniciansUseCase =
+    new ProvisionElectricistaTechniciansUseCase(
+      authRepository,
+      userRepository,
+      personalRepository,
+      operationalRoleRepository,
+      updateUserUseCase,
+    )
+  const deleteUserUseCase = new DeleteUserUseCase(
+    authRepository,
+    userRepository,
+    personalRepository,
+  )
+  const syncHrAccountsUseCase = new SyncHrAccountsUseCase(
+    personalRepository,
+    userRepository,
+    operationalRoleRepository,
+    provisionElectricistaTechniciansUseCase,
+    updateUserUseCase,
   )
 
   return {
@@ -264,14 +269,9 @@ export function createAppDependencies(): AppDependencies {
       authRepository,
       userRepository,
     ),
-    provisionElectricistaTechniciansUseCase:
-      new ProvisionElectricistaTechniciansUseCase(
-        authRepository,
-        userRepository,
-        personalRepository,
-        operationalRoleRepository,
-        updateUserUseCase,
-      ),
+    deleteUserUseCase,
+    syncHrAccountsUseCase,
+    provisionElectricistaTechniciansUseCase,
     createFolderUseCase: new CreateFolderUseCase(
       folderRepository,
       areaRepository,
@@ -329,6 +329,13 @@ export function createAppDependencies(): AppDependencies {
       imageRepository,
       pdfExportService,
     ),
+    listActivityPublishedWorkUseCase: new ListActivityPublishedWorkUseCase(
+      areaRepository,
+      folderRepository,
+      folderDateRepository,
+      imageRepository,
+      userRepository,
+    ),
     listAreasUseCase: new ListAreasUseCase(areaRepository),
     getAreaUseCase: new GetAreaUseCase(areaRepository),
     createAreaUseCase: new CreateAreaUseCase(areaRepository),
@@ -358,53 +365,13 @@ export function createAppDependencies(): AppDependencies {
       supplyRepository,
     ),
     completeTaskUseCase: new CompleteTaskUseCase(taskRepository),
+    completeTaskRouteUseCase: new CompleteTaskRouteUseCase(taskRepository),
+    saveTaskRouteLocationUseCase: new SaveTaskRouteLocationUseCase(
+      taskRepository,
+      supplyRepository,
+    ),
     startTaskUseCase: new StartTaskUseCase(taskRepository),
     deleteTaskUseCase: new DeleteTaskUseCase(taskRepository),
-    listDocumentationTypesUseCase: new ListDocumentationTypesUseCase(
-      documentationRepository,
-    ),
-    getDocumentationTypeUseCase: new GetDocumentationTypeUseCase(
-      documentationRepository,
-    ),
-    createDocumentationTypeUseCase: new CreateDocumentationTypeUseCase(
-      documentationRepository,
-    ),
-    updateDocumentationTypeUseCase: new UpdateDocumentationTypeUseCase(
-      documentationRepository,
-    ),
-    deleteDocumentationTypeUseCase: new DeleteDocumentationTypeUseCase(
-      documentationRepository,
-    ),
-    saveDocumentationColumnsUseCase: new SaveDocumentationColumnsUseCase(
-      documentationRepository,
-    ),
-    listDocumentationRowsUseCase: new ListDocumentationRowsUseCase(
-      documentationRepository,
-    ),
-    createDocumentationRowUseCase: new CreateDocumentationRowUseCase(
-      documentationRepository,
-    ),
-    updateDocumentationRowUseCase: new UpdateDocumentationRowUseCase(
-      documentationRepository,
-    ),
-    deleteDocumentationRowUseCase: new DeleteDocumentationRowUseCase(
-      documentationRepository,
-    ),
-    importDocumentationFromExcelUseCase: new ImportDocumentationFromExcelUseCase(
-      documentationRepository,
-      documentationExcelService,
-    ),
-    downloadDocumentationExcelTemplateUseCase:
-      new DownloadDocumentationExcelTemplateUseCase(
-        documentationRepository,
-        documentationExcelService,
-      ),
-    exportDocumentationToWordUseCase: new ExportDocumentationToWordUseCase(
-      documentationRepository,
-      documentationWordExportService,
-    ),
-    uploadDocumentationCellImageUseCase:
-      new UploadDocumentationCellImageUseCase(documentationRepository),
     listAttendanceDayUseCase,
     getAttendanceSettingsUseCase,
     saveAttendanceSettingsUseCase: new SaveAttendanceSettingsUseCase(
@@ -414,11 +381,9 @@ export function createAppDependencies(): AppDependencies {
       attendanceRepository,
     ),
     markAttendanceUseCase: new MarkAttendanceUseCase(attendanceRepository),
-    getOrCreateTodayOfficeQrUseCase: new GetOrCreateTodayOfficeQrUseCase(
+    grantAttendancePermissionUseCase: new GrantAttendancePermissionUseCase(
       attendanceRepository,
-    ),
-    rotateTodayOfficeQrUseCase: new RotateTodayOfficeQrUseCase(
-      attendanceRepository,
+      userRepository,
     ),
     exportAttendanceDayToExcelUseCase: new ExportAttendanceDayToExcelUseCase(
       listAttendanceDayUseCase,
@@ -435,6 +400,12 @@ export function createAppDependencies(): AppDependencies {
     ),
     publishMobileAppReleaseUseCase: new PublishMobileAppReleaseUseCase(
       mobileAppReleaseRepository,
+    ),
+    listSupportTicketsUseCase: new ListSupportTicketsUseCase(
+      supportTicketRepository,
+    ),
+    resolveSupportTicketUseCase: new ResolveSupportTicketUseCase(
+      supportTicketRepository,
     ),
     getSupplyByRouteCodeUseCase: new GetSupplyByRouteCodeUseCase(
       supplyRepository,
@@ -474,12 +445,27 @@ export function createAppDependencies(): AppDependencies {
       localidadRepository,
       operationalRoleRepository,
     ),
-    deletePersonalUseCase: new DeletePersonalUseCase(personalRepository),
+    assignPersonalRoleUseCase: new AssignPersonalRoleUseCase(
+      personalRepository,
+      operationalRoleRepository,
+      userRepository,
+      deleteUserUseCase,
+    ),
+    deletePersonalUseCase: new DeletePersonalUseCase(
+      personalRepository,
+      userRepository,
+      deleteUserUseCase,
+    ),
     importPersonalUseCase: new ImportPersonalUseCase(
       personalRepository,
       cargoRepository,
       localidadRepository,
-      operationalRoleRepository,
+    ),
+    exportPersonalToExcelUseCase: new ExportPersonalToExcelUseCase(
+      personalExcelService,
+    ),
+    exportPersonalToPdfUseCase: new ExportPersonalToPdfUseCase(
+      personalPdfService,
     ),
     listOperationalRolesUseCase: new ListOperationalRolesUseCase(
       operationalRoleRepository,

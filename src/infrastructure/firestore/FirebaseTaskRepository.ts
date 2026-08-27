@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   setDoc,
@@ -11,8 +12,13 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import type { Task, TaskStatus } from '@/domain/entities/Task'
-import { TaskStatus as Status } from '@/domain/entities/Task'
+import type { Task, TaskNotice, TaskRoute, TaskStatus } from '@/domain/entities/Task'
+import {
+  isValidMapCoord,
+  normalizeTaskRoutes,
+  primaryTaskRoute,
+  TaskStatus as Status,
+} from '@/domain/entities/Task'
 import type {
   CreateTaskInput,
   TaskRepository,
@@ -20,6 +26,29 @@ import type {
 } from '@/domain/repositories/TaskRepository'
 import { NotFoundError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
+
+interface TaskRouteDoc {
+  routeCode: string
+  latitude?: number
+  longitude?: number
+  note?: string
+  completed?: boolean
+  completedById?: string
+  completedByName?: string
+  completedAt?: Timestamp | null
+  claimedById?: string
+  claimedByName?: string
+  claimedAt?: Timestamp | null
+  photosUploaded?: boolean
+}
+
+interface TaskNoticeDoc {
+  message: string
+  routeCode: string
+  createdById: string
+  createdByName: string
+  createdAt: Timestamp
+}
 
 interface TaskDoc {
   title: string
@@ -31,6 +60,8 @@ interface TaskDoc {
   routeCode: string
   latitude?: number
   longitude?: number
+  routes?: TaskRouteDoc[]
+  lastNotice?: TaskNoticeDoc | null
   assignToAllTechnicians: boolean
   assignedTechnicianIds: string[]
   assignedTechnicianNames: string[]
@@ -43,6 +74,73 @@ interface TaskDoc {
   updatedAt: Timestamp
 }
 
+function mapRoute(data: TaskRouteDoc): TaskRoute {
+  const latitude =
+    typeof data.latitude === 'number' && Number.isFinite(data.latitude)
+      ? data.latitude
+      : null
+  const longitude =
+    typeof data.longitude === 'number' && Number.isFinite(data.longitude)
+      ? data.longitude
+      : null
+  const hasCoords = isValidMapCoord(latitude, longitude)
+  return {
+    routeCode: String(data.routeCode ?? '').replace(/\D/g, ''),
+    latitude: hasCoords ? latitude : null,
+    longitude: hasCoords ? longitude : null,
+    note: (data.note ?? '').trim(),
+    completed: data.completed === true,
+    completedById: data.completedById ?? '',
+    completedByName: data.completedByName ?? '',
+    completedAt: data.completedAt?.toDate() ?? null,
+    claimedById: data.claimedById ?? '',
+    claimedByName: data.claimedByName ?? '',
+    claimedAt: data.claimedAt?.toDate() ?? null,
+    photosUploaded: data.photosUploaded === true,
+  }
+}
+
+function mapNotice(data: TaskNoticeDoc | null | undefined): TaskNotice | null {
+  if (!data) return null
+  return {
+    message: data.message ?? '',
+    routeCode: data.routeCode ?? '',
+    createdById: data.createdById ?? '',
+    createdByName: data.createdByName ?? '',
+    createdAt: data.createdAt?.toDate() ?? new Date(),
+  }
+}
+
+function serializeRoute(route: TaskRoute): TaskRouteDoc {
+  const payload: TaskRouteDoc = {
+    routeCode: route.routeCode,
+    note: route.note,
+    completed: route.completed,
+    completedById: route.completedById,
+    completedByName: route.completedByName,
+    completedAt: route.completedAt ? Timestamp.fromDate(route.completedAt) : null,
+    claimedById: route.claimedById,
+    claimedByName: route.claimedByName,
+    claimedAt: route.claimedAt ? Timestamp.fromDate(route.claimedAt) : null,
+    photosUploaded: route.photosUploaded,
+  }
+  if (isValidMapCoord(route.latitude, route.longitude)) {
+    payload.latitude = route.latitude ?? undefined
+    payload.longitude = route.longitude ?? undefined
+  }
+  return payload
+}
+
+function serializeNotice(notice: TaskNotice): TaskNoticeDoc {
+  return {
+    message: notice.message,
+    routeCode: notice.routeCode,
+    createdById: notice.createdById,
+    createdByName: notice.createdByName,
+    createdAt: Timestamp.fromDate(notice.createdAt),
+  }
+}
+
 function mapTask(id: string, data: TaskDoc): Task {
   const latitude =
     typeof data.latitude === 'number' && Number.isFinite(data.latitude)
@@ -52,6 +150,17 @@ function mapTask(id: string, data: TaskDoc): Task {
     typeof data.longitude === 'number' && Number.isFinite(data.longitude)
       ? data.longitude
       : null
+  const routes = normalizeTaskRoutes({
+    routes: (data.routes ?? []).map(mapRoute),
+    routeCode: data.routeCode,
+    latitude,
+    longitude,
+    status: data.status,
+    completedById: data.completedById,
+    completedByName: data.completedByName,
+    completedAt: data.completedAt?.toDate() ?? null,
+  })
+  const primary = primaryTaskRoute(routes)
   return {
     id,
     title: data.title,
@@ -60,9 +169,12 @@ function mapTask(id: string, data: TaskDoc): Task {
     dueDate: data.dueDate?.toDate() ?? null,
     areaId: data.areaId ?? '',
     areaName: data.areaName ?? '',
-    routeCode: data.routeCode ?? '',
-    latitude,
-    longitude,
+    routeCode: primary?.routeCode ?? data.routeCode ?? '',
+    latitude: primary?.latitude ?? (isValidMapCoord(latitude, longitude) ? latitude : null),
+    longitude:
+      primary?.longitude ?? (isValidMapCoord(latitude, longitude) ? longitude : null),
+    routes,
+    lastNotice: mapNotice(data.lastNotice),
     assignToAllTechnicians: data.assignToAllTechnicians === true,
     assignedTechnicianIds: data.assignedTechnicianIds ?? [],
     assignedTechnicianNames: data.assignedTechnicianNames ?? [],
@@ -74,6 +186,20 @@ function mapTask(id: string, data: TaskDoc): Task {
     createdAt: data.createdAt.toDate(),
     updatedAt: data.updatedAt.toDate(),
   }
+}
+
+function applyCoords(
+  payload: TaskDoc,
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+): void {
+  if (isValidMapCoord(latitude, longitude)) {
+    payload.latitude = latitude ?? undefined
+    payload.longitude = longitude ?? undefined
+    return
+  }
+  delete payload.latitude
+  delete payload.longitude
 }
 
 function sortByUpdatedDesc(tasks: Task[]): Task[] {
@@ -123,9 +249,74 @@ export class FirebaseTaskRepository implements TaskRepository {
     return sortByUpdatedDesc([...byId.values()])
   }
 
+  watchAll(
+    onData: (tasks: Task[]) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    return onSnapshot(
+      query(this.collectionRef, orderBy('updatedAt', 'desc')),
+      (snapshot) => {
+        onData(
+          snapshot.docs.map((item) => mapTask(item.id, item.data() as TaskDoc)),
+        )
+      },
+      (error) => onError?.(error),
+    )
+  }
+
+  watchAccessibleForUser(
+    userId: string,
+    onData: (tasks: Task[]) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    let assigned: Task[] = []
+    let allTechs: Task[] = []
+
+    const emit = () => {
+      const byId = new Map<string, Task>()
+      for (const task of [...assigned, ...allTechs]) {
+        byId.set(task.id, task)
+      }
+      onData(sortByUpdatedDesc([...byId.values()]))
+    }
+
+    const unsubAssigned = onSnapshot(
+      query(
+        this.collectionRef,
+        where('assignedTechnicianIds', 'array-contains', userId),
+      ),
+      (snapshot) => {
+        assigned = snapshot.docs.map((item) =>
+          mapTask(item.id, item.data() as TaskDoc),
+        )
+        emit()
+      },
+      (error) => onError?.(error),
+    )
+    const unsubAll = onSnapshot(
+      query(
+        this.collectionRef,
+        where('assignToAllTechnicians', '==', true),
+      ),
+      (snapshot) => {
+        allTechs = snapshot.docs.map((item) =>
+          mapTask(item.id, item.data() as TaskDoc),
+        )
+        emit()
+      },
+      (error) => onError?.(error),
+    )
+
+    return () => {
+      unsubAssigned()
+      unsubAll()
+    }
+  }
+
   async create(input: CreateTaskInput): Promise<Task> {
     const now = Timestamp.now()
-    const id = crypto.randomUUID()
+    const routes = normalizeTaskRoutes({ routes: input.routes })
+    const primary = primaryTaskRoute(routes)
     const payload: TaskDoc = {
       title: input.title,
       description: input.description,
@@ -133,9 +324,8 @@ export class FirebaseTaskRepository implements TaskRepository {
       dueDate: input.dueDate ? Timestamp.fromDate(input.dueDate) : null,
       areaId: input.areaId,
       areaName: input.areaName,
-      routeCode: input.routeCode,
-      latitude: input.latitude,
-      longitude: input.longitude,
+      routeCode: primary?.routeCode ?? input.routeCode,
+      routes: routes.map(serializeRoute),
       assignToAllTechnicians: input.assignToAllTechnicians,
       assignedTechnicianIds: input.assignedTechnicianIds,
       assignedTechnicianNames: input.assignedTechnicianNames,
@@ -147,6 +337,12 @@ export class FirebaseTaskRepository implements TaskRepository {
       createdAt: now,
       updatedAt: now,
     }
+    applyCoords(
+      payload,
+      primary?.latitude ?? input.latitude,
+      primary?.longitude ?? input.longitude,
+    )
+    const id = crypto.randomUUID()
     await setDoc(doc(this.collectionRef, id), payload)
     return mapTask(id, payload)
   }
@@ -159,12 +355,21 @@ export class FirebaseTaskRepository implements TaskRepository {
     }
 
     const current = existing.data() as TaskDoc
-    const nextLatitude =
-      input.latitude === undefined ? current.latitude : input.latitude ?? undefined
-    const nextLongitude =
-      input.longitude === undefined
-        ? current.longitude
-        : input.longitude ?? undefined
+    const mapped = mapTask(id, current)
+    const routes = normalizeTaskRoutes({
+      routes: input.routes ?? mapped.routes,
+      routeCode: input.routeCode ?? mapped.routeCode,
+      latitude: input.latitude === undefined ? mapped.latitude : input.latitude,
+      longitude: input.longitude === undefined ? mapped.longitude : input.longitude,
+      status: input.status ?? mapped.status,
+      completedById: input.completedById ?? mapped.completedById,
+      completedByName: input.completedByName ?? mapped.completedByName,
+      completedAt:
+        input.completedAt === undefined ? mapped.completedAt : input.completedAt,
+    })
+    const primary = primaryTaskRoute(routes)
+    const lastNotice =
+      input.lastNotice === undefined ? mapped.lastNotice : input.lastNotice
 
     const payload: TaskDoc = {
       ...current,
@@ -179,7 +384,8 @@ export class FirebaseTaskRepository implements TaskRepository {
             : null,
       areaId: input.areaId ?? current.areaId,
       areaName: input.areaName ?? current.areaName,
-      routeCode: input.routeCode ?? current.routeCode,
+      routeCode: primary?.routeCode ?? current.routeCode,
+      routes: routes.map(serializeRoute),
       assignToAllTechnicians:
         input.assignToAllTechnicians ?? current.assignToAllTechnicians,
       assignedTechnicianIds:
@@ -203,16 +409,17 @@ export class FirebaseTaskRepository implements TaskRepository {
       updatedAt: Timestamp.now(),
     }
 
-    if (typeof nextLatitude === 'number') {
-      payload.latitude = nextLatitude
+    if (lastNotice) {
+      payload.lastNotice = serializeNotice(lastNotice)
     } else {
-      delete payload.latitude
+      payload.lastNotice = null
     }
-    if (typeof nextLongitude === 'number') {
-      payload.longitude = nextLongitude
-    } else {
-      delete payload.longitude
-    }
+
+    applyCoords(
+      payload,
+      primary?.latitude ?? null,
+      primary?.longitude ?? null,
+    )
 
     await updateDoc(ref, { ...payload })
     return mapTask(id, payload)

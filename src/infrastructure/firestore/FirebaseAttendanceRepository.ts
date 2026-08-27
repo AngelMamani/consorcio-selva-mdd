@@ -40,6 +40,9 @@ interface AttendanceDoc {
   distanceToOfficeMeters?: number
   officeValidated: boolean
   officeQrToken?: string
+  permissionNote?: string
+  markedById?: string
+  markedByName?: string
   environmentPhotoUrl?: string
   environmentPhotoPath?: string
   createdAt: Timestamp
@@ -70,7 +73,7 @@ function mapFirebaseWriteError(error: unknown, fallback: string): never {
   }
   if (error instanceof FirebaseError && error.code === 'permission-denied') {
     throw new UnauthorizedError(
-      'QR inválido, vencido o no es de hoy. Pide el código actualizado en oficina.',
+      'No se pudo registrar. Revisa el GPS, el radio de oficina o si ya hay una marca ese día.',
     )
   }
   throw new ValidationError(fallback)
@@ -97,6 +100,9 @@ function mapAttendance(id: string, data: AttendanceDoc): Attendance | null {
         ? data.distanceToOfficeMeters
         : undefined,
     officeValidated: data.officeValidated === true,
+    permissionNote: data.permissionNote?.trim() || undefined,
+    markedById: data.markedById || undefined,
+    markedByName: data.markedByName || undefined,
     environmentPhotoUrl: data.environmentPhotoUrl || undefined,
     environmentPhotoPath: data.environmentPhotoPath || undefined,
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
@@ -230,6 +236,13 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
     }
     if (input.officeQrToken) {
       payload.officeQrToken = input.officeQrToken
+    }
+    if (input.permissionNote) {
+      payload.permissionNote = input.permissionNote
+    }
+    if (input.markedById && input.markedByName) {
+      payload.markedById = input.markedById
+      payload.markedByName = input.markedByName
     }
     if (input.environmentPhotoUrl && input.environmentPhotoPath) {
       payload.environmentPhotoUrl = input.environmentPhotoUrl

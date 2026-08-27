@@ -73,6 +73,17 @@ class FirebaseImageFolderRepository implements ImageFolderRepository {
   }
 
   @override
+  Future<List<ImageFolder>> listByArea(String areaId) async {
+    final snapshot =
+        await _folders.where('areaId', isEqualTo: areaId).get();
+    final folders = snapshot.docs
+        .map((doc) => _map(doc.id, doc.data()))
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return folders;
+  }
+
+  @override
   Future<ImageFolder> create(CreateImageFolderInput input) async {
     final now = Timestamp.now();
     final payload = <String, dynamic>{

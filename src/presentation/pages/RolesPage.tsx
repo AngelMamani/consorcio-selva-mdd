@@ -4,12 +4,12 @@ import {
   useState,
   type FormEvent,
 } from 'react'
-import { PersonalOrgNav } from '@/presentation/components/PersonalOrgNav'
+import { SystemOrgNav } from '@/presentation/components/SystemOrgNav'
 import type { OperationalRole } from '@/domain/entities/OperationalRole'
 import {
   APP_MENU_DEFINITIONS,
   APP_MENU_MODULES,
-  type AppMenuKey,
+  AppMenuKey,
 } from '@/domain/value-objects/AppMenuPermission'
 import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
@@ -47,6 +47,7 @@ export function RolesPage() {
   const { canManageRoles, refreshPermissions } = usePermissions()
   const {
     listOperationalRolesUseCase,
+    ensureDefaultOperationalRolesUseCase,
     createOperationalRoleUseCase,
     updateOperationalRoleUseCase,
     deleteOperationalRoleUseCase,
@@ -64,7 +65,9 @@ export function RolesPage() {
 
   const groupedMenus = useMemo(() => {
     return APP_MENU_MODULES.map((mod) => {
-      const items = APP_MENU_DEFINITIONS.filter((item) => item.module === mod.id)
+      const items = APP_MENU_DEFINITIONS.filter(
+        (item) => item.module === mod.id && item.key !== AppMenuKey.Inicio,
+      )
       return [mod.label, items] as const
     }).filter(([, items]) => items.length > 0)
   }, [])
@@ -73,7 +76,10 @@ export function RolesPage() {
     if (!user) return
     setLoading(true)
     try {
-      setRoles(await listOperationalRolesUseCase.execute(user))
+      const seeded = canManageRoles
+        ? await ensureDefaultOperationalRolesUseCase.execute(user)
+        : await listOperationalRolesUseCase.execute(user)
+      setRoles(seeded)
     } catch (err) {
       swalError(
         err instanceof DomainError ? err.message : 'No se pudieron cargar los roles',
@@ -241,15 +247,16 @@ export function RolesPage() {
     <section className="roles-page">
       <header className="page-header">
         <div>
-          <p className="roles-page__eyebrow">Organización</p>
+          <p className="roles-page__eyebrow">Sistema</p>
           <h1>Roles y permisos</h1>
           <p>
-            Define qué menús y actividades ve cada rol: Super Administrador,
-            Administrador y Técnico.
+            Los tres roles de acceso son Super Administrador, Administrador y
+            Técnico. Aquí se marca qué menús ve cada uno. Lo que guardes se
+            mantiene. La asignación a cada persona se hace en Recursos Humanos.
           </p>
         </div>
         <div className="roles-page__actions">
-          <PersonalOrgNav />
+          <SystemOrgNav />
           {canManageRoles ? (
             <button type="button" className="btn btn--soft-primary" onClick={openCreate}>
               <IconPlus />
@@ -265,8 +272,9 @@ export function RolesPage() {
         <div className="roles-empty">
           <h2>Sin roles configurados</h2>
           <p>
-            El Super Administrador puede crear los roles base o importar personal
-            después de inicializarlos.
+            El Super Administrador puede crear los roles base. Luego, en
+            Recursos Humanos, se asigna Super Administrador, Administrador o
+            Técnico a cada persona.
           </p>
         </div>
       ) : (
@@ -294,7 +302,7 @@ export function RolesPage() {
                   className="btn btn--soft-muted btn--small"
                   onClick={() => openActivities(role)}
                 >
-                  Ver actividades
+                  Ver menús
                 </button>
                 {canManageRoles ? (
                   <>
@@ -391,8 +399,8 @@ export function RolesPage() {
 
       <AppModal
         open={activitiesOpen}
-        title={viewing ? `Actividades · ${viewing.name}` : 'Actividades'}
-        description="Menús y secciones habilitadas para este rol."
+        title={viewing ? `Menús · ${viewing.name}` : 'Menús'}
+        description="Secciones del panel habilitadas para este rol."
         size="md"
         onClose={() => setActivitiesOpen(false)}
         footer={
@@ -407,22 +415,30 @@ export function RolesPage() {
       >
         {viewing ? (
           <div className="roles-activities">
-            {groupedMenus.map(([group, items]) => {
-              const active = items.filter((item) =>
-                viewing.permissions.includes(item.key),
-              )
-              if (active.length === 0) return null
-              return (
-                <div key={group} className="roles-activities__group">
-                  <h3>{group}</h3>
-                  <ul>
-                    {active.map((item) => (
-                      <li key={item.key}>{item.label}</li>
-                    ))}
-                  </ul>
-                </div>
-              )
-            })}
+            {groupedMenus.some(([, items]) =>
+              items.some((item) => viewing.permissions.includes(item.key)),
+            ) ? (
+              groupedMenus.map(([group, items]) => {
+                const active = items.filter((item) =>
+                  viewing.permissions.includes(item.key),
+                )
+                if (active.length === 0) return null
+                return (
+                  <div key={group} className="roles-activities__group">
+                    <h3>{group}</h3>
+                    <ul>
+                      {active.map((item) => (
+                        <li key={item.key}>{item.label}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })
+            ) : (
+              <p className="roles-form__hint">
+                Este rol aún no tiene menús marcados.
+              </p>
+            )}
           </div>
         ) : null}
       </AppModal>

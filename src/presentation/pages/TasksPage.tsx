@@ -6,19 +6,29 @@ import {
   useState,
   type FormEvent,
 } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Area } from '@/domain/entities/Area'
 import type { Task } from '@/domain/entities/Task'
 import {
   formatTaskAssignees,
+  normalizeTaskRoutes,
   TaskStatus,
-  taskHasMapPoint,
+  taskRouteHasMapPoint,
   taskStatusLabel,
+  taskTitleFromActivity,
 } from '@/domain/entities/Task'
+import { supplyHasLocation } from '@/domain/entities/Supply'
+import type { Supply } from '@/domain/entities/Supply'
 import type { User } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
+import {
+  isRouteCode,
+  normalizeRouteCode,
+} from '@/domain/value-objects/RouteCode'
 import { canManageUsers } from '@/domain/value-objects/UserRole'
+import { supplyFolderDocId } from '@/domain/services/SupplyFolderService'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -27,26 +37,59 @@ import {
   swalError,
   swalSuccess,
 } from '@/presentation/utils/appSwal'
+import Swal from 'sweetalert2'
 import './FoldersPage.css'
 import './TasksPage.css'
 
 type TaskMapPoint = {
   task: Task
+  routeCode: string
+  completed: boolean
+  completedByName: string
+  completedAt: Date | null
+  claimedByName: string
+  photosUploaded: boolean
   latitude: number
   longitude: number
 }
 
+type DraftRoute = {
+  routeCode: string
+  latitude: number | null
+  longitude: number | null
+  note: string
+  hasLocation: boolean
+  isNew: boolean
+}
+
 const DEFAULT_CENTER: L.LatLngExpression = [-12.5933, -69.1891]
 
-function statusPinClass(status: TaskStatus): string {
-  switch (status) {
-    case TaskStatus.Completada:
-      return 'tasks-pin__dot--done'
-    case TaskStatus.EnProgreso:
-      return 'tasks-pin__dot--progress'
-    default:
-      return 'tasks-pin__dot--pending'
-  }
+function statusPinClass(completed: boolean, claimed: boolean): string {
+  if (completed) return 'tasks-pin__dot--done'
+  if (claimed) return 'tasks-pin__dot--claimed'
+  return 'tasks-pin__dot--pending'
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function photosPath(areaId: string, routeCode: string): string {
+  return `/carpetas/${supplyFolderDocId(areaId, routeCode)}`
+}
+
+function formatCompletedAt(date: Date | null): string {
+  if (!date) return ''
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function openSupplyMaps(lat: number, lng: number): void {
@@ -236,16 +279,16 @@ function TaskAssigneePicker({
 
 export function TasksPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const {
     listTasksUseCase,
     createTaskUseCase,
     updateTaskUseCase,
-    completeTaskUseCase,
-    startTaskUseCase,
     deleteTaskUseCase,
     listTechniciansUseCase,
     listAreasUseCase,
     getSupplyByRouteCodeUseCase,
+    searchSuppliesUseCase,
   } = useDependencies()
 
   const isAdmin = Boolean(user && canManageUsers(user.role))
@@ -259,6 +302,7 @@ export function TasksPage() {
   const deferredSearch = useDeferredValue(searchTerm)
   const [mapPoints, setMapPoints] = useState<TaskMapPoint[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [selectedRouteCode, setSelectedRouteCode] = useState<string | null>(null)
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -266,13 +310,17 @@ export function TasksPage() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
-  const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [areaId, setAreaId] = useState('')
-  const [routeCode, setRouteCode] = useState('')
+  const [routeDraft, setRouteDraft] = useState('')
+  const [routeSuggestions, setRouteSuggestions] = useState<Supply[]>([])
+  const [searchingRoutes, setSearchingRoutes] = useState(false)
+  const [draftRoutes, setDraftRoutes] = useState<DraftRoute[]>([])
   const [assignToAll, setAssignToAll] = useState(false)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
+
+  const selectedAreaName = areas.find((area) => area.id === areaId)?.name ?? ''
 
   const filteredTasks = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase()
@@ -281,20 +329,34 @@ export function TasksPage() {
         statusFilter === 'all' || task.status === statusFilter
       if (!matchesStatus) return false
       if (!query) return true
+      const routes = normalizeTaskRoutes(task)
+        .map((route) => route.routeCode)
+        .join(' ')
       const haystack =
-        `${task.title} ${task.description} ${task.areaName} ${task.routeCode} ${formatTaskAssignees(task)}`.toLowerCase()
+        `${task.title} ${task.description} ${task.areaName} ${routes} ${formatTaskAssignees(task)}`.toLowerCase()
       return haystack.includes(query)
     })
   }, [tasks, deferredSearch, statusFilter])
 
   const filteredMapPoints = useMemo(() => {
     const ids = new Set(filteredTasks.map((task) => task.id))
-    return mapPoints.filter((point) => ids.has(point.task.id))
-  }, [filteredTasks, mapPoints])
+    const visible = mapPoints.filter((point) => ids.has(point.task.id))
+    if (!selectedTaskId) return visible
+    return visible.filter((point) => point.task.id === selectedTaskId)
+  }, [filteredTasks, mapPoints, selectedTaskId])
 
-  const pointByTaskId = useMemo(() => {
-    const map = new Map<string, TaskMapPoint>()
-    for (const point of mapPoints) map.set(point.task.id, point)
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId],
+  )
+
+  const pointsByTaskId = useMemo(() => {
+    const map = new Map<string, TaskMapPoint[]>()
+    for (const point of mapPoints) {
+      const list = map.get(point.task.id) ?? []
+      list.push(point)
+      map.set(point.task.id, list)
+    }
     return map
   }, [mapPoints])
 
@@ -310,31 +372,86 @@ export function TasksPage() {
     }
   }, [tasks])
 
-  async function load() {
+  useEffect(() => {
     if (!user) return
+    let cancelled = false
     setLoading(true)
-    try {
-      const [nextTasks, nextAreas, nextTechs] = await Promise.all([
-        listTasksUseCase.execute(user),
-        listAreasUseCase.execute(user),
-        listTechniciansUseCase.execute(user),
-      ])
-      setTasks(nextTasks)
-      setAreas(nextAreas)
-      setTechnicians(nextTechs)
-    } catch (err) {
-      swalError(
-        err instanceof DomainError ? err.message : 'No se pudieron cargar las tareas',
-      )
-    } finally {
-      setLoading(false)
+    void Promise.all([
+      listAreasUseCase.execute(user),
+      listTechniciansUseCase.execute(user),
+    ])
+      .then(([nextAreas, nextTechs]) => {
+        if (cancelled) return
+        setAreas(nextAreas)
+        setTechnicians(nextTechs)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        swalError(
+          err instanceof DomainError
+            ? err.message
+            : 'No se pudieron cargar las tareas',
+        )
+      })
+
+    const stop = listTasksUseCase.watch(
+      user,
+      (nextTasks) => {
+        if (cancelled) return
+        setTasks(nextTasks)
+        setLoading(false)
+      },
+      () => {
+        if (cancelled) return
+        setLoading(false)
+        swalError('No se pudieron actualizar las tareas')
+      },
+    )
+
+    return () => {
+      cancelled = true
+      stop()
     }
-  }
+  }, [user, listTasksUseCase, listAreasUseCase, listTechniciansUseCase])
 
   useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
+    if (!user || !modalOpen) {
+      setRouteSuggestions([])
+      setSearchingRoutes(false)
+      return
+    }
+    const digits = normalizeRouteCode(routeDraft)
+    if (digits.length < 3) {
+      setRouteSuggestions([])
+      setSearchingRoutes(false)
+      return
+    }
+
+    let cancelled = false
+    setSearchingRoutes(true)
+    const handle = window.setTimeout(() => {
+      void searchSuppliesUseCase
+        .execute(user, digits)
+        .then((hits) => {
+          if (cancelled) return
+          const taken = new Set(draftRoutes.map((route) => route.routeCode))
+          setRouteSuggestions(
+            hits.filter((supply) => !taken.has(supply.routeCode)),
+          )
+        })
+        .catch(() => {
+          if (!cancelled) setRouteSuggestions([])
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingRoutes(false)
+        })
+    }, 220)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [routeDraft, user, modalOpen, draftRoutes, searchSuppliesUseCase])
 
   useEffect(() => {
     if (!user) {
@@ -349,29 +466,46 @@ export function TasksPage() {
       const missingCodes = new Map<string, Task[]>()
 
       for (const task of tasks) {
-        if (taskHasMapPoint(task)) {
-          points.push({
-            task,
-            latitude: task.latitude!,
-            longitude: task.longitude!,
-          })
-          continue
+        for (const route of normalizeTaskRoutes(task)) {
+          if (taskRouteHasMapPoint(route)) {
+            points.push({
+              task,
+              routeCode: route.routeCode,
+              completed: route.completed,
+              completedByName: route.completedByName,
+              completedAt: route.completedAt,
+              claimedByName: route.claimedByName,
+              photosUploaded: route.photosUploaded,
+              latitude: route.latitude!,
+              longitude: route.longitude!,
+            })
+            continue
+          }
+          const code = route.routeCode.trim()
+          if (!code) continue
+          const bucket = missingCodes.get(code) ?? []
+          bucket.push(task)
+          missingCodes.set(code, bucket)
         }
-        const code = task.routeCode.trim()
-        if (!code) continue
-        const bucket = missingCodes.get(code) ?? []
-        bucket.push(task)
-        missingCodes.set(code, bucket)
       }
 
       await Promise.all(
         [...missingCodes.entries()].map(async ([code, linked]) => {
           try {
-            const supply = await getSupplyByRouteCodeUseCase.execute(user!, code)
-            if (!supply || cancelled) return
+            const supply = await getSupplyByRouteCodeUseCase.find(user!, code)
+            if (!supply || cancelled || !supplyHasLocation(supply)) return
             for (const task of linked) {
+              const route = normalizeTaskRoutes(task).find(
+                (item) => item.routeCode === code,
+              )
               points.push({
                 task,
+                routeCode: code,
+                completed: route?.completed === true,
+                completedByName: route?.completedByName ?? '',
+                completedAt: route?.completedAt ?? null,
+                claimedByName: route?.claimedByName ?? '',
+                photosUploaded: route?.photosUploaded === true,
                 latitude: supply.latitude,
                 longitude: supply.longitude,
               })
@@ -447,29 +581,71 @@ export function TasksPage() {
 
     const bounds = L.latLngBounds([])
     for (const point of filteredMapPoints) {
-      const selected = point.task.id === selectedTaskId
+      const selected =
+        point.task.id === selectedTaskId &&
+        (selectedRouteCode == null || selectedRouteCode === point.routeCode)
+      const photosHref = photosPath(point.task.areaId, point.routeCode)
+      const who = point.completed
+        ? point.completedByName
+          ? `Completó: ${escapeHtml(point.completedByName)}${
+              point.completedAt
+                ? ` · ${escapeHtml(formatCompletedAt(point.completedAt))}`
+                : ''
+            }`
+          : 'Completado'
+        : point.claimedByName
+          ? `Tomado por ${escapeHtml(point.claimedByName)}`
+          : 'Libre'
       const marker = L.marker([point.latitude, point.longitude], {
         icon: L.divIcon({
           className: 'tasks-pin',
-          html: `<span class="tasks-pin__dot ${statusPinClass(point.task.status)}${selected ? ' is-selected' : ''}"></span><span class="tasks-pin__code">${point.task.routeCode}</span>`,
+          html: `<span class="tasks-pin__dot ${statusPinClass(point.completed, Boolean(point.claimedByName))}${selected ? ' is-selected' : ''}"></span><span class="tasks-pin__code">${escapeHtml(point.routeCode)}</span>`,
           iconSize: [96, 36],
           iconAnchor: [16, 30],
         }),
-        zIndexOffset: selected ? 900 : 400,
+        zIndexOffset: selected ? 900 : point.completed ? 600 : 400,
       })
       marker.bindPopup(
-        `<strong>${point.task.title}</strong><br/>Suministro ${point.task.routeCode}<br/><small>${taskStatusLabel(point.task.status)}</small>`,
+        `<strong>${escapeHtml(point.task.title)}</strong><br/>Suministro ${escapeHtml(point.routeCode)}<br/><small>${who}</small><br/><a class="tasks-pin__photos" href="${photosHref}">Ver fotos</a>`,
       )
-      marker.on('click', () => setSelectedTaskId(point.task.id))
+      marker.on('click', () => {
+        setSelectedTaskId(point.task.id)
+        setSelectedRouteCode(point.routeCode)
+      })
+      marker.on('popupopen', () => {
+        const link = document.querySelector<HTMLAnchorElement>(
+          `a.tasks-pin__photos[href="${photosHref}"]`,
+        )
+        if (!link) return
+        link.addEventListener(
+          'click',
+          (event) => {
+            event.preventDefault()
+            navigate(photosHref, {
+              state: {
+                areaName: point.task.areaName,
+                routeCode: point.routeCode,
+              },
+            })
+          },
+          { once: true },
+        )
+      })
       marker.addTo(layer)
       bounds.extend([point.latitude, point.longitude])
     }
 
-    const selected = filteredMapPoints.find(
-      (point) => point.task.id === selectedTaskId,
-    )
-    if (selected) {
-      map.setView([selected.latitude, selected.longitude], Math.max(map.getZoom(), 15))
+    const selectedPoint =
+      filteredMapPoints.find(
+        (point) =>
+          point.task.id === selectedTaskId &&
+          (!selectedRouteCode || point.routeCode === selectedRouteCode),
+      ) ?? filteredMapPoints[0]
+    if (selectedPoint && selectedTaskId) {
+      map.setView(
+        [selectedPoint.latitude, selectedPoint.longitude],
+        Math.max(map.getZoom(), 15),
+      )
     } else if (filteredMapPoints.length === 1) {
       map.setView(
         [filteredMapPoints[0].latitude, filteredMapPoints[0].longitude],
@@ -479,15 +655,16 @@ export function TasksPage() {
       map.fitBounds(bounds.pad(0.18), { maxZoom: 16 })
     }
     window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
-  }, [filteredMapPoints, selectedTaskId])
+  }, [filteredMapPoints, selectedTaskId, selectedRouteCode, navigate])
 
   function openCreate() {
     setEditing(null)
-    setTitle('')
     setDescription('')
     setDueDate('')
     setAreaId('')
-    setRouteCode('')
+    setRouteDraft('')
+    setRouteSuggestions([])
+    setDraftRoutes([])
     setAssignToAll(false)
     setAssignedIds([])
     setModalOpen(true)
@@ -495,28 +672,131 @@ export function TasksPage() {
 
   function openEdit(task: Task) {
     setEditing(task)
-    setTitle(task.title)
     setDescription(task.description)
     setDueDate(toDateInputValue(task.dueDate))
     setAreaId(task.areaId)
-    setRouteCode(task.routeCode)
+    setRouteDraft('')
+    setRouteSuggestions([])
+    setDraftRoutes(
+      normalizeTaskRoutes(task).map((route) => ({
+        routeCode: route.routeCode,
+        latitude: route.latitude,
+        longitude: route.longitude,
+        note: route.note,
+        hasLocation: taskRouteHasMapPoint(route),
+        isNew: false,
+      })),
+    )
     setAssignToAll(task.assignToAllTechnicians)
-    setAssignedIds([...task.assignedTechnicianIds])
+    setAssignedIds([...new Set(task.assignedTechnicianIds)])
     setModalOpen(true)
+  }
+
+  function addDraftRoute(route: DraftRoute) {
+    setDraftRoutes((current) => {
+      if (current.some((item) => item.routeCode === route.routeCode)) {
+        return current
+      }
+      return [...current, route]
+    })
+    setRouteDraft('')
+    setRouteSuggestions([])
+  }
+
+  function pickSupply(supply: Supply) {
+    if (draftRoutes.some((route) => route.routeCode === supply.routeCode)) {
+      swalError('Esa ruta ya está en la tarea')
+      return
+    }
+    addDraftRoute({
+      routeCode: supply.routeCode,
+      latitude: supply.latitude,
+      longitude: supply.longitude,
+      note: supply.note,
+      hasLocation: supplyHasLocation(supply),
+      isNew: false,
+    })
+  }
+
+  async function handleAddRoute() {
+    if (!user) return
+    const code = normalizeRouteCode(routeDraft)
+    if (!isRouteCode(code)) {
+      swalError('Ingresa un código de suministro de 7 a 12 dígitos')
+      return
+    }
+    if (draftRoutes.some((route) => route.routeCode === code)) {
+      swalError('Esa ruta ya está en la tarea')
+      return
+    }
+
+    try {
+      const supply = await getSupplyByRouteCodeUseCase.find(user, code)
+      if (!supply) {
+        const result = await Swal.fire({
+          icon: 'question',
+          title: 'Ruta no está en el catálogo',
+          text: 'Se guardará sin ubicación. El técnico podrá activar el GPS en el punto.',
+          input: 'textarea',
+          inputPlaceholder: 'Descripción opcional',
+          inputAttributes: { maxlength: '200' },
+          showCancelButton: true,
+          confirmButtonText: 'Agregar ruta',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#1e88e5',
+          animation: false,
+        })
+        if (!result.isConfirmed) return
+        setDraftRoutes((current) => [
+          ...current,
+          {
+            routeCode: code,
+            latitude: null,
+            longitude: null,
+            note: String(result.value ?? '').trim().slice(0, 200),
+            hasLocation: false,
+            isNew: true,
+          },
+        ])
+        setRouteDraft('')
+        setRouteSuggestions([])
+        return
+      }
+
+      addDraftRoute({
+        routeCode: code,
+        latitude: supply.latitude,
+        longitude: supply.longitude,
+        note: supply.note,
+        hasLocation: supplyHasLocation(supply),
+        isNew: false,
+      })
+    } catch (err) {
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo buscar la ruta',
+      )
+    }
   }
 
   async function handleSave(event: FormEvent) {
     event.preventDefault()
     if (!user || busy) return
+    if (draftRoutes.length === 0) {
+      swalError('Agrega al menos una ruta de suministro')
+      return
+    }
     setBusy(true)
     try {
+      const routes = draftRoutes.map((route) => ({
+        routeCode: route.routeCode,
+        note: route.note,
+      }))
       if (editing) {
         const updated = await updateTaskUseCase.execute(user, editing.id, {
-          title,
           description,
           dueDate: fromDateInputValue(dueDate),
           areaId,
-          routeCode,
+          routes,
           assignToAllTechnicians: assignToAll,
           assignedTechnicianIds: assignedIds,
         })
@@ -528,11 +808,10 @@ export function TasksPage() {
         swalSuccess('Tarea actualizada')
       } else {
         const created = await createTaskUseCase.execute(user, {
-          title,
           description,
           dueDate: fromDateInputValue(dueDate),
           areaId,
-          routeCode,
+          routes,
           assignToAllTechnicians: assignToAll,
           assignedTechnicianIds: assignedIds,
         })
@@ -543,44 +822,6 @@ export function TasksPage() {
     } catch (err) {
       swalError(
         err instanceof DomainError ? err.message : 'No se pudo guardar la tarea',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleStart(task: Task) {
-    if (!user || busy) return
-    setBusy(true)
-    try {
-      const updated = await startTaskUseCase.execute(user, task.id)
-      setTasks((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      )
-      swalSuccess('Tarea en progreso')
-    } catch (err) {
-      swalError(
-        err instanceof DomainError ? err.message : 'No se pudo iniciar la tarea',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleComplete(task: Task) {
-    if (!user || busy) return
-    setBusy(true)
-    try {
-      const updated = await completeTaskUseCase.execute(user, task.id)
-      setTasks((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      )
-      swalSuccess('Tarea completada')
-    } catch (err) {
-      swalError(
-        err instanceof DomainError
-          ? err.message
-          : 'No se pudo completar la tarea',
       )
     } finally {
       setBusy(false)
@@ -622,8 +863,8 @@ export function TasksPage() {
           <h1>Tareas</h1>
           <p>
             {isAdmin
-              ? 'Asigna trabajos a técnicos: actividad, suministro y fecha límite.'
-              : 'Tus tareas asignadas. Márcalas en progreso o completadas.'}
+              ? 'Asigna el trabajo. El técnico completa cada punto en el aplicativo. Aquí ves el avance, quién lo cerró y las fotos.'
+              : 'Tus tareas asignadas. El avance se marca desde el aplicativo.'}
           </p>
         </div>
         {isAdmin ? (
@@ -688,13 +929,33 @@ export function TasksPage() {
         <div className="tasks-map__head">
           <div>
             <p className="tasks-page__eyebrow">Ubicaciones</p>
-            <h2>Suministros de las tareas</h2>
+            <h2>
+              {selectedTask
+                ? selectedTask.title
+                : 'Suministros de las tareas'}
+            </h2>
             <p>
               {filteredMapPoints.length === 0
-                ? 'Las tareas con código de suministro aparecen aquí cuando hay GPS en el catálogo.'
-                : `${filteredMapPoints.length} suministro${filteredMapPoints.length === 1 ? '' : 's'} ubicado${filteredMapPoints.length === 1 ? '' : 's'} en el mapa.`}
+                ? selectedTask
+                  ? 'Esta tarea aún no tiene puntos con GPS.'
+                  : 'Elige una tarea para ver sus puntos. El técnico los marca en verde al completarlos.'
+                : selectedTask
+                  ? `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'} de esta tarea. Verde = completado por el técnico.`
+                  : `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'}. Elige una tarea para verla aparte.`}
             </p>
           </div>
+          {selectedTask ? (
+            <button
+              type="button"
+              className="btn btn--soft-muted btn--small"
+              onClick={() => {
+                setSelectedTaskId(null)
+                setSelectedRouteCode(null)
+              }}
+            >
+              Ver todas
+            </button>
+          ) : null}
         </div>
         <div ref={mapContainerRef} className="tasks-map__canvas" />
       </div>
@@ -718,14 +979,17 @@ export function TasksPage() {
       ) : (
         <div className="tasks-list">
           {filteredTasks.map((task) => {
-            const point = pointByTaskId.get(task.id)
+            const routes = normalizeTaskRoutes(task)
+            const taskPoints = pointsByTaskId.get(task.id) ?? []
             const selected = selectedTaskId === task.id
+            const doneCount = routes.filter((route) => route.completed).length
             return (
               <article
                 key={task.id}
                 className={`tasks-card tasks-card--${task.status.toLowerCase()}${selected ? ' is-selected' : ''}`}
                 onClick={() => {
-                  if (point) setSelectedTaskId(task.id)
+                  setSelectedTaskId(task.id)
+                  setSelectedRouteCode(null)
                 }}
               >
                 <div className="tasks-card__top">
@@ -745,82 +1009,108 @@ export function TasksPage() {
                 <div className="tasks-card__meta">
                   <span>{formatTaskAssignees(task)}</span>
                   {task.areaName ? <span>{task.areaName}</span> : null}
-                  {task.routeCode ? (
-                    <span>Suministro {task.routeCode}</span>
-                  ) : null}
-                  {point ? (
-                    <span>
-                      {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}
-                    </span>
-                  ) : null}
+                  <span>
+                    {doneCount}/{routes.length || 0} puntos completados
+                  </span>
                 </div>
-                <div className="tasks-card__actions">
-                  {point ? (
+                <ul className="tasks-routes-list">
+                  {routes.map((route) => {
+                    const point = taskPoints.find(
+                      (item) => item.routeCode === route.routeCode,
+                    )
+                    const active =
+                      selected && selectedRouteCode === route.routeCode
+                    return (
+                      <li
+                        key={route.routeCode}
+                        className={`tasks-routes-list__item${route.completed ? ' is-done' : ''}${active ? ' is-active' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className="tasks-routes-list__select"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setSelectedTaskId(task.id)
+                            setSelectedRouteCode(route.routeCode)
+                          }}
+                        >
+                          <span
+                            className={`tasks-routes-list__dot ${route.completed ? 'is-done' : 'is-pending'}`}
+                          />
+                          <span className="tasks-routes-list__copy">
+                            <strong>Suministro {route.routeCode}</strong>
+                            <small>
+                              {route.completed
+                                ? `Completó ${route.completedByName || 'un técnico'}${
+                                    route.completedAt
+                                      ? ` · ${formatCompletedAt(route.completedAt)}`
+                                      : ''
+                                  }`
+                                : route.claimedByName
+                                  ? `Tomado por ${route.claimedByName}${
+                                      route.photosUploaded ? ' · con fotos' : ''
+                                    }`
+                                  : 'Libre · el técnico debe agarrarlo'}
+                            </small>
+                          </span>
+                        </button>
+                        <div className="tasks-routes-list__actions">
+                          {point ? (
+                            <button
+                              type="button"
+                              className="btn btn--soft-blue btn--small"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setSelectedTaskId(task.id)
+                                setSelectedRouteCode(route.routeCode)
+                                openSupplyMaps(point.latitude, point.longitude)
+                              }}
+                            >
+                              Mapa
+                            </button>
+                          ) : null}
+                          <Link
+                            className="btn btn--soft-primary btn--small"
+                            to={photosPath(task.areaId, route.routeCode)}
+                            state={{
+                              areaName: task.areaName,
+                              routeCode: route.routeCode,
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            Fotos
+                          </Link>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {isAdmin ? (
+                  <div className="tasks-card__actions">
                     <button
                       type="button"
-                      className="btn btn--soft-blue btn--small"
+                      className="btn btn--soft-muted btn--small"
                       onClick={(event) => {
                         event.stopPropagation()
-                        setSelectedTaskId(task.id)
-                        openSupplyMaps(point.latitude, point.longitude)
-                      }}
-                    >
-                      Ver en Maps
-                    </button>
-                  ) : null}
-                  {task.status === TaskStatus.Pendiente ? (
-                    <button
-                      type="button"
-                      className="btn btn--soft-blue btn--small"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void handleStart(task)
+                        openEdit(task)
                       }}
                       disabled={busy}
                     >
-                      Empezar
+                      Editar
                     </button>
-                  ) : null}
-                  {task.status !== TaskStatus.Completada ? (
                     <button
                       type="button"
-                      className="btn btn--soft-primary btn--small"
+                      className="btn btn--soft-rose btn--small"
                       onClick={(event) => {
                         event.stopPropagation()
-                        void handleComplete(task)
+                        void handleDelete(task)
                       }}
                       disabled={busy}
                     >
-                      Completar
+                      Eliminar
                     </button>
-                  ) : null}
-                  {isAdmin ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn--soft-muted btn--small"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEdit(task)
-                        }}
-                        disabled={busy}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--soft-rose btn--small"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void handleDelete(task)
-                        }}
-                        disabled={busy}
-                      >
-                        Eliminar
-                      </button>
-                    </>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </article>
             )
           })}
@@ -830,7 +1120,7 @@ export function TasksPage() {
       <AppModal
         open={modalOpen}
         title={editing ? 'Editar tarea' : 'Nueva tarea'}
-        description="Define el trabajo, el suministro y a quién se lo asignas. Las fotos del técnico van a la actividad elegida, en la carpeta del suministro y la fecha del día."
+        description="El título se toma de la actividad. Puedes asignar varias rutas; si una no existe se guarda sin ubicación para que el técnico marque el GPS."
         size="md"
         onClose={() => !busy && setModalOpen(false)}
         footer={
@@ -856,34 +1146,7 @@ export function TasksPage() {
       >
         <form id="task-form" onSubmit={(event) => void handleSave(event)}>
           <div className="tasks-form">
-            <label className="field">
-              <span>Título</span>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Ej. Notificar cortes en sector 03"
-                required
-                maxLength={160}
-              />
-            </label>
-            <label className="field">
-              <span>Descripción (opcional)</span>
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                rows={3}
-                maxLength={1000}
-              />
-            </label>
             <div className="tasks-form__row">
-              <label className="field">
-                <span>Fecha límite</span>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
-                />
-              </label>
               <label className="field">
                 <span>Actividad</span>
                 <select
@@ -899,17 +1162,133 @@ export function TasksPage() {
                   ))}
                 </select>
               </label>
+              <label className="field">
+                <span>Fecha límite</span>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                />
+              </label>
             </div>
+            <p className="tasks-form__title-preview">
+              Título de la tarea:{' '}
+              <strong>
+                {selectedAreaName
+                  ? taskTitleFromActivity(selectedAreaName)
+                  : 'elige una actividad'}
+              </strong>
+            </p>
             <label className="field">
-              <span>Código de suministro</span>
-              <input
-                value={routeCode}
-                onChange={(event) => setRouteCode(event.target.value)}
-                placeholder="Ej. 12030003803"
-                inputMode="numeric"
-                required
+              <span>Descripción (opcional)</span>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={3}
+                maxLength={1000}
               />
             </label>
+            <div className="field">
+              <span>Rutas de suministro</span>
+              <div className="tasks-routes__search">
+                <div className="tasks-routes__add">
+                  <input
+                    value={routeDraft}
+                    onChange={(event) => setRouteDraft(event.target.value)}
+                    placeholder="Buscar por código o últimos dígitos"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        if (routeSuggestions.length === 1) {
+                          pickSupply(routeSuggestions[0])
+                          return
+                        }
+                        void handleAddRoute()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn--soft-blue btn--small"
+                    onClick={() => void handleAddRoute()}
+                  >
+                    Agregar
+                  </button>
+                </div>
+                {searchingRoutes ? (
+                  <p className="tasks-routes__hint">Buscando suministros…</p>
+                ) : null}
+                {routeSuggestions.length > 0 ? (
+                  <ul className="tasks-routes__suggest" role="listbox">
+                    {routeSuggestions.map((supply) => (
+                      <li key={supply.routeCode}>
+                        <button
+                          type="button"
+                          onClick={() => pickSupply(supply)}
+                        >
+                          <strong>{supply.routeCode}</strong>
+                          <small>
+                            {supplyHasLocation(supply)
+                              ? 'Con GPS'
+                              : 'Sin GPS'}
+                            {supply.note ? ` · ${supply.note}` : ''}
+                          </small>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : normalizeRouteCode(routeDraft).length >= 3 &&
+                  !searchingRoutes ? (
+                  <p className="tasks-routes__hint">
+                    Sin coincidencias. Puedes agregarla igual si es una ruta
+                    nueva.
+                  </p>
+                ) : normalizeRouteCode(routeDraft).length < 3 ? (
+                  <p className="tasks-routes__hint">
+                    Escribe al menos 3 dígitos. También sirve con los últimos
+                    del código.
+                  </p>
+                ) : null}
+              </div>
+              {draftRoutes.length === 0 ? (
+                <p className="tasks-routes__empty">
+                  Agrega una o más rutas. Si no existe, se crea sin ubicación.
+                </p>
+              ) : (
+                <ul className="tasks-routes">
+                  {draftRoutes.map((route) => (
+                    <li key={route.routeCode} className="tasks-routes__item">
+                      <div>
+                        <strong>{route.routeCode}</strong>
+                        <small>
+                          {route.hasLocation
+                            ? 'Con GPS'
+                            : route.isNew
+                              ? 'Nueva · sin GPS'
+                              : 'Sin GPS'}
+                          {route.note ? ` · ${route.note}` : ''}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn--soft-rose btn--small"
+                        onClick={() =>
+                          setDraftRoutes((current) =>
+                            current.filter(
+                              (item) => item.routeCode !== route.routeCode,
+                            ),
+                          )
+                        }
+                      >
+                        Quitar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <TaskAssigneePicker
               assignToAllTechnicians={assignToAll}
               assignedTechnicianIds={assignedIds}

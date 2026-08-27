@@ -8,6 +8,7 @@ import '../domain/usecases/get_attendance_settings_use_case.dart';
 import '../domain/usecases/get_folder_date_detail_use_case.dart';
 import '../domain/usecases/get_folder_detail_use_case.dart';
 import '../domain/usecases/get_my_today_attendance_use_case.dart';
+import '../domain/usecases/list_activity_published_work_use_case.dart';
 import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
 import '../domain/usecases/login_use_case.dart';
@@ -16,7 +17,9 @@ import '../domain/usecases/get_mobile_app_release_use_case.dart';
 import '../domain/usecases/search_supplies_use_case.dart';
 import '../domain/usecases/task_use_cases.dart';
 import '../domain/usecases/rank_my_tasks_by_proximity_use_case.dart';
+import '../domain/usecases/support_ticket_use_cases.dart';
 import '../infrastructure/firestore/firebase_supply_repository.dart';
+import '../infrastructure/firestore/firebase_support_ticket_repository.dart';
 import '../infrastructure/firestore/firebase_task_repository.dart';
 import '../domain/usecases/mark_attendance_use_case.dart';
 import '../domain/usecases/observe_session_use_case.dart';
@@ -42,6 +45,7 @@ class AppDependencies {
     required this.updateOwnThemeUseCase,
     required this.listAreasUseCase,
     required this.getAreaUseCase,
+    required this.listActivityPublishedWorkUseCase,
     required this.listMyFoldersUseCase,
     required this.createFolderUseCase,
     required this.ensureSupplyFolderUseCase,
@@ -65,9 +69,19 @@ class AppDependencies {
     required this.searchStationsUseCase,
     required this.listSuppliesNearUseCase,
     required this.listMyTasksUseCase,
+    required this.listManagedTasksUseCase,
+    required this.createFieldTaskUseCase,
     required this.startMyTaskUseCase,
     required this.completeMyTaskUseCase,
+    required this.completeMyTaskRouteUseCase,
+    required this.claimMyTaskRouteUseCase,
+    required this.releaseMyTaskRouteUseCase,
+    required this.markMyTaskRoutePhotosUseCase,
+    required this.saveTaskRouteLocationUseCase,
     required this.rankMyTasksByProximityUseCase,
+    required this.createSupportTicketUseCase,
+    required this.listSupportTicketsUseCase,
+    required this.resolveSupportTicketUseCase,
   });
 
   final LoginUseCase loginUseCase;
@@ -77,6 +91,7 @@ class AppDependencies {
   final UpdateOwnThemeUseCase updateOwnThemeUseCase;
   final ListAreasUseCase listAreasUseCase;
   final GetAreaUseCase getAreaUseCase;
+  final ListActivityPublishedWorkUseCase listActivityPublishedWorkUseCase;
   final ListMyFoldersUseCase listMyFoldersUseCase;
   final CreateFolderUseCase createFolderUseCase;
   final EnsureSupplyFolderUseCase ensureSupplyFolderUseCase;
@@ -100,9 +115,19 @@ class AppDependencies {
   final SearchStationsUseCase searchStationsUseCase;
   final ListSuppliesNearUseCase listSuppliesNearUseCase;
   final ListMyTasksUseCase listMyTasksUseCase;
+  final ListManagedTasksUseCase listManagedTasksUseCase;
+  final CreateFieldTaskUseCase createFieldTaskUseCase;
   final StartMyTaskUseCase startMyTaskUseCase;
   final CompleteMyTaskUseCase completeMyTaskUseCase;
+  final CompleteMyTaskRouteUseCase completeMyTaskRouteUseCase;
+  final ClaimMyTaskRouteUseCase claimMyTaskRouteUseCase;
+  final ReleaseMyTaskRouteUseCase releaseMyTaskRouteUseCase;
+  final MarkMyTaskRoutePhotosUseCase markMyTaskRoutePhotosUseCase;
+  final SaveTaskRouteLocationUseCase saveTaskRouteLocationUseCase;
   final RankMyTasksByProximityUseCase rankMyTasksByProximityUseCase;
+  final CreateSupportTicketUseCase createSupportTicketUseCase;
+  final ListSupportTicketsUseCase listSupportTicketsUseCase;
+  final ResolveSupportTicketUseCase resolveSupportTicketUseCase;
 }
 
 AppDependencies createAppDependencies() {
@@ -116,6 +141,7 @@ AppDependencies createAppDependencies() {
   final mobileAppReleaseRepository = FirebaseMobileAppReleaseRepository();
   final supplyRepository = FirebaseSupplyRepository();
   final taskRepository = FirebaseTaskRepository();
+  final supportTicketRepository = FirebaseSupportTicketRepository();
 
   final ensureSupplyFolderUseCase = EnsureSupplyFolderUseCase(
     folderRepository,
@@ -142,7 +168,14 @@ AppDependencies createAppDependencies() {
     updateOwnThemeUseCase: UpdateOwnThemeUseCase(userRepository),
     listAreasUseCase: ListAreasUseCase(areaRepository),
     getAreaUseCase: GetAreaUseCase(areaRepository),
-    listMyFoldersUseCase: ListMyFoldersUseCase(folderRepository),
+    listActivityPublishedWorkUseCase: ListActivityPublishedWorkUseCase(
+      areaRepository,
+      folderRepository,
+      folderDateRepository,
+      imageRepository,
+      userRepository,
+    ),
+    listMyFoldersUseCase: ListMyFoldersUseCase(folderRepository, imageRepository),
     createFolderUseCase:
         CreateFolderUseCase(folderRepository, areaRepository, userRepository),
     ensureSupplyFolderUseCase: ensureSupplyFolderUseCase,
@@ -150,8 +183,11 @@ AppDependencies createAppDependencies() {
         UpdateFolderUseCase(folderRepository, userRepository),
     assignFolderLocationUseCase:
         AssignFolderLocationUseCase(folderRepository),
-    getFolderDetailUseCase:
-        GetFolderDetailUseCase(folderRepository, folderDateRepository),
+    getFolderDetailUseCase: GetFolderDetailUseCase(
+      folderRepository,
+      folderDateRepository,
+      imageRepository,
+    ),
     createFolderDateUseCase:
         CreateFolderDateUseCase(folderRepository, folderDateRepository),
     ensureFolderDateUseCase: ensureFolderDateUseCase,
@@ -182,9 +218,30 @@ AppDependencies createAppDependencies() {
     searchStationsUseCase: SearchStationsUseCase(supplyRepository),
     listSuppliesNearUseCase: ListSuppliesNearUseCase(supplyRepository),
     listMyTasksUseCase: ListMyTasksUseCase(taskRepository),
+    listManagedTasksUseCase: ListManagedTasksUseCase(taskRepository),
+    createFieldTaskUseCase: CreateFieldTaskUseCase(
+      taskRepository,
+      areaRepository,
+      userRepository,
+      supplyRepository,
+    ),
     startMyTaskUseCase: StartMyTaskUseCase(taskRepository),
     completeMyTaskUseCase: CompleteMyTaskUseCase(taskRepository),
+    completeMyTaskRouteUseCase: CompleteMyTaskRouteUseCase(taskRepository),
+    claimMyTaskRouteUseCase: ClaimMyTaskRouteUseCase(taskRepository),
+    releaseMyTaskRouteUseCase: ReleaseMyTaskRouteUseCase(taskRepository),
+    markMyTaskRoutePhotosUseCase: MarkMyTaskRoutePhotosUseCase(taskRepository),
+    saveTaskRouteLocationUseCase: SaveTaskRouteLocationUseCase(
+      taskRepository,
+      supplyRepository,
+    ),
     rankMyTasksByProximityUseCase:
         RankMyTasksByProximityUseCase(supplyRepository),
+    createSupportTicketUseCase:
+        CreateSupportTicketUseCase(supportTicketRepository),
+    listSupportTicketsUseCase:
+        ListSupportTicketsUseCase(supportTicketRepository),
+    resolveSupportTicketUseCase:
+        ResolveSupportTicketUseCase(supportTicketRepository),
   );
 }

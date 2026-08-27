@@ -9,6 +9,12 @@ abstract class SupplyRepository {
     required double radiusMeters,
     int limit = 250,
   });
+  Future<Supply> ensureManual({required String routeCode, String note = ''});
+  Future<Supply> setLocation({
+    required String routeCode,
+    required double latitude,
+    required double longitude,
+  });
   Future<Sed?> getSedByCode(String code);
   Future<List<Sed>> searchSedsByPrefix(String prefix, {int limit = 12});
   Future<SupplyCatalogStatus?> getCatalogStatus();

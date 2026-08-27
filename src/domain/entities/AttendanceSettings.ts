@@ -1,8 +1,8 @@
 export const DEFAULT_OFFICE_LATITUDE = -12.59331
 export const DEFAULT_OFFICE_LONGITUDE = -69.18915
-export const DEFAULT_OFFICE_RADIUS_METERS = 10
-export const MIN_OFFICE_RADIUS_METERS = 5
-export const MAX_OFFICE_RADIUS_METERS = 20
+export const DEFAULT_OFFICE_RADIUS_METERS = 30
+export const MIN_OFFICE_RADIUS_METERS = 10
+export const MAX_OFFICE_RADIUS_METERS = 80
 export const DEFAULT_OFFICE_NAME = 'Oficina Consorcio Selva MDD'
 
 export interface AttendanceSettings {

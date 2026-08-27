@@ -32,6 +32,22 @@ class FirebaseFolderImageRepository implements FolderImageRepository {
   }
 
   @override
+  Future<List<FolderImage>> listByFolderIds(List<String> folderIds) async {
+    final unique = folderIds.where((id) => id.isNotEmpty).toSet().toList();
+    if (unique.isEmpty) return [];
+    final images = <FolderImage>[];
+    for (var index = 0; index < unique.length; index += 30) {
+      final end = index + 30 > unique.length ? unique.length : index + 30;
+      final chunk = unique.sublist(index, end);
+      final snapshot =
+          await _images.where('folderId', whereIn: chunk).get();
+      images.addAll(snapshot.docs.map((doc) => _map(doc.id, doc.data())));
+    }
+    images.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return images;
+  }
+
+  @override
   Future<List<FolderImage>> listByDate(String folderId, String dateId) async {
     final snapshot = await _images.where('dateId', isEqualTo: dateId).get();
     final images = snapshot.docs

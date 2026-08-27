@@ -2,9 +2,18 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import logo from '@/assets/logo.png'
 import loginBg from '@/assets/img-login.png'
+import type { User } from '@/domain/entities/User'
+import { DomainError } from '@/domain/errors/DomainError'
+import {
+  userRoleAccessHint,
+  userRoleLabel,
+  webAccessRoles,
+  type UserRole,
+} from '@/domain/value-objects/UserRole'
+import { HOME_PATH } from '@/domain/value-objects/AppMenuPermission'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { useAuth } from '@/presentation/providers/AuthProvider'
-import { DomainError } from '@/domain/errors/DomainError'
+import { writeStoredActiveRole } from '@/presentation/utils/activeRoleSession'
 import './LoginPage.css'
 
 function IconEye() {
@@ -31,13 +40,30 @@ function IconEyeOff() {
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { loginUseCase } = useDependencies()
-  const { setUser } = useAuth()
+  const { loginUseCase, logoutUseCase } = useDependencies()
+  const { setActiveRole, pendingRoleUser } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [pendingUser, setPendingUser] = useState<User | null>(null)
+  const [roleChoices, setRoleChoices] = useState<UserRole[]>([])
+  const pickerUser = pendingRoleUser ?? pendingUser
+  const pickerRoles =
+    roleChoices.length > 0
+      ? roleChoices
+      : pickerUser
+        ? webAccessRoles(pickerUser)
+        : []
+
+  function enterWithRole(user: User, role: UserRole) {
+    writeStoredActiveRole(role)
+    setActiveRole(role, user)
+    navigate(user.mustChangePassword ? '/cambiar-contrasena' : HOME_PATH, {
+      replace: true,
+    })
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -46,10 +72,20 @@ export function LoginPage() {
 
     try {
       const user = await loginUseCase.execute({ identifier: email, password })
-      setUser(user)
-      navigate(user.mustChangePassword ? '/cambiar-contrasena' : '/carpetas', {
-        replace: true,
-      })
+      const web = webAccessRoles(user)
+      if (web.length === 0) {
+        await logoutUseCase.execute()
+        setError(
+          'Esta cuenta es de Técnico. Ingresa desde el aplicativo móvil.',
+        )
+        return
+      }
+      if (web.length === 1) {
+        enterWithRole(user, web[0])
+        return
+      }
+      setPendingUser(user)
+      setRoleChoices(web)
     } catch (err) {
       const message =
         err instanceof DomainError
@@ -77,56 +113,79 @@ export function LoginPage() {
             <p className="login-card__eyebrow">Sistema administrativo</p>
             <h1 id="login-title">Consorcio Selva MDD</h1>
             <p className="login-card__subtitle">
-              Acceso seguro para administradores y técnicos
+              {pickerUser
+                ? 'Elige con qué rol quieres ingresar'
+                : 'Acceso web para Super Administrador y Administrador'}
             </p>
           </div>
         </div>
 
-        <form className="login-form" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>Correo o código (DNI)</span>
-            <input
-              type="text"
-              inputMode="email"
-              autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="correo@empresa.com o 00000000"
-              required
-            />
-          </label>
-
-          <label className="field">
-            <span>Contraseña</span>
-            <div className="password-field">
+        {pickerUser ? (
+          <div className="login-role-picker">
+            <p className="login-role-picker__hello">
+              Hola, {pickerUser.displayName}. Tienes más de un rol web.
+            </p>
+            <div className="login-role-options" role="list">
+              {pickerRoles.map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  className="login-role-option"
+                  onClick={() => enterWithRole(pickerUser, role)}
+                >
+                  <strong>{userRoleLabel(role)}</strong>
+                  <span>{userRoleAccessHint(role)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <form className="login-form" onSubmit={handleSubmit}>
+            <label className="field">
+              <span>Correo o código (DNI)</span>
               <input
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="correo@empresa.com o 00000000"
                 required
               />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword((current) => !current)}
-                title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
-                aria-label={
-                  showPassword ? 'Ocultar contraseña' : 'Ver contraseña'
-                }
-              >
-                {showPassword ? <IconEyeOff /> : <IconEye />}
-              </button>
-            </div>
-          </label>
+            </label>
 
-          {error ? <p className="form-alert form-alert--error">{error}</p> : null}
+            <label className="field">
+              <span>Contraseña</span>
+              <div className="password-field">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                  title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  aria-label={
+                    showPassword ? 'Ocultar contraseña' : 'Ver contraseña'
+                  }
+                >
+                  {showPassword ? <IconEyeOff /> : <IconEye />}
+                </button>
+              </div>
+            </label>
 
-          <button className="btn btn--primary btn--block" type="submit" disabled={submitting}>
-            {submitting ? 'Ingresando...' : 'Ingresar'}
-          </button>
-        </form>
+            {error ? <p className="form-alert form-alert--error">{error}</p> : null}
+
+            <button className="btn btn--primary btn--block" type="submit" disabled={submitting}>
+              {submitting ? 'Ingresando...' : 'Ingresar'}
+            </button>
+          </form>
+        )}
 
         <p className="login-card__footer">
           Servicios eléctricos · Madre de Dios, Perú

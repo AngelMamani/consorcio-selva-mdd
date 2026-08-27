@@ -15,6 +15,15 @@ export interface SupplyRepository {
     radiusMeters: number,
     limit: number,
   ): Promise<Supply[]>
+  ensureManual(input: {
+    routeCode: string
+    note?: string
+  }): Promise<Supply>
+  setLocation(
+    routeCode: string,
+    latitude: number,
+    longitude: number,
+  ): Promise<Supply>
   getSedByCode(code: string): Promise<Sed | null>
   searchSedsByPrefix(prefix: string, limit: number): Promise<Sed[]>
   upsertMany(

@@ -2,19 +2,32 @@ class Supply {
   const Supply({
     required this.id,
     required this.routeCode,
-    required this.latitude,
-    required this.longitude,
+    this.latitude,
+    this.longitude,
     required this.prefix,
+    this.note = '',
   });
 
   final String id;
   final String routeCode;
-  final double latitude;
-  final double longitude;
+  final double? latitude;
+  final double? longitude;
   final String prefix;
+  final String note;
 
-  String get coordinatesLabel =>
-      '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
+  bool get hasLocation {
+    final lat = latitude;
+    final lng = longitude;
+    return lat != null &&
+        lng != null &&
+        lat.isFinite &&
+        lng.isFinite &&
+        !(lat == 0 && lng == 0);
+  }
+
+  String get coordinatesLabel => hasLocation
+      ? '${latitude!.toStringAsFixed(6)}, ${longitude!.toStringAsFixed(6)}'
+      : 'Sin ubicación GPS';
 }
 
 class SupplyCatalogStatus {

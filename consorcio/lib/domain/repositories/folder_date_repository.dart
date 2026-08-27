@@ -19,7 +19,9 @@ class CreateFolderDateInput {
 abstract class FolderDateRepository {
   Future<FolderDate?> getById(String id);
   Future<List<FolderDate>> listByFolder(String folderId);
+  Future<List<FolderDate>> listByFolderIds(List<String> folderIds);
   Future<FolderDate?> findByFolderAndDateKey(String folderId, String dateKey);
   Future<FolderDate> create(CreateFolderDateInput input);
+  Future<FolderDate> updateNote(String id, String note);
   Future<void> incrementImageCount(String dateId, int delta);
 }

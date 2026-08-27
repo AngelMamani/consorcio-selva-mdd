@@ -15,11 +15,11 @@ class AttendanceSettings {
     officeName: 'Oficina Consorcio Selva MDD',
     officeLatitude: -12.59331,
     officeLongitude: -69.18915,
-    officeRadiusMeters: 10,
+    officeRadiusMeters: 30,
   );
 
   static int normalizeRadius(int meters) {
-    if (meters < 5 || meters > 20) return 10;
+    if (meters < 10 || meters > 80) return 30;
     return meters;
   }
 }

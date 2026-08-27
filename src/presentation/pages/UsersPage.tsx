@@ -1,22 +1,125 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@/domain/entities/User'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import {
+  uniqueUsersByAccessDni,
+  userAccessDni,
+} from '@/domain/entities/User'
+import type { Personal } from '@/domain/entities/Personal'
+import { personalFullName, personalRoleIds } from '@/domain/entities/Personal'
+import {
+  ALL_USER_ROLES,
+  assignedUserRoles,
+  hasAssignedRole,
+  mobileAccessRoles,
+  UserRole,
+  userRoleLabel,
+  webAccessRoles,
+} from '@/domain/value-objects/UserRole'
 import { isTechnicianSyntheticEmail } from '@/domain/value-objects/TechnicianLogin'
 import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
+import { SystemOrgNav } from '@/presentation/components/SystemOrgNav'
 import { AppModal } from '@/presentation/components/AppModal'
 import {
   swalConfirm,
+  swalConfirmDelete,
   swalError,
   swalSuccess,
 } from '@/presentation/utils/appSwal'
 import './UsersPage.css'
 
+type AccountRow = User & {
+  cargoName: string
+  localidadName: string
+  condicion: string
+  hrLinked: boolean
+}
+
+function overlayHr(users: User[], people: Personal[]): AccountRow[] {
+  const unique = uniqueUsersByAccessDni(users)
+  const byDni = new Map<string, User>()
+  for (const item of unique) {
+    const dni = userAccessDni(item)
+    if (dni) byDni.set(dni, item)
+  }
+
+  const usedIds = new Set<string>()
+  const rows: AccountRow[] = []
+
+  for (const person of people) {
+    if (!/^\d{8}$/.test(person.dni)) continue
+    if (person.condicion === 'RETIRADO') continue
+    if (personalRoleIds(person).length === 0) continue
+    const account = byDni.get(person.dni)
+    if (!account) continue
+    usedIds.add(account.id)
+    rows.push({
+      ...account,
+      displayName: personalFullName(person) || account.displayName,
+      cargoName: person.cargoName,
+      localidadName: person.localidadName,
+      condicion: person.condicion,
+      hrLinked: true,
+    })
+  }
+
+  for (const item of unique) {
+    if (usedIds.has(item.id)) continue
+    if (userAccessDni(item)) continue
+    rows.push({
+      ...item,
+      cargoName: '',
+      localidadName: '',
+      condicion: '',
+      hrLinked: false,
+    })
+  }
+
+  return rows
+}
+
+function hrMetaLabel(item: AccountRow): string {
+  const parts = [item.cargoName, item.localidadName].filter(Boolean)
+  if (item.condicion === 'RETIRADO') parts.push('Retirado')
+  if (!item.hrLinked) parts.push('Sin ficha en RR.HH.')
+  return parts.join(' · ')
+}
+
+function withAccountUser(row: AccountRow, next: User): AccountRow {
+  return {
+    ...row,
+    ...next,
+    cargoName: row.cargoName,
+    localidadName: row.localidadName,
+    condicion: row.condicion,
+    hrLinked: row.hrLinked,
+  }
+}
+
 function userAccessLabel(item: User): string {
-  if (item.dni) return item.dni
-  if (isTechnicianSyntheticEmail(item.email) && item.dni) return item.dni
-  return item.email
+  const parts: string[] = []
+  if (/^\d{8}$/.test(item.dni)) parts.push(`DNI ${item.dni}`)
+  if (item.email && !isTechnicianSyntheticEmail(item.email)) {
+    parts.push(item.email)
+  }
+  if (parts.length === 0) return item.email || item.dni || '—'
+  return parts.join(' · ')
+}
+
+function accountPlatformLabel(item: User): string {
+  const web = webAccessRoles(item).length > 0
+  const mobile = mobileAccessRoles(item).length > 0
+  if (web && mobile) return 'Web y app'
+  if (web) return 'Solo web'
+  if (mobile) return 'Solo app'
+  return 'Sin acceso'
+}
+
+function roleChipClass(role: UserRole): string {
+  if (role === UserRole.SuperAdministrador) return ' users-role-chip--super'
+  if (role === UserRole.Administrador) return ' users-role-chip--admin'
+  return ' users-role-chip--tech'
 }
 
 function IconPause() {
@@ -41,6 +144,17 @@ function IconKey() {
       <path
         fill="currentColor"
         d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2"
+      />
+    </svg>
+  )
+}
+
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
+      <path
+        fill="currentColor"
+        d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zm3.5-9h1v8h-1zm4 0h1v8h-1zM15.5 4l-1-1h-5l-1 1H5v2h14V4z"
       />
     </svg>
   )
@@ -86,19 +200,25 @@ function avatarTone(name: string): string {
 
 export function UsersPage() {
   const { user } = useAuth()
-  const { listUsersUseCase, updateUserUseCase, resetUserPasswordUseCase } =
-    useDependencies()
-  const [users, setUsers] = useState<User[]>([])
+  const {
+    updateUserUseCase,
+    resetUserPasswordUseCase,
+    deleteUserUseCase,
+    syncHrAccountsUseCase,
+  } = useDependencies()
+  const [users, setUsers] = useState<AccountRow[]>([])
   const [loading, setLoading] = useState(true)
   const [resettingUserId, setResettingUserId] = useState<string | null>(null)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>(
     'all',
   )
+  const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all')
   const [credentialsInfo, setCredentialsInfo] = useState<{
     title: string
     displayName: string
-    dni?: string
+    access: string
     temporaryPassword: string
   } | null>(null)
 
@@ -106,18 +226,13 @@ export function UsersPage() {
     if (!user) return
     setLoading(true)
     try {
-      const result = await listUsersUseCase.execute(user)
-      setUsers(
-        result.filter(
-          (item) =>
-            item.role === UserRole.Tecnico && /^\d{8}$/.test(item.dni),
-        ),
-      )
+      const result = await syncHrAccountsUseCase.execute(user)
+      setUsers(overlayHr(result.users, result.people))
     } catch (err) {
       swalError(
         err instanceof DomainError
           ? err.message
-          : 'Error al cargar las cuentas de la app',
+          : 'Error al cargar las cuentas',
       )
     } finally {
       setLoading(false)
@@ -135,36 +250,51 @@ export function UsersPage() {
       .filter((item) => {
         if (statusFilter === 'active' && !item.active) return false
         if (statusFilter === 'inactive' && item.active) return false
+        if (roleFilter !== 'all' && !hasAssignedRole(item, roleFilter)) {
+          return false
+        }
         if (!query) return true
         return (
           item.displayName.toLowerCase().includes(query) ||
-          item.dni.includes(query)
+          item.dni.includes(query) ||
+          item.email.toLowerCase().includes(query) ||
+          item.cargoName.toLowerCase().includes(query) ||
+          item.localidadName.toLowerCase().includes(query)
         )
       })
       .sort((left, right) =>
         left.displayName.localeCompare(right.displayName, 'es'),
       )
-  }, [users, searchTerm, statusFilter])
+  }, [users, searchTerm, statusFilter, roleFilter])
 
   const activeCount = users.filter((item) => item.active).length
-  const busy = resettingUserId !== null
+  const inactiveCount = users.length - activeCount
+  const busy = resettingUserId !== null || deletingUserId !== null
 
-  async function handleToggleActive(target: User) {
+  async function handleToggleActive(target: AccountRow) {
     if (!user || busy) return
+    if (target.id === user.id) {
+      swalError('No puedes desactivar tu propia cuenta')
+      return
+    }
     const nextActive = !target.active
-    const previous = target
+    if (!nextActive) {
+      const confirmed = await swalConfirm({
+        title: '¿Desactivar cuenta?',
+        text: `${target.displayName} no podrá entrar a la página web ni al aplicativo móvil hasta que la actives de nuevo.`,
+        confirmButtonText: 'Sí, desactivar',
+        confirmButtonColor: '#c62828',
+      })
+      if (!confirmed) return
+    }
 
+    const previous = target
     setUsers((current) =>
       current.map((item) =>
         item.id === target.id
           ? { ...item, active: nextActive, updatedAt: new Date() }
           : item,
       ),
-    )
-    swalSuccess(
-      nextActive
-        ? `${target.displayName} activado`
-        : `${target.displayName} desactivado`,
     )
 
     try {
@@ -173,7 +303,14 @@ export function UsersPage() {
         active: nextActive,
       })
       setUsers((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
+        current.map((item) =>
+          item.id === updated.id ? withAccountUser(item, updated) : item,
+        ),
+      )
+      swalSuccess(
+        nextActive
+          ? `${target.displayName} activado`
+          : `${target.displayName} desactivado`,
       )
     } catch (err) {
       setUsers((current) =>
@@ -185,28 +322,38 @@ export function UsersPage() {
     }
   }
 
-  async function handleResetPassword(target: User) {
+  async function handleResetPassword(target: AccountRow) {
     if (!user || busy) return
+    if (target.id === user.id) {
+      swalError('No puedes restablecer tu propia contraseña desde aquí')
+      return
+    }
 
     const confirmed = await swalConfirm({
       title: '¿Restablecer clave?',
-      text: `Se asignará 87654321 a ${target.displayName}. Al ingresar a la app deberá cambiarla.`,
+      text: `Se asignará 87654321 a ${target.displayName}. Al entrar a la página web o al aplicativo móvil deberá cambiarla.`,
       confirmButtonText: 'Sí, restablecer',
       confirmButtonColor: '#f9a825',
     })
     if (!confirmed) return
 
     setResettingUserId(target.id)
-    swalSuccess('Clave restablecida')
-
     try {
       const result = await resetUserPasswordUseCase.execute(user, target.id)
+      setUsers((current) =>
+        current.map((item) =>
+          item.id === result.user.id
+            ? withAccountUser(item, result.user)
+            : item,
+        ),
+      )
       setCredentialsInfo({
         title: 'Clave restablecida',
         displayName: target.displayName,
-        dni: target.dni,
+        access: userAccessLabel(target),
         temporaryPassword: result.temporaryPassword,
       })
+      swalSuccess('Clave restablecida')
     } catch (err) {
       swalError(
         err instanceof DomainError
@@ -215,6 +362,35 @@ export function UsersPage() {
       )
     } finally {
       setResettingUserId(null)
+    }
+  }
+
+  async function handleDelete(target: AccountRow) {
+    if (!user || busy) return
+    if (target.id === user.id) {
+      swalError('No puedes eliminar tu propia cuenta')
+      return
+    }
+
+    const confirmed = await swalConfirmDelete({
+      title: '¿Eliminar cuenta?',
+      text: `Se quitará el acceso de ${target.displayName} a la página web y al aplicativo. La ficha queda en Recursos Humanos sin roles.`,
+    })
+    if (!confirmed) return
+
+    setDeletingUserId(target.id)
+    try {
+      await deleteUserUseCase.execute(user, target.id)
+      setUsers((current) => current.filter((item) => item.id !== target.id))
+      swalSuccess('Cuenta eliminada')
+    } catch (err) {
+      swalError(
+        err instanceof DomainError
+          ? err.message
+          : 'No se pudo eliminar la cuenta',
+      )
+    } finally {
+      setDeletingUserId(null)
     }
   }
 
@@ -228,10 +404,13 @@ export function UsersPage() {
     }
   }
 
-  function renderActions(item: User) {
+  function renderActions(item: AccountRow) {
+    const isSelf = item.id === user?.id
     const toggleLabel = item.active ? 'Desactivar' : 'Activar'
     const resetLabel =
       resettingUserId === item.id ? 'Restableciendo...' : 'Restablecer clave'
+    const deleteLabel =
+      deletingUserId === item.id ? 'Eliminando...' : 'Eliminar cuenta'
 
     return (
       <div className="user-card__actions" role="group" aria-label="Acciones">
@@ -241,8 +420,8 @@ export function UsersPage() {
             item.active ? 'btn--soft-rose' : 'btn--soft-teal'
           }`}
           onClick={() => void handleToggleActive(item)}
-          disabled={busy}
-          title={toggleLabel}
+          disabled={busy || isSelf}
+          title={isSelf ? 'No puedes desactivar tu cuenta' : toggleLabel}
           aria-label={toggleLabel}
         >
           {item.active ? <IconPause /> : <IconPlay />}
@@ -251,11 +430,21 @@ export function UsersPage() {
           type="button"
           className="btn btn--icon-only btn--soft-amber"
           onClick={() => void handleResetPassword(item)}
-          disabled={busy}
-          title={resetLabel}
+          disabled={busy || isSelf}
+          title={isSelf ? 'No puedes restablecer tu clave aquí' : resetLabel}
           aria-label={resetLabel}
         >
           <IconKey />
+        </button>
+        <button
+          type="button"
+          className="btn btn--icon-only btn--soft-rose"
+          onClick={() => void handleDelete(item)}
+          disabled={busy || isSelf}
+          title={isSelf ? 'No puedes eliminar tu cuenta' : deleteLabel}
+          aria-label={deleteLabel}
+        >
+          <IconTrash />
         </button>
       </div>
     )
@@ -266,17 +455,17 @@ export function UsersPage() {
     content = (
       <div className="users-empty">
         <div className="users-empty__spinner" />
-        <p>Cargando cuentas de la app...</p>
+        <p>Cargando cuentas...</p>
       </div>
     )
   } else if (users.length === 0) {
     content = (
       <div className="users-empty">
         <IconPeople />
-        <h3>Sin cuentas de la app</h3>
+        <h3>Sin cuentas</h3>
         <p>
-          Asigna el rol <strong>Técnico</strong> en Personal. La cuenta se crea
-          sola y aparece aquí.
+          Las cuentas se crean al asignar roles en Recursos Humanos. Hay una
+          sola cuenta por persona; esta lista se sincroniza con esas fichas.
         </p>
       </div>
     )
@@ -292,6 +481,7 @@ export function UsersPage() {
           onClick={() => {
             setSearchTerm('')
             setStatusFilter('all')
+            setRoleFilter('all')
           }}
         >
           Ver todas las cuentas
@@ -306,7 +496,9 @@ export function UsersPage() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Código (DNI)</th>
+                <th>Acceso</th>
+                <th>Roles</th>
+                <th>Plataforma</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -325,15 +517,35 @@ export function UsersPage() {
                       >
                         {getInitials(item.displayName)}
                       </div>
-                      <strong>{item.displayName}</strong>
+                      <div className="users-list-name-copy">
+                        <strong>{item.displayName}</strong>
+                        {hrMetaLabel(item) ? (
+                          <span className="users-list-hr-meta">
+                            {hrMetaLabel(item)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </td>
-                  <td>
-                    <span className="users-list-email">
-                      {userAccessLabel(item)}
-                    </span>
-                  </td>
-                  <td>
+                      <td>
+                        <span className="users-list-email">
+                          {userAccessLabel(item)}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="users-role-chips">
+                          {assignedUserRoles(item).map((role) => (
+                            <span
+                              key={role}
+                              className={`users-role-chip${roleChipClass(role)}`}
+                            >
+                              {userRoleLabel(role)}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>{accountPlatformLabel(item)}</td>
+                      <td>
                     <span
                       className={`status-pill ${
                         item.active
@@ -368,7 +580,11 @@ export function UsersPage() {
                 </div>
                 <div className="users-list-item__copy">
                   <strong>{item.displayName}</strong>
-                  <p>Código: {userAccessLabel(item)}</p>
+                  {hrMetaLabel(item) ? <p>{hrMetaLabel(item)}</p> : null}
+                  <p>{userAccessLabel(item)}</p>
+                  <p className="users-list-item__platform">
+                    {accountPlatformLabel(item)}
+                  </p>
                 </div>
                 {renderActions(item)}
               </div>
@@ -380,6 +596,14 @@ export function UsersPage() {
                 >
                   {item.active ? 'Activo' : 'Inactivo'}
                 </span>
+                {assignedUserRoles(item).map((role) => (
+                  <span
+                    key={role}
+                    className={`users-role-chip${roleChipClass(role)}`}
+                  >
+                    {userRoleLabel(role)}
+                  </span>
+                ))}
               </div>
             </article>
           ))}
@@ -393,12 +617,14 @@ export function UsersPage() {
       <div className="page-header">
         <div>
           <p className="users-page__eyebrow">Sistema</p>
-          <h2>Cuentas de la app</h2>
+          <h2>Cuentas</h2>
           <p>
-            Solo control de acceso móvil: restablecer contraseña y desactivar.
-            El alta, edición y rol se hacen en Personal.
+            Las personas se registran en Recursos Humanos. Aquí hay una sola
+            cuenta de acceso por DNI, sincronizada con esa ficha. Al eliminar
+            una cuenta se quita el acceso y los roles de la ficha.
           </p>
         </div>
+        <SystemOrgNav />
       </div>
 
       <div className="users-summary" aria-label="Resumen de cuentas">
@@ -420,18 +646,27 @@ export function UsersPage() {
             <span>activas</span>
           </div>
         </div>
+        <div className="users-summary__item users-summary__item--inactive">
+          <span className="users-summary__icon" aria-hidden="true">
+            <IconPause />
+          </span>
+          <div>
+            <strong>{inactiveCount}</strong>
+            <span>inactivas</span>
+          </div>
+        </div>
       </div>
 
       {!loading && users.length > 0 ? (
         <div className="users-toolbar">
           <label className="users-search">
-            <span className="sr-only">Buscar por nombre o DNI</span>
+            <span className="sr-only">Buscar por nombre, DNI o correo</span>
             <IconSearch />
             <input
               type="search"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Buscar por nombre o DNI..."
+              placeholder="Buscar por nombre, DNI o correo..."
               autoComplete="off"
             />
             {searchTerm ? (
@@ -459,6 +694,22 @@ export function UsersPage() {
                 <option value="all">Todos</option>
                 <option value="active">Activos</option>
                 <option value="inactive">Inactivos</option>
+              </select>
+            </label>
+            <label className="users-filter">
+              <span>Rol</span>
+              <select
+                value={roleFilter}
+                onChange={(event) =>
+                  setRoleFilter(event.target.value as 'all' | UserRole)
+                }
+              >
+                <option value="all">Todos</option>
+                {ALL_USER_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {userRoleLabel(role)}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -506,9 +757,9 @@ export function UsersPage() {
             <p>
               <strong>{credentialsInfo.displayName}</strong>
             </p>
-            {credentialsInfo.dni ? (
+            {credentialsInfo.access ? (
               <p className="users-credentials__email">
-                Código (DNI): {credentialsInfo.dni}
+                Acceso: {credentialsInfo.access}
               </p>
             ) : null}
             <label className="field">

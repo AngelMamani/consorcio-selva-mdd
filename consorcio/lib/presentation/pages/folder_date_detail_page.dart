@@ -18,10 +18,12 @@ class FolderDateDetailPage extends StatefulWidget {
     super.key,
     required this.folderId,
     required this.dateId,
+    this.technicianId,
   });
 
   final String folderId;
   final String dateId;
+  final String? technicianId;
 
   @override
   State<FolderDateDetailPage> createState() => _FolderDateDetailPageState();
@@ -68,7 +70,12 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
       setState(() {
         _folder = detail.folder;
         _folderDate = detail.folderDate;
-        _images = detail.images;
+        final technicianId = widget.technicianId?.trim();
+        _images = technicianId == null || technicianId.isEmpty
+            ? detail.images
+            : detail.images
+                .where((image) => image.uploadedById == technicianId)
+                .toList();
         _loading = false;
       });
     } on DomainException catch (error) {
@@ -195,6 +202,27 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
     }
     if (!mounted) return;
 
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final note = await askOptionalPhotoNote(context);
+    if (note == null || !mounted) return;
+    final date = _folderDate;
+    if (note.trim().isNotEmpty && date != null) {
+      final user = session.user;
+      if (user != null) {
+        try {
+          final updated = await deps.ensureFolderDateUseCase.execute(
+            user,
+            folderId: widget.folderId,
+            dateKey: date.dateKey,
+            note: note,
+          );
+          if (mounted) setState(() => _folderDate = updated);
+        } catch (_) {}
+      }
+    }
+    if (!mounted) return;
+
     await showPhotoSourceSheet(
       context: context,
       onCamera: () async {
@@ -208,6 +236,11 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
     );
   }
 
+  bool get _reviewingTechnician {
+    final technicianId = widget.technicianId?.trim();
+    return technicianId != null && technicianId.isNotEmpty;
+  }
+
   @override
   Widget build(BuildContext context) {
     final folderDate = _folderDate;
@@ -215,9 +248,15 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(folderDate?.formattedLabel ?? 'Fecha'),
+        title: Text(
+          _reviewingTechnician
+              ? 'Trabajo publicado'
+              : (folderDate?.formattedLabel ?? 'Fecha'),
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: _reviewingTechnician
+          ? null
+          : FloatingActionButton.extended(
         onPressed: _loading || busy ? null : _addPhotos,
         icon: Icon(
           _needsLocation
@@ -265,7 +304,9 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '${_images.length} foto(s)',
+                                _reviewingTechnician
+                                    ? '${_images.length} foto(s)'
+                                    : '${_images.length} foto(s) tuya(s)',
                                 style: const TextStyle(
                                   color: AppTheme.brandGreen,
                                   fontWeight: FontWeight.w800,
@@ -287,13 +328,15 @@ class _FolderDateDetailPageState extends State<FolderDateDetailPage> {
                         ),
                       ),
                       if (_images.isEmpty)
-                        const SliverFillRemaining(
+                        SliverFillRemaining(
                           hasScrollBody: false,
                           child: Center(
                             child: Padding(
-                              padding: EdgeInsets.all(24),
+                              padding: const EdgeInsets.all(24),
                               child: Text(
-                                'Esta fecha está vacía.\nToca “Subir fotos” para agregar.',
+                                _reviewingTechnician
+                                    ? 'Este técnico no tiene fotos en esta ruta y fecha.'
+                                    : 'Esta fecha está vacía.\nToca “Subir fotos” para agregar.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: Color(0xFF6B7385)),
                               ),

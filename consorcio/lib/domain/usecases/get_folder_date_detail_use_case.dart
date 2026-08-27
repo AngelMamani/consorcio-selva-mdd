@@ -34,7 +34,7 @@ class GetFolderDateDetailUseCase {
     if (folder == null) {
       throw DomainException('Carpeta no encontrada');
     }
-    if (!folder.canBeAccessedBy(actor.id)) {
+    if (!actor.isMobileAdmin && !folder.canBeAccessedBy(actor.id)) {
       throw DomainException('No tienes acceso a esta carpeta');
     }
 
@@ -43,7 +43,12 @@ class GetFolderDateDetailUseCase {
       throw DomainException('Fecha no encontrada');
     }
 
-    final images = await _imageRepository.listByDate(folderId, dateId);
+    var images = await _imageRepository.listByDate(folderId, dateId);
+    if (!actor.isMobileAdmin) {
+      images = images
+          .where((image) => image.uploadedById == actor.id)
+          .toList();
+    }
     return (folder: folder, folderDate: folderDate, images: images);
   }
 }

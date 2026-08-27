@@ -20,8 +20,8 @@ export function stationHitFromSupply(supply: Supply): StationHit {
     code: supply.routeCode,
     title: supply.routeCode,
     detail: 'Suministro · código de ruta',
-    latitude: supply.latitude,
-    longitude: supply.longitude,
+    latitude: supply.latitude ?? 0,
+    longitude: supply.longitude ?? 0,
   }
 }
 

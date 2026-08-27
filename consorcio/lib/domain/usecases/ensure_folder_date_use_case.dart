@@ -33,13 +33,18 @@ class EnsureFolderDateUseCase {
       throw DomainException('La fecha no es válida');
     }
 
-    final existing =
-        await _dateRepository.findByFolderAndDateKey(folderId, key);
-    if (existing != null) return existing;
-
     final trimmedNote = note.trim();
     if (trimmedNote.length > 200) {
       throw DomainException('La nota no debe superar 200 caracteres');
+    }
+
+    final existing =
+        await _dateRepository.findByFolderAndDateKey(folderId, key);
+    if (existing != null) {
+      if (trimmedNote.isNotEmpty && existing.note.trim() != trimmedNote) {
+        return _dateRepository.updateNote(existing.id, trimmedNote);
+      }
+      return existing;
     }
 
     try {

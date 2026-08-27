@@ -1,0 +1,133 @@
+.support-page {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.support-page .page-header {
+  margin-bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.support-page__eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-blue);
+}
+
+.support-page .page-header p {
+  max-width: 38rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.support-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+}
+
+.support-summary strong {
+  font-size: 1.4rem;
+}
+
+.support-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.support-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.support-card {
+  padding: 0.9rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.support-card p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.support-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+  align-items: center;
+}
+
+.support-card__meta em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.8rem;
+}
+
+.support-card__reply {
+  color: #2e7d32;
+  font-weight: 700;
+}
+
+.support-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.support-pill--problema {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.support-pill--sugerencia {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.support-pill--abierto {
+  background: #fff8e1;
+  color: #ef6c00;
+}
+
+.support-pill--resuelto {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.support-reply {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.support-reply textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.support-reply__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}

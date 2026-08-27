@@ -80,10 +80,12 @@ class EnsureSupplyFolderUseCase {
         assignedTechnicianIds: const [],
         assignedTechnicianNames: const [],
         routeCode: code,
-        location: GeoLocation(
-          latitude: supply.latitude,
-          longitude: supply.longitude,
-        ),
+        location: supply.hasLocation
+            ? GeoLocation(
+                latitude: supply.latitude!,
+                longitude: supply.longitude!,
+              )
+            : null,
       ),
     );
   }

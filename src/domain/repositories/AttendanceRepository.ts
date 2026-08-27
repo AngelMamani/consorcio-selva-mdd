@@ -14,6 +14,9 @@ export interface CreateAttendanceInput {
   distanceToOfficeMeters?: number
   officeValidated: boolean
   officeQrToken?: string
+  permissionNote?: string
+  markedById?: string
+  markedByName?: string
   environmentPhotoUrl?: string
   environmentPhotoPath?: string
 }

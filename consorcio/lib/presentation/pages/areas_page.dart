@@ -6,6 +6,8 @@ import '../../domain/entities/area.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
+import '../../domain/value_objects/user_role.dart';
+import 'activity_technicians_page.dart';
 import 'folders_page.dart';
 
 class AreasPage extends StatefulWidget {
@@ -60,9 +62,13 @@ class _AreasPageState extends State<AreasPage> {
   }
 
   Future<void> _openArea(Area area) async {
+    final session = context.read<SessionController>();
+    final isAdmin = session.user?.role == UserRole.administrador;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FoldersPage(areaId: area.id, areaName: area.name),
+        builder: (_) => isAdmin
+            ? ActivityTechniciansPage(areaId: area.id, areaName: area.name)
+            : FoldersPage(areaId: area.id, areaName: area.name),
       ),
     );
   }
@@ -137,21 +143,25 @@ class _AreasPageState extends State<AreasPage> {
                 ),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Elige un área',
-                    style: TextStyle(
+                    session.user?.role == UserRole.administrador
+                        ? 'Elige una actividad'
+                        : 'Elige un área',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
-                    'Dentro verás tus rutas/carpetas de esa área.',
-                    style: TextStyle(color: Colors.white70),
+                    session.user?.role == UserRole.administrador
+                        ? 'Dentro verás la carpeta de cada técnico y sus trabajos publicados.'
+                        : 'Dentro ves solo las fotos que tú subes.',
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ],
               ),

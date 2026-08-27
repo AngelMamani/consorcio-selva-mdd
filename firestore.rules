@@ -19,15 +19,25 @@ service cloud.firestore {
         && userDoc().active == true;
     }
 
+    function assignedRoleCodes() {
+      return userDoc().keys().hasAny(['roles']) && userDoc().roles is list
+        ? userDoc().roles
+        : [];
+    }
+
+    function hasRole(code) {
+      return isActiveUser() && (
+        userDoc().role == code
+        || code in assignedRoleCodes()
+      );
+    }
+
     function isSuperAdmin() {
-      return isActiveUser() && userDoc().role == 'SUPER_ADMINISTRADOR';
+      return hasRole('SUPER_ADMINISTRADOR');
     }
 
     function isAdmin() {
-      return isActiveUser() && (
-        userDoc().role == 'ADMINISTRADOR'
-        || userDoc().role == 'SUPER_ADMINISTRADOR'
-      );
+      return hasRole('ADMINISTRADOR') || hasRole('SUPER_ADMINISTRADOR');
     }
 
     function folderPath(folderId) {
@@ -58,6 +68,50 @@ service cloud.firestore {
         || request.auth.uid in data.get('assignedTechnicianIds', []);
     }
 
+    function validTaskRoutes() {
+      return request.resource.data.routes is list
+        && request.resource.data.routes.size() > 0
+        && request.resource.data.routes.size() <= 40;
+    }
+
+    function validLastNotice() {
+      return !('lastNotice' in request.resource.data)
+        || request.resource.data.lastNotice == null
+        || (
+          request.resource.data.lastNotice is map
+          && request.resource.data.lastNotice.message is string
+          && request.resource.data.lastNotice.message.size() > 0
+          && request.resource.data.lastNotice.message.size() <= 280
+          && request.resource.data.lastNotice.routeCode is string
+          && request.resource.data.lastNotice.createdById is string
+          && request.resource.data.lastNotice.createdByName is string
+          && request.resource.data.lastNotice.createdByName.size() <= 120
+          && request.resource.data.lastNotice.createdAt is timestamp
+        );
+    }
+
+    // El técnico solo actualiza avance (completar ruta, GPS, aviso).
+    // No pasa por validTaskWrite: esa regla rechazaba el completar.
+    function validTechnicianTaskProgress() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasOnly([
+            'status', 'routes', 'lastNotice', 'updatedAt',
+            'latitude', 'longitude',
+            'completedAt', 'completedById', 'completedByName'
+          ])
+        && (
+          request.resource.data.status == resource.data.status
+          || request.resource.data.status in ['EN_PROGRESO', 'COMPLETADA']
+        )
+        && request.resource.data.routes is list
+        && request.resource.data.routes.size() > 0
+        && request.resource.data.routes.size() <= 40
+        && (
+          !changed.hasAny(['lastNotice'])
+          || validLastNotice()
+        );
+    }
+
     function validTaskWrite() {
       return request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -75,6 +129,8 @@ service cloud.firestore {
           request.resource.data.routeCode.size() == 0
           || request.resource.data.routeCode.matches('^[0-9]{7,12}$')
         )
+        && validTaskRoutes()
+        && validLastNotice()
         && (
           !('latitude' in request.resource.data)
           || (
@@ -101,6 +157,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'title', 'description', 'status', 'dueDate',
           'areaId', 'areaName', 'routeCode', 'latitude', 'longitude',
+          'routes', 'lastNotice',
           'assignToAllTechnicians', 'assignedTechnicianIds', 'assignedTechnicianNames',
           'createdById', 'createdByName',
           'completedAt', 'completedById', 'completedByName',
@@ -116,27 +173,30 @@ service cloud.firestore {
           .matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
 
-    function officeTokenPath(dateKey) {
-      return /databases/$(database)/documents/attendanceOfficeTokens/$(dateKey);
-    }
-
-    function validOfficeQrCreate() {
-      let dateKey = request.resource.data.dateKey;
-      let tokenSnap = get(officeTokenPath(dateKey)).data;
+    function validOfficeGpsCreate() {
       return request.resource.data.origin == 'OFICINA'
-        && request.resource.data.officeQrToken is string
-        && request.resource.data.officeQrToken.size() == 48
-        && exists(officeTokenPath(dateKey))
-        && tokenSnap.token == request.resource.data.officeQrToken
-        && request.time >= tokenSnap.validFrom
-        && request.time < tokenSnap.validUntil;
+        && request.resource.data.officeValidated == true
+        && request.resource.data.areaId is string
+        && request.resource.data.areaName is string
+        && !('officeQrToken' in request.resource.data);
     }
 
     function validZoneCreate() {
       return request.resource.data.origin == 'ZONA'
+        && request.resource.data.officeValidated == false
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
         && !('officeQrToken' in request.resource.data);
+    }
+
+    function validPermisoCreate() {
+      return request.resource.data.origin == 'PERMISO'
+        && request.resource.data.officeValidated == false
+        && request.resource.data.areaId is string
+        && request.resource.data.areaName is string
+        && !('officeQrToken' in request.resource.data)
+        && !('environmentPhotoUrl' in request.resource.data)
+        && !('environmentPhotoPath' in request.resource.data);
     }
 
     function optionalEnvironmentPhoto() {
@@ -147,6 +207,27 @@ service cloud.firestore {
           && request.resource.data.environmentPhotoUrl.size() > 12
           && request.resource.data.environmentPhotoPath is string
           && request.resource.data.environmentPhotoPath.size() > 8
+        );
+    }
+
+    function optionalPermissionNote() {
+      return !('permissionNote' in request.resource.data)
+        || (
+          request.resource.data.permissionNote is string
+          && request.resource.data.permissionNote.size() <= 200
+        );
+    }
+
+    function optionalMarkedBy() {
+      return (!('markedById' in request.resource.data)
+          && !('markedByName' in request.resource.data))
+        || (
+          request.resource.data.markedById is string
+          && request.resource.data.markedById.size() > 0
+          && request.resource.data.markedById.size() <= 128
+          && request.resource.data.markedByName is string
+          && request.resource.data.markedByName.size() > 0
+          && request.resource.data.markedByName.size() <= 120
         );
     }
 
@@ -171,7 +252,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAdmin()
         || (isSignedIn() && request.auth.uid == userId)
-        || (isActiveUser() && resource.data.role == 'TECNICO');
+        || (isActiveUser() && (
+          resource.data.role == 'TECNICO'
+          || (
+            resource.data.keys().hasAny(['roles'])
+            && resource.data.roles is list
+            && 'TECNICO' in resource.data.roles
+          )
+        ));
 
       // Alta de usuarios solo vía Admin SDK / Cloud Functions.
       allow create: if false;
@@ -191,7 +279,7 @@ service cloud.firestore {
               && request.resource.data.mustChangePassword == false
             )
           )
-          && unchangedKeys(['email', 'role', 'active', 'displayName', 'createdAt'])
+          && unchangedKeys(['email', 'role', 'roles', 'active', 'displayName', 'createdAt'])
         );
 
       allow delete: if false;
@@ -210,20 +298,57 @@ service cloud.firestore {
     }
 
     match /supplies/{supplyId} {
+      function validSupplyIdentity() {
+        return supplyId == request.resource.data.routeCode
+          && request.resource.data.routeCode is string
+          && request.resource.data.routeCode.matches('^[0-9]{7,12}$')
+          && request.resource.data.prefix is string
+          && request.resource.data.prefix.matches('^[0-9]{4}$')
+          && request.resource.data.updatedAt is timestamp
+          && (
+            !('note' in request.resource.data)
+            || (
+              request.resource.data.note is string
+              && request.resource.data.note.size() <= 200
+            )
+          );
+      }
+
+      function supplyHasGps(data) {
+        return data.latitude is number
+          && data.latitude >= -90
+          && data.latitude <= 90
+          && data.longitude is number
+          && data.longitude >= -180
+          && data.longitude <= 180;
+      }
+
+      function supplyMissingGps(data) {
+        return !('latitude' in data) && !('longitude' in data);
+      }
+
       allow read: if isActiveUser();
-      allow create, update: if isAdmin()
-        && supplyId == request.resource.data.routeCode
-        && request.resource.data.routeCode is string
-        && request.resource.data.routeCode.matches('^[0-9]{7,12}$')
-        && request.resource.data.prefix is string
-        && request.resource.data.prefix.matches('^[0-9]{4}$')
-        && request.resource.data.latitude is number
-        && request.resource.data.latitude >= -90
-        && request.resource.data.latitude <= 90
-        && request.resource.data.longitude is number
-        && request.resource.data.longitude >= -180
-        && request.resource.data.longitude <= 180
-        && request.resource.data.updatedAt is timestamp;
+      allow create: if isAdmin()
+        && validSupplyIdentity()
+        && (supplyHasGps(request.resource.data) || supplyMissingGps(request.resource.data));
+      allow update: if validSupplyIdentity()
+        && (
+          (
+            isAdmin()
+            && (supplyHasGps(request.resource.data) || supplyMissingGps(request.resource.data))
+          )
+          || (
+            isActiveUser()
+            && supplyMissingGps(resource.data)
+            && supplyHasGps(request.resource.data)
+            && request.resource.data.routeCode == resource.data.routeCode
+            && request.resource.data.prefix == resource.data.prefix
+            && (
+              !('note' in request.resource.data)
+              || request.resource.data.note == resource.data.get('note', '')
+            )
+          )
+        );
       allow delete: if isAdmin();
     }
 
@@ -276,38 +401,13 @@ service cloud.firestore {
         && request.resource.data.status == 'PENDIENTE'
         && request.resource.data.completedById == ''
         && request.resource.data.completedByName == ''
-        && request.resource.data.completedAt == null
-        && request.resource.data.latitude is number
-        && request.resource.data.longitude is number;
+        && request.resource.data.completedAt == null;
       allow update: if isActiveUser()
         && canAccessTaskData(resource.data)
         && unchangedKeys(['createdById', 'createdByName', 'createdAt'])
-        && validTaskWrite()
         && (
-          isAdmin()
-          || (
-            request.resource.data.title == resource.data.title
-            && request.resource.data.description == resource.data.description
-            && request.resource.data.dueDate == resource.data.dueDate
-            && request.resource.data.areaId == resource.data.areaId
-            && request.resource.data.areaName == resource.data.areaName
-            && request.resource.data.routeCode == resource.data.routeCode
-            && (
-              !('latitude' in resource.data)
-              || request.resource.data.latitude == resource.data.latitude
-            )
-            && (
-              !('longitude' in resource.data)
-              || request.resource.data.longitude == resource.data.longitude
-            )
-            && request.resource.data.assignToAllTechnicians
-              == resource.data.assignToAllTechnicians
-            && request.resource.data.assignedTechnicianIds
-              == resource.data.assignedTechnicianIds
-            && request.resource.data.assignedTechnicianNames
-              == resource.data.assignedTechnicianNames
-            && request.resource.data.status in ['EN_PROGRESO', 'COMPLETADA']
-          )
+          validTechnicianTaskProgress()
+          || (isAdmin() && validTaskWrite())
         );
       allow delete: if isAdmin();
     }
@@ -354,7 +454,6 @@ service cloud.firestore {
         && request.resource.data.apellidoPaterno.size() > 0
         && request.resource.data.apellidoPaterno.size() <= 60
         && request.resource.data.apellidoMaterno is string
-        && request.resource.data.apellidoMaterno.size() > 0
         && request.resource.data.apellidoMaterno.size() <= 60
         && request.resource.data.dni is string
         && request.resource.data.dni.matches('^[0-9]{8}$')
@@ -372,9 +471,38 @@ service cloud.firestore {
         && request.resource.data.condicion in ['', 'VIGENTE', 'RETIRADO', 'INGRESO']
         && request.resource.data.roleId is string
         && request.resource.data.roleName is string
+        && (
+          !('roleIds' in request.resource.data)
+          || (
+            request.resource.data.roleIds is list
+            && request.resource.data.roleIds.size() <= 3
+          )
+        )
+        && (
+          !('roleNames' in request.resource.data)
+          || request.resource.data.roleNames is list
+        )
         && request.resource.data.createdByName is string
-        && request.resource.data.createdByName.size() > 0
         && request.resource.data.createdByName.size() <= 120;
+    }
+
+    function validPersonalRolePatch() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['roleId', 'roleName', 'roleIds', 'roleNames', 'updatedAt'])
+        && request.resource.data.roleId is string
+        && request.resource.data.roleName is string
+        && (
+          !('roleIds' in request.resource.data)
+          || (
+            request.resource.data.roleIds is list
+            && request.resource.data.roleIds.size() <= 3
+          )
+        )
+        && (
+          !('roleNames' in request.resource.data)
+          || request.resource.data.roleNames is list
+        )
+        && request.resource.data.updatedAt is timestamp;
     }
 
     match /personal/{personId} {
@@ -383,8 +511,8 @@ service cloud.firestore {
         && validPersonalWrite()
         && request.resource.data.createdById == request.auth.uid;
       allow update: if isAdmin()
-        && validPersonalWrite()
-        && unchangedKeys(['createdById', 'createdByName', 'createdAt']);
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt'])
+        && (validPersonalWrite() || validPersonalRolePatch());
       allow delete: if isAdmin();
     }
 
@@ -602,8 +730,8 @@ service cloud.firestore {
         && request.resource.data.officeLongitude >= -180
         && request.resource.data.officeLongitude <= 180
         && request.resource.data.officeRadiusMeters is number
-        && request.resource.data.officeRadiusMeters >= 5
-        && request.resource.data.officeRadiusMeters <= 20;
+        && request.resource.data.officeRadiusMeters >= 10
+        && request.resource.data.officeRadiusMeters <= 80;
     }
 
     function validSuppliesCatalog() {
@@ -669,16 +797,15 @@ service cloud.firestore {
       allow list: if isAdmin();
 
       allow create: if isActiveUser()
-        && userDoc().role == 'TECNICO'
-        && isOwnAttendanceId(attendanceId)
-        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
         && request.resource.data.userName is string
         && request.resource.data.userName.size() > 0
         && request.resource.data.userName.size() <= 120
         && request.resource.data.dateKey is string
         && request.resource.data.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && attendanceId == request.auth.uid + '_' + request.resource.data.dateKey
-        && request.resource.data.origin in ['OFICINA', 'ZONA']
+        && attendanceId == request.resource.data.userId + '_' + request.resource.data.dateKey
+        && request.resource.data.origin in ['OFICINA', 'ZONA', 'PERMISO']
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
         && request.resource.data.latitude is number
@@ -693,9 +820,51 @@ service cloud.firestore {
         && (!('distanceToOfficeMeters' in request.resource.data)
           || request.resource.data.distanceToOfficeMeters is number)
         && optionalEnvironmentPhoto()
-        && (validOfficeQrCreate() || validZoneCreate());
+        && optionalPermissionNote()
+        && optionalMarkedBy()
+        && (
+          (
+            request.resource.data.userId == request.auth.uid
+            && isOwnAttendanceId(attendanceId)
+            && (validOfficeGpsCreate() || validZoneCreate() || validPermisoCreate())
+          )
+          || (
+            isAdmin()
+            && validPermisoCreate()
+            && request.resource.data.markedById == request.auth.uid
+          )
+        );
 
       allow update, delete: if false;
+    }
+
+    match /supportTickets/{ticketId} {
+      allow get: if isActiveUser() && (
+        isAdmin() || resource.data.createdById == request.auth.uid
+      );
+      allow list: if isActiveUser() && (
+        isAdmin() || resource.data.createdById == request.auth.uid
+      );
+      allow create: if isActiveUser()
+        && request.resource.data.createdById == request.auth.uid
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName.size() > 0
+        && request.resource.data.createdByName.size() <= 120
+        && request.resource.data.kind in ['SUGERENCIA', 'PROBLEMA']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 8
+        && request.resource.data.message.size() <= 1000
+        && request.resource.data.status == 'ABIERTO'
+        && request.resource.data.createdAt is timestamp;
+      allow update: if isAdmin()
+        && request.resource.data.createdById == resource.data.createdById
+        && request.resource.data.kind == resource.data.kind
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['ABIERTO', 'RESUELTO']
+        && request.resource.data.response is string
+        && request.resource.data.response.size() <= 1000;
+      allow delete: if false;
     }
   }
 }

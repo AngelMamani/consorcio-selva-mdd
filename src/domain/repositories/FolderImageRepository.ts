@@ -19,6 +19,7 @@ export interface CreateFolderImageInput {
 
 export interface FolderImageRepository {
   listByFolder(folderId: string): Promise<FolderImage[]>
+  listByFolderIds(folderIds: string[]): Promise<FolderImage[]>
   listByDate(folderId: string, dateId: string): Promise<FolderImage[]>
   create(input: CreateFolderImageInput): Promise<FolderImage>
   delete(image: FolderImage): Promise<void>

@@ -79,8 +79,8 @@ export class CreateUserUseCase {
     }
 
     if (dni) {
-      const duplicate = await this.userRepository.findByDni(dni)
-      if (duplicate) {
+      const matches = await this.userRepository.listByDni(dni)
+      if (matches.length > 0) {
         throw new ValidationError('Ya existe un usuario con ese DNI')
       }
     }

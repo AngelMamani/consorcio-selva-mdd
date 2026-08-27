@@ -21,6 +21,20 @@ class FolderDate {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  FolderDate copyWith({int? imageCount}) {
+    return FolderDate(
+      id: id,
+      folderId: folderId,
+      dateKey: dateKey,
+      note: note,
+      imageCount: imageCount ?? this.imageCount,
+      createdById: createdById,
+      createdByName: createdByName,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
   static String toDateKey(DateTime date) {
     final local = date.toLocal();
     final month = local.month.toString().padLeft(2, '0');

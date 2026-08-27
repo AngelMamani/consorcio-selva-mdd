@@ -13,7 +13,7 @@ class ObserveSessionUseCase {
       if (userId == null) return null;
 
       final user = await _userRepository.getById(userId);
-      if (user == null || !user.active || !user.isTechnician) {
+      if (user == null || !user.active || user.mobileRoles.isEmpty) {
         await _authRepository.logout();
         return null;
       }

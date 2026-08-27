@@ -11,7 +11,11 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/domain/errors/DomainError'
-import { canManageOperationalRoles } from '@/domain/value-objects/UserRole'
+import {
+  assignedUserRoles,
+  canManageOperationalRoles,
+  UserRole,
+} from '@/domain/value-objects/UserRole'
 
 function normalizeName(name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ')
@@ -75,13 +79,32 @@ export class GetOperationalRolePermissionsUseCase {
     if (!actor.active) {
       throw new UnauthorizedError('Usuario inactivo')
     }
-    try {
-      const role = await this.roleRepository.getByCode(actor.role)
-      if (role) return role.permissions
-    } catch {
-      // Colección aún no disponible o reglas pendientes.
+    if (actor.role === UserRole.SuperAdministrador) {
+      return [...ALL_APP_MENU_KEYS]
     }
-    const fallback = DEFAULT_OPERATIONAL_ROLES.find((item) => item.code === actor.role)
+
+    const codes = [...new Set([actor.role, ...assignedUserRoles(actor)])]
+    const collected = new Set<AppMenuKey>()
+    let foundStored = false
+
+    for (const code of codes) {
+      try {
+        const role = await this.roleRepository.getByCode(code)
+        if (!role) continue
+        foundStored = true
+        for (const key of role.permissions) collected.add(key)
+      } catch {
+        // Colección aún no disponible o reglas pendientes.
+      }
+    }
+
+    if (foundStored && collected.size > 0) {
+      return [...collected]
+    }
+
+    const fallback = DEFAULT_OPERATIONAL_ROLES.find(
+      (item) => item.code === actor.role,
+    )
     return fallback ? [...fallback.permissions] : [...ALL_APP_MENU_KEYS]
   }
 }
@@ -111,25 +134,6 @@ export class EnsureDefaultOperationalRolesUseCase {
           isSystem: true,
           createdById: actor.id,
           createdByName: actor.displayName,
-        })
-      }
-      return this.roleRepository.listAll()
-    }
-
-    if (canManageOperationalRoles(actor.role)) {
-      for (const role of existing) {
-        if (!role.isSystem) continue
-        const defaults = DEFAULT_OPERATIONAL_ROLES.find(
-          (item) => item.code === role.code,
-        )
-        if (!defaults) continue
-        const missing = defaults.permissions.filter(
-          (key) => !role.permissions.includes(key),
-        )
-        if (missing.length === 0) continue
-        await this.roleRepository.update(role.id, {
-          name: role.name,
-          permissions: [...role.permissions, ...missing],
         })
       }
       return this.roleRepository.listAll()

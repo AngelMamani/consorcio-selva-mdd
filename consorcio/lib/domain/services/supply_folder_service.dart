@@ -49,9 +49,11 @@ ImageFolder folderFromSupply({
     createdAt: now,
     updatedAt: now,
     routeCode: supply.routeCode,
-    location: GeoLocation(
-      latitude: supply.latitude,
-      longitude: supply.longitude,
-    ),
+    location: supply.hasLocation
+        ? GeoLocation(
+            latitude: supply.latitude!,
+            longitude: supply.longitude!,
+          )
+        : null,
   );
 }

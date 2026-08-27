@@ -2,16 +2,35 @@ import '../value_objects/geo_location.dart';
 
 enum AttendanceOrigin {
   oficina,
-  zona;
+  zona,
+  permiso;
 
-  String get firestoreValue =>
-      this == AttendanceOrigin.oficina ? 'OFICINA' : 'ZONA';
+  String get firestoreValue {
+    switch (this) {
+      case AttendanceOrigin.oficina:
+        return 'OFICINA';
+      case AttendanceOrigin.zona:
+        return 'ZONA';
+      case AttendanceOrigin.permiso:
+        return 'PERMISO';
+    }
+  }
 
-  String get label =>
-      this == AttendanceOrigin.oficina ? 'Oficina' : 'Zona de trabajo';
+  String get label {
+    switch (this) {
+      case AttendanceOrigin.oficina:
+        return 'Oficina';
+      case AttendanceOrigin.zona:
+        return 'Campo';
+      case AttendanceOrigin.permiso:
+        return 'Permiso';
+    }
+  }
 
   static AttendanceOrigin fromString(String value) {
-    return value == 'ZONA' ? AttendanceOrigin.zona : AttendanceOrigin.oficina;
+    if (value == 'ZONA') return AttendanceOrigin.zona;
+    if (value == 'PERMISO') return AttendanceOrigin.permiso;
+    return AttendanceOrigin.oficina;
   }
 }
 
@@ -29,6 +48,7 @@ class Attendance {
     required this.createdAt,
     this.distanceToOfficeMeters,
     this.environmentPhotoUrl,
+    this.permissionNote,
   });
 
   final String id;
@@ -43,6 +63,7 @@ class Attendance {
   final int? distanceToOfficeMeters;
   final DateTime createdAt;
   final String? environmentPhotoUrl;
+  final String? permissionNote;
 }
 
 String limaDateKey([DateTime? now]) {
@@ -54,26 +75,3 @@ String limaDateKey([DateTime? now]) {
 }
 
 String attendanceDocId(String userId, String dateKey) => '${userId}_$dateKey';
-
-const officeQrPrefix = 'CSMDD1';
-
-class OfficeQrPayload {
-  const OfficeQrPayload({required this.dateKey, required this.token});
-
-  final String dateKey;
-  final String token;
-}
-
-OfficeQrPayload? parseOfficeQrPayload(String raw) {
-  final parts = raw.trim().split('|');
-  if (parts.length != 3) return null;
-  final prefix = parts[0];
-  final dateKey = parts[1];
-  final token = parts[2];
-  if (prefix != officeQrPrefix || dateKey.isEmpty || token.isEmpty) {
-    return null;
-  }
-  if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateKey)) return null;
-  if (!RegExp(r'^[a-f0-9]{48}$').hasMatch(token)) return null;
-  return OfficeQrPayload(dateKey: dateKey, token: token);
-}

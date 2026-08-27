@@ -1,12 +1,13 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { FolderDate } from '@/domain/entities/FolderDate'
 import { formatDateKey } from '@/domain/entities/FolderDate'
 import type { FolderImage } from '@/domain/entities/FolderImage'
 import { DomainError } from '@/domain/errors/DomainError'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers } from '@/domain/value-objects/UserRole'
 import { sanitizePdfFileName } from '@/domain/services/PdfFileNameService'
+import { formatRouteCode } from '@/domain/services/SupplySearchService'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
@@ -146,6 +147,9 @@ function IconEmpty() {
 
 export function FolderDateDetailPage() {
   const { folderId = '', dateId = '' } = useParams()
+  const [searchParams] = useSearchParams()
+  const technicianId = searchParams.get('tecnico')?.trim() || ''
+  const areaFromQuery = searchParams.get('area')?.trim() || ''
   const { user } = useAuth()
   const {
     getFolderDateUseCase,
@@ -167,7 +171,8 @@ export function FolderDateDetailPage() {
   const [exportingPdf, setExportingPdf] = useState(false)
   const [pdfStatus, setPdfStatus] = useState('')
 
-  const isAdmin = user?.role === UserRole.Administrador
+  const isAdmin = Boolean(user && canManageUsers(user.role))
+  const reviewTechnician = Boolean(technicianId)
 
   async function loadData() {
     if (!user || !folderId || !dateId) return
@@ -183,6 +188,7 @@ export function FolderDateDetailPage() {
           user,
           folderId,
           dateId,
+          technicianId || undefined,
         )
         setImages(imageData)
       } catch (err) {
@@ -203,11 +209,17 @@ export function FolderDateDetailPage() {
   useEffect(() => {
     void loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, folderId, dateId])
+  }, [user?.id, folderId, dateId, technicianId])
 
   function openPdfModal() {
     if (!folder || !folderDate) return
-    setPdfName(`${folder.name} ${folderDate.dateKey}`)
+    const routeLabel = folder.routeCode
+      ? formatRouteCode(folder.routeCode)
+      : folder.name
+    const techName = images[0]?.uploadedByName
+    setPdfName(
+      [techName, routeLabel, folderDate.dateKey].filter(Boolean).join(' '),
+    )
     setShowPdfModal(true)
   }
 
@@ -225,6 +237,7 @@ export function FolderDateDetailPage() {
         folderId,
         pdfName,
         dateId,
+        technicianId || undefined,
       )
       downloadBlob(result.blob, result.fileName)
       setShowPdfModal(false)
@@ -317,7 +330,16 @@ export function FolderDateDetailPage() {
     return (
       <div className="folder-detail-empty panel">
         <p>Fecha no encontrada</p>
-        <Link to={folderId ? `/carpetas/${folderId}` : '/areas'} className="btn btn--soft-muted">
+        <Link
+          to={
+            technicianId
+              ? `/areas/${areaFromQuery}/tecnicos/${technicianId}`
+              : folderId
+                ? `/carpetas/${folderId}`
+                : '/areas'
+          }
+          className="btn btn--soft-muted"
+        >
           <IconBack />
           Volver a la carpeta
         </Link>
@@ -325,15 +347,24 @@ export function FolderDateDetailPage() {
     )
   }
 
+  const backTo = reviewTechnician
+    ? `/areas/${areaFromQuery || folder.areaId}/tecnicos/${technicianId}`
+    : `/carpetas/${folderId}`
+  const backLabel = reviewTechnician
+    ? images[0]?.uploadedByName || 'Técnico'
+    : folder.name
+  const routeLabel = folder.routeCode
+    ? formatRouteCode(folder.routeCode)
+    : folder.name
   const previewPdfName = sanitizePdfFileName(pdfName || folder.name)
   const totalBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0)
 
   return (
     <section className="folder-detail-page">
       <div className="folder-detail-top">
-        <Link to={`/carpetas/${folderId}`} className="folder-detail-back">
+        <Link to={backTo} className="folder-detail-back">
           <IconBack />
-          {folder.name}
+          {backLabel}
         </Link>
       </div>
 
@@ -343,10 +374,19 @@ export function FolderDateDetailPage() {
             <IconCalendar />
           </div>
           <div className="folder-detail-hero__copy">
-            <p className="folder-detail-page__eyebrow">Carpeta de fecha</p>
-            <h2>{formatDateKey(folderDate.dateKey)}</h2>
+            <p className="folder-detail-page__eyebrow">
+              {reviewTechnician ? 'Trabajo publicado' : 'Carpeta de fecha'}
+            </p>
+            <h2>
+              {reviewTechnician
+                ? `${routeLabel} · ${formatDateKey(folderDate.dateKey)}`
+                : formatDateKey(folderDate.dateKey)}
+            </h2>
             <p className="folder-detail-hero__desc">
-              {folderDate.note || 'Sin nota'}
+              {folderDate.note ||
+                (reviewTechnician
+                  ? 'Fotos del trabajo en esta ruta y fecha.'
+                  : 'Sin nota')}
             </p>
             <div className="folder-detail-hero__chips">
               <span className="folder-detail-chip">
@@ -355,7 +395,9 @@ export function FolderDateDetailPage() {
               </span>
               <span className="folder-detail-chip">
                 <IconClock />
-                Creada {formatDateTime(folderDate.createdAt)}
+                {reviewTechnician
+                  ? `Publicada ${formatDateTime(folderDate.updatedAt)}`
+                  : `Creada ${formatDateTime(folderDate.createdAt)}`}
               </span>
             </div>
           </div>
@@ -373,20 +415,22 @@ export function FolderDateDetailPage() {
               Convertir a PDF
             </button>
           ) : null}
-          <label
-            className={`btn btn--soft-primary ${uploading ? 'is-busy' : ''}`}
-          >
-            <IconUpload />
-            {uploading ? uploadProgress || 'Subiendo...' : 'Subir imágenes'}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              hidden
-              disabled={uploading}
-              onChange={(event) => void handleUpload(event)}
-            />
-          </label>
+          {reviewTechnician ? null : (
+            <label
+              className={`btn btn--soft-primary ${uploading ? 'is-busy' : ''}`}
+            >
+              <IconUpload />
+              {uploading ? uploadProgress || 'Subiendo...' : 'Subir imágenes'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                multiple
+                hidden
+                disabled={uploading}
+                onChange={(event) => void handleUpload(event)}
+              />
+            </label>
+          )}
         </div>
       </header>
 

@@ -40,6 +40,7 @@ export class ObserveSessionUseCase {
               (await this.userRepository.getById(userId)) ?? {
                 ...user,
                 role: UserRole.SuperAdministrador,
+                roles: [...new Set([...user.roles, UserRole.SuperAdministrador])],
               }
           } catch {
             // Si la función aún no está desplegada, el siguiente ingreso lo reintenta.

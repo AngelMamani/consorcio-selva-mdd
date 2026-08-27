@@ -24,12 +24,27 @@ class FirebaseUserRepository implements UserRepository {
 
   @override
   Future<List<AppUser>> listTechnicians() async {
-    final snapshot =
-        await _users.where('role', isEqualTo: 'TECNICO').get();
-    final users = snapshot.docs
-        .map((doc) => _map(doc.id, doc.data()))
-        .where((user) => user.active)
-        .toList()
+    final byRole = await _users.where('role', isEqualTo: 'TECNICO').get();
+    final byArray =
+        await _users.where('roles', arrayContains: 'TECNICO').get();
+    final byId = <String, AppUser>{};
+    for (final doc in [...byRole.docs, ...byArray.docs]) {
+      try {
+        final user = _map(doc.id, doc.data());
+        if (user.active) byId[user.id] = user;
+      } catch (_) {
+        // Perfil mal formado.
+      }
+    }
+    final unique = <String, AppUser>{};
+    for (final user in byId.values) {
+      final key = user.accessDni.isNotEmpty ? 'dni:${user.accessDni}' : 'id:${user.id}';
+      final previous = unique[key];
+      if (previous == null || user.updatedAt.isAfter(previous.updatedAt)) {
+        unique[key] = user;
+      }
+    }
+    final users = unique.values.toList()
       ..sort((a, b) => a.displayName.compareTo(b.displayName));
     return users;
   }
@@ -76,11 +91,21 @@ class FirebaseUserRepository implements UserRepository {
   }
 
   AppUser _map(String id, Map<String, dynamic> data) {
+    final rawRoles = data['roles'];
+    final parsed = rawRoles is List ? normalizeUserRoles(rawRoles) : <UserRole>[];
+    final fallback =
+        UserRole.tryParse(data['role'] as String?) ?? UserRole.tecnico;
+    final assigned =
+        parsed.isNotEmpty ? parsed : normalizeUserRoles([fallback.firestoreValue]);
+    final role = primaryUserRole(assigned) ?? fallback;
+
     return AppUser(
       id: id,
       email: data['email'] as String? ?? '',
       displayName: data['displayName'] as String? ?? '',
-      role: UserRole.fromString(data['role'] as String? ?? 'TECNICO'),
+      dni: data['dni'] as String? ?? '',
+      role: role,
+      roles: assigned,
       theme: ThemePreference.normalize(data['theme'] as String?),
       mustChangePassword: data['mustChangePassword'] == true,
       active: data['active'] as bool? ?? false,

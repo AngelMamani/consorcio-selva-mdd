@@ -324,39 +324,21 @@ class _FolderDetailPageState extends State<FolderDetailPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${_dates.length} fecha(s) · ${folder?.imageCount ?? 0} foto(s)',
+                        '${_dates.length} fecha(s) · ${folder?.imageCount ?? 0} foto(s) tuya(s)',
                         style: const TextStyle(
                           color: AppTheme.brandGreen,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (folder != null) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.group_rounded,
-                              size: 18,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Asignado: ${folder.assigneesLabel}',
-                                style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 8),
+                      Text(
+                        'Solo ves las fotos que tú subes.',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
+                      ),
                       if (_needsLocation) ...[
                         const SizedBox(height: 12),
                         _MissingLocationCard(

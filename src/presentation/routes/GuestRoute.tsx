@@ -1,8 +1,9 @@
 import { Navigate, Outlet } from 'react-router-dom'
+import { HOME_PATH } from '@/domain/value-objects/AppMenuPermission'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 
 export function GuestRoute() {
-  const { user, loading } = useAuth()
+  const { user, pendingRoleUser, loading } = useAuth()
 
   if (loading) {
     return (
@@ -13,10 +14,14 @@ export function GuestRoute() {
     )
   }
 
+  if (pendingRoleUser && !user) {
+    return <Outlet />
+  }
+
   if (user) {
     return (
       <Navigate
-        to={user.mustChangePassword ? '/cambiar-contrasena' : '/carpetas'}
+        to={user.mustChangePassword ? '/cambiar-contrasena' : HOME_PATH}
         replace
       />
     )

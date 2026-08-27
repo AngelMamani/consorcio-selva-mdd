@@ -10,16 +10,14 @@ import type {
 import { personalFullName } from '@/domain/entities/Personal'
 import type { CatalogRepository } from '@/domain/repositories/CatalogRepository'
 import type { PersonalRepository } from '@/domain/repositories/PersonalRepository'
+import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { OperationalRoleRepository } from '@/domain/repositories/OperationalRoleRepository'
 import {
   isPersonalCondition,
   type PersonalCondition,
 } from '@/domain/value-objects/PersonalCondition'
-import { isElectricistaTechnicianCargo } from '@/domain/value-objects/TechnicianLogin'
-import {
-  canManageOperationalRoles,
-  UserRole,
-} from '@/domain/value-objects/UserRole'
+import { UserRole, canManageOperationalRoles, isUserRole } from '@/domain/value-objects/UserRole'
+import { DeleteUserUseCase } from '@/domain/usecases/users/DeleteUserUseCase'
 import {
   NotFoundError,
   UnauthorizedError,
@@ -33,6 +31,14 @@ function normalizeText(value: string, label: string, max: number): string {
   if (!trimmed) {
     throw new ValidationError(`${label} es obligatorio`)
   }
+  if (trimmed.length > max) {
+    throw new ValidationError(`${label} no debe superar ${max} caracteres`)
+  }
+  return trimmed.toUpperCase()
+}
+
+function normalizeOptionalText(value: string, label: string, max: number): string {
+  const trimmed = value.trim().replace(/\s+/g, ' ')
   if (trimmed.length > max) {
     throw new ValidationError(`${label} no debe superar ${max} caracteres`)
   }
@@ -54,18 +60,6 @@ function normalizeCondition(value: string): PersonalCondition | '' {
     throw new ValidationError('La condición no es válida')
   }
   return trimmed
-}
-
-async function technicianRoleForCargo(
-  roleRepository: OperationalRoleRepository,
-  cargoName: string,
-  fallback: { roleId: string; roleName: string },
-): Promise<{ roleId: string; roleName: string }> {
-  if (fallback.roleId) return fallback
-  if (!isElectricistaTechnicianCargo(cargoName)) return fallback
-  const tecnico = await roleRepository.getByCode(UserRole.Tecnico)
-  if (!tecnico) return fallback
-  return { roleId: tecnico.id, roleName: tecnico.name }
 }
 
 function assertCanAssignOperationalRole(actor: User, code: string): void {
@@ -136,7 +130,9 @@ export class CreatePersonalUseCase {
     if (!trimmed) {
       return { roleId: '', roleName: '', code: '' }
     }
-    const role = await this.roleRepository.getById(trimmed)
+    const role =
+      (await this.roleRepository.getById(trimmed)) ??
+      (await this.roleRepository.getByCode(trimmed.toUpperCase()))
     if (!role) {
       throw new ValidationError('Selecciona un rol válido')
     }
@@ -155,23 +151,18 @@ export class CreatePersonalUseCase {
     }
     const selected = await this.resolveRole(input.roleId)
     assertCanAssignOperationalRole(actor, selected.code)
-    const role = await technicianRoleForCargo(
-      this.roleRepository,
-      cargo.name,
-      selected,
-    )
     return {
       nombres: normalizeText(input.nombres, 'Nombres', 80),
       apellidoPaterno: normalizeText(input.apellidoPaterno, 'Apellido paterno', 60),
-      apellidoMaterno: normalizeText(input.apellidoMaterno, 'Apellido materno', 60),
+      apellidoMaterno: normalizeOptionalText(input.apellidoMaterno, 'Apellido materno', 60),
       dni,
       cargoId: cargo.id,
       cargoName: cargo.name,
       localidadId: localidad.id,
       localidadName: localidad.name,
       condicion: normalizeCondition(input.condicion),
-      roleId: role.roleId,
-      roleName: role.roleName,
+      roleId: selected.roleId,
+      roleName: selected.roleName,
       createdById: actor.id,
       createdByName: actor.displayName,
     }
@@ -222,24 +213,27 @@ export class UpdatePersonalUseCase {
       throw new ValidationError('Selecciona una localidad')
     }
     const selected = await this.resolveRole(input.roleId)
-    assertCanAssignOperationalRole(actor, selected.code)
-    const role = await technicianRoleForCargo(
-      this.roleRepository,
-      cargo.name,
-      selected,
-    )
+    if (selected.roleId !== (current.roleId ?? '')) {
+      const currentRole = current.roleId
+        ? await this.roleRepository.getById(current.roleId)
+        : null
+      if (currentRole?.code === UserRole.SuperAdministrador) {
+        assertCanAssignOperationalRole(actor, UserRole.SuperAdministrador)
+      }
+      assertCanAssignOperationalRole(actor, selected.code)
+    }
     return this.personalRepository.update(id, {
       nombres: normalizeText(input.nombres, 'Nombres', 80),
       apellidoPaterno: normalizeText(input.apellidoPaterno, 'Apellido paterno', 60),
-      apellidoMaterno: normalizeText(input.apellidoMaterno, 'Apellido materno', 60),
+      apellidoMaterno: normalizeOptionalText(input.apellidoMaterno, 'Apellido materno', 60),
       dni,
       cargoId: cargo.id,
       cargoName: cargo.name,
       localidadId: localidad.id,
       localidadName: localidad.name,
       condicion: normalizeCondition(input.condicion),
-      roleId: role.roleId,
-      roleName: role.roleName,
+      roleId: selected.roleId,
+      roleName: selected.roleName,
       createdById: current.createdById,
       createdByName: current.createdByName,
     })
@@ -254,7 +248,9 @@ export class UpdatePersonalUseCase {
     if (!trimmed) {
       return { roleId: '', roleName: '', code: '' }
     }
-    const role = await this.roleRepository.getById(trimmed)
+    const role =
+      (await this.roleRepository.getById(trimmed)) ??
+      (await this.roleRepository.getByCode(trimmed.toUpperCase()))
     if (!role) {
       throw new ValidationError('Selecciona un rol válido')
     }
@@ -262,16 +258,131 @@ export class UpdatePersonalUseCase {
   }
 }
 
+export class AssignPersonalRoleUseCase {
+  private readonly personalRepository: PersonalRepository
+  private readonly roleRepository: OperationalRoleRepository
+  private readonly userRepository: UserRepository
+  private readonly deleteUserUseCase: DeleteUserUseCase
+
+  constructor(
+    personalRepository: PersonalRepository,
+    roleRepository: OperationalRoleRepository,
+    userRepository: UserRepository,
+    deleteUserUseCase: DeleteUserUseCase,
+  ) {
+    this.personalRepository = personalRepository
+    this.roleRepository = roleRepository
+    this.userRepository = userRepository
+    this.deleteUserUseCase = deleteUserUseCase
+  }
+
+  async execute(
+    actor: User,
+    personId: string,
+    roleIds: string[],
+  ): Promise<Personal> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError('Solo el administrador puede asignar roles')
+    }
+    const current = await this.personalRepository.getById(personId)
+    if (!current) {
+      throw new NotFoundError('Persona no encontrada')
+    }
+
+    const uniqueIds = [...new Set(roleIds.map((item) => item.trim()).filter(Boolean))]
+    if (uniqueIds.length > 3) {
+      throw new ValidationError('Una persona puede tener como máximo 3 roles')
+    }
+
+    const selected: Array<{ id: string; name: string; code: string }> = []
+    for (const roleId of uniqueIds) {
+      const role =
+        (await this.roleRepository.getById(roleId)) ??
+        (await this.roleRepository.getByCode(roleId.toUpperCase()))
+      if (!role) {
+        throw new ValidationError('Selecciona un rol válido')
+      }
+      selected.push({ id: role.id, name: role.name, code: role.code })
+    }
+
+    const nextCodes = selected.map((item) => item.code)
+    const previousIds = current.roleIds?.length
+      ? current.roleIds
+      : current.roleId
+        ? [current.roleId]
+        : []
+    const previousSuper = await this.hasSuperAdmin(previousIds)
+    const nextSuper = nextCodes.includes(UserRole.SuperAdministrador)
+
+    if (previousSuper || nextSuper) {
+      assertCanAssignOperationalRole(actor, UserRole.SuperAdministrador)
+    }
+    for (const item of selected) {
+      if (isUserRole(item.code)) {
+        assertCanAssignOperationalRole(actor, item.code)
+      }
+    }
+
+    const updated = await this.personalRepository.assignRoles(personId, selected)
+    if (selected.length === 0 && current.dni) {
+      const accounts = await this.userRepository.listByDni(current.dni)
+      for (const account of accounts) {
+        if (account.id === actor.id) continue
+        try {
+          await this.deleteUserUseCase.execute(actor, account.id, {
+            skipClearRoles: true,
+          })
+        } catch {
+          // La ficha ya quedó sin roles; la cuenta se puede quitar en Cuentas.
+        }
+      }
+    }
+    return updated
+  }
+
+  private async hasSuperAdmin(roleIds: string[]): Promise<boolean> {
+    for (const roleId of roleIds) {
+      const role =
+        (await this.roleRepository.getById(roleId)) ??
+        (await this.roleRepository.getByCode(roleId))
+      if (role?.code === UserRole.SuperAdministrador) return true
+    }
+    return false
+  }
+}
+
 export class DeletePersonalUseCase {
   private readonly personalRepository: PersonalRepository
+  private readonly userRepository: UserRepository
+  private readonly deleteUserUseCase: DeleteUserUseCase
 
-  constructor(personalRepository: PersonalRepository) {
+  constructor(
+    personalRepository: PersonalRepository,
+    userRepository: UserRepository,
+    deleteUserUseCase: DeleteUserUseCase,
+  ) {
     this.personalRepository = personalRepository
+    this.userRepository = userRepository
+    this.deleteUserUseCase = deleteUserUseCase
   }
 
   async execute(actor: User, id: string): Promise<void> {
     if (!assertUserCanManageUsers(actor)) {
       throw new UnauthorizedError('Solo el administrador puede eliminar personal')
+    }
+    const person = await this.personalRepository.getById(id)
+    if (person?.dni) {
+      const accounts = await this.userRepository.listByDni(person.dni)
+      for (const account of accounts) {
+        if (account.id === actor.id) continue
+        try {
+          await this.deleteUserUseCase.execute(actor, account.id, {
+            skipClearRoles: true,
+          })
+        } catch {
+          // Si la cuenta ya no existe en Auth, igual se quita la ficha.
+        }
+      }
     }
     await this.personalRepository.delete(id)
   }
@@ -281,18 +392,15 @@ export class ImportPersonalUseCase {
   private readonly personalRepository: PersonalRepository
   private readonly cargoRepository: CatalogRepository
   private readonly localidadRepository: CatalogRepository
-  private readonly roleRepository: OperationalRoleRepository
 
   constructor(
     personalRepository: PersonalRepository,
     cargoRepository: CatalogRepository,
     localidadRepository: CatalogRepository,
-    roleRepository: OperationalRoleRepository,
   ) {
     this.personalRepository = personalRepository
     this.cargoRepository = cargoRepository
     this.localidadRepository = localidadRepository
-    this.roleRepository = roleRepository
   }
 
   async execute(
@@ -346,10 +454,6 @@ export class ImportPersonalUseCase {
       }
 
       const existing = await this.personalRepository.findByDni(row.dni)
-      const role = await technicianRoleForCargo(this.roleRepository, cargo.name, {
-        roleId: existing?.roleId ?? '',
-        roleName: existing?.roleName ?? '',
-      })
       const payload = {
         nombres: row.nombres,
         apellidoPaterno: row.apellidoPaterno,
@@ -360,8 +464,10 @@ export class ImportPersonalUseCase {
         localidadId: localidad.id,
         localidadName: localidad.name,
         condicion: row.condicion,
-        roleId: role.roleId,
-        roleName: role.roleName,
+        roleId: existing?.roleId ?? '',
+        roleName: existing?.roleName ?? '',
+        roleIds: existing?.roleIds ?? (existing?.roleId ? [existing.roleId] : []),
+        roleNames: existing?.roleNames ?? (existing?.roleName ? [existing.roleName] : []),
         createdById: actor.id,
         createdByName: actor.displayName,
       }

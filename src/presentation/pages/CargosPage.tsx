@@ -6,8 +6,8 @@ export function CargosPage() {
   return (
     <NamedCatalogPage
       title="Cargos"
-      eyebrow="Personal"
-      description="Catálogo de cargos. Se usa en la relación de personal."
+      eyebrow="Organización"
+      description="Catálogo de cargos. Se usa en Recursos Humanos."
       createLabel="Nuevo cargo"
       itemLabel="cargo"
       useCase={catalogCargosUseCase}

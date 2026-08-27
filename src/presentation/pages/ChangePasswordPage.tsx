@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import logo from '@/assets/logo.png'
+import { HOME_PATH } from '@/domain/value-objects/AppMenuPermission'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { DomainError } from '@/domain/errors/DomainError'
@@ -30,7 +31,7 @@ export function ChangePasswordPage() {
         confirmPassword,
       )
       setUser(updated)
-      navigate('/carpetas', { replace: true })
+      navigate(HOME_PATH, { replace: true })
     } catch (err) {
       setError(
         err instanceof DomainError

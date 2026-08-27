@@ -246,4 +246,30 @@ export class FirebaseAuthRepository implements AuthRepository {
       throw mapAuthError(error as FunctionsError)
     }
   }
+
+  async setManagedUserActive(userId: string, active: boolean): Promise<void> {
+    try {
+      const callable = httpsCallable<
+        { userId: string; active: boolean },
+        { ok: boolean; active: boolean }
+      >(firebaseFunctions, 'setManagedUserActive')
+      const result = await callable({ userId, active })
+      assertCallablePayload(result.data, ['ok'])
+    } catch (error) {
+      throw mapAuthError(error as FunctionsError)
+    }
+  }
+
+  async deleteManagedUser(userId: string): Promise<void> {
+    try {
+      const callable = httpsCallable<{ userId: string }, { ok: boolean }>(
+        firebaseFunctions,
+        'deleteManagedUser',
+      )
+      const result = await callable({ userId })
+      assertCallablePayload(result.data, ['ok'])
+    } catch (error) {
+      throw mapAuthError(error as FunctionsError)
+    }
+  }
 }

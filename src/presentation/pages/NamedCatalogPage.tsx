@@ -280,7 +280,7 @@ export function NamedCatalogPage({
       ) : items.length === 0 ? (
         <div className="catalog-empty">
           <h2>Sin registros</h2>
-          <p>Crea el primero o importa el Excel de personal.</p>
+          <p>Crea el primero o importa el Excel desde Recursos Humanos.</p>
         </div>
       ) : filtered.length === 0 ? (
         <p className="catalog-empty">Sin resultados para “{searchTerm.trim()}”.</p>

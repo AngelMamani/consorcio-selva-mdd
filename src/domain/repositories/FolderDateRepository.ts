@@ -11,6 +11,7 @@ export interface CreateFolderDateInput {
 export interface FolderDateRepository {
   getById(id: string): Promise<FolderDate | null>
   listByFolder(folderId: string): Promise<FolderDate[]>
+  listByFolderIds(folderIds: string[]): Promise<FolderDate[]>
   findByFolderAndDateKey(
     folderId: string,
     dateKey: string,

@@ -14,6 +14,7 @@ const MUTED: [number, number, number] = [90, 98, 112]
 const LINE: [number, number, number] = [220, 226, 234]
 const OFFICE_BG: [number, number, number] = [227, 242, 253]
 const ZONE_BG: [number, number, number] = [232, 245, 233]
+const PERMISO_BG: [number, number, number] = [243, 229, 245]
 const MISSING_BG: [number, number, number] = [255, 235, 238]
 
 const MARGIN = 14
@@ -22,11 +23,11 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2
 const FOOTER_Y = 288
 
 const TABLE_COLS = [
-  { key: 'technicianName', label: 'Técnico', width: 58 },
-  { key: 'status', label: 'Estado', width: 28 },
-  { key: 'originLabel', label: 'Origen', width: 34 },
+  { key: 'personName', label: 'Persona', width: 52 },
+  { key: 'attendedLabel', label: 'Asistió', width: 18 },
+  { key: 'originLabel', label: 'Tipo', width: 28 },
   { key: 'timeLabel', label: 'Hora', width: 20 },
-  { key: 'areaName', label: 'Área', width: 50 },
+  { key: 'personRole', label: 'Rol', width: 54 },
 ] as const
 
 async function jpegFromStoragePath(
@@ -132,10 +133,10 @@ export class JsPdfAttendanceExportService implements AttendancePdfExportService 
       96,
     )
 
-    this.drawKpiBox(pdf, MARGIN, 108, 'Técnicos', String(report.totals.technicians), BRAND_BLUE)
+    this.drawKpiBox(pdf, MARGIN, 108, 'Personas', String(report.totals.people), BRAND_BLUE)
     this.drawKpiBox(pdf, MARGIN + 46, 108, 'Oficina', String(report.totals.office), BRAND_BLUE)
     this.drawKpiBox(pdf, MARGIN + 92, 108, 'Campo', String(report.totals.zone), BRAND_GREEN)
-    this.drawKpiBox(pdf, MARGIN + 138, 108, 'Sin marcar', String(report.totals.missing), [198, 40, 40])
+    this.drawKpiBox(pdf, MARGIN + 138, 108, 'Sin marca', String(report.totals.missing), [198, 40, 40])
 
     pdf.setTextColor(30, 35, 45)
     pdf.setFont('helvetica', 'bold')
@@ -236,12 +237,14 @@ export class JsPdfAttendanceExportService implements AttendancePdfExportService 
     y: number,
     rowHeight: number,
   ): void {
-    const fill =
-      line.status === 'Sin marcar'
+    const fill: [number, number, number] =
+      line.status === 'No asistió'
         ? MISSING_BG
-        : line.originLabel === 'Oficina'
-          ? OFFICE_BG
-          : ZONE_BG
+        : line.originLabel === 'Permiso'
+          ? PERMISO_BG
+          : line.originLabel === 'Oficina'
+            ? OFFICE_BG
+            : ZONE_BG
     pdf.setFillColor(...fill)
     pdf.rect(MARGIN, y, CONTENT_WIDTH, rowHeight, 'F')
     pdf.setDrawColor(...LINE)
@@ -271,16 +274,18 @@ export class JsPdfAttendanceExportService implements AttendancePdfExportService 
     pdf.setTextColor(30, 35, 45)
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(16)
-    pdf.text(line.technicianName, MARGIN, 38)
+    pdf.text(line.personName, MARGIN, 38)
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(10)
     pdf.setTextColor(...MUTED)
-    pdf.text(line.technicianEmail, MARGIN, 45)
+    pdf.text(line.personEmail, MARGIN, 45)
 
     const facts = [
-      ['Origen', line.originLabel],
+      ['Asistió', line.attendedLabel],
+      ['Tipo', line.originLabel],
       ['Hora', line.timeLabel],
-      ['Área', line.areaName],
+      ['Rol', line.personRole],
+      ['Permiso', line.permissionNote],
       ['GPS validado', line.officeValidatedLabel],
       [
         'Coordenadas',

@@ -1,6 +1,6 @@
 import type { UserRepository } from '@/domain/repositories/UserRepository'
-import type { User } from '@/domain/entities/User'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { uniqueUsersByAccessDni, type User } from '@/domain/entities/User'
+import { hasAssignedRole, UserRole } from '@/domain/value-objects/UserRole'
 import { UnauthorizedError } from '@/domain/errors/DomainError'
 
 /** Lista técnicos activos (admin y técnicos pueden usarlo para asignar carpetas). */
@@ -17,8 +17,8 @@ export class ListTechniciansUseCase {
     }
 
     const users = await this.userRepository.listTechnicians()
-    return users
-      .filter((user) => user.role === UserRole.Tecnico && user.active)
+    return uniqueUsersByAccessDni(users)
+      .filter((user) => hasAssignedRole(user, UserRole.Tecnico) && user.active)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
   }
 }

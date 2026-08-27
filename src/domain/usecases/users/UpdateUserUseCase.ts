@@ -1,7 +1,7 @@
 import type { AuthRepository } from '@/domain/repositories/AuthRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { User } from '@/domain/entities/User'
-import { UserRole, isUserRole, canManageOperationalRoles } from '@/domain/value-objects/UserRole'
+import { UserRole, isUserRole, canManageOperationalRoles, hasAssignedRole } from '@/domain/value-objects/UserRole'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
 import { normalizeOptionalDni } from '@/domain/value-objects/Dni'
 import {
@@ -14,6 +14,7 @@ export interface UpdateUserRequest {
   userId: string
   displayName?: string
   role?: UserRole
+  roles?: UserRole[]
   dni?: string
   active?: boolean
 }
@@ -42,7 +43,8 @@ export class UpdateUserUseCase {
     }
 
     if (
-      request.role === UserRole.SuperAdministrador &&
+      (request.role === UserRole.SuperAdministrador ||
+        request.roles?.includes(UserRole.SuperAdministrador)) &&
       !canManageOperationalRoles(actor.role)
     ) {
       throw new UnauthorizedError(
@@ -54,6 +56,20 @@ export class UpdateUserUseCase {
       throw new ValidationError('No puedes desactivar tu propia cuenta')
     }
 
+    const existingIsPrivileged =
+      hasAssignedRole(existing, UserRole.Administrador) ||
+      hasAssignedRole(existing, UserRole.SuperAdministrador)
+
+    if (
+      request.active === false &&
+      hasAssignedRole(existing, UserRole.SuperAdministrador) &&
+      !canManageOperationalRoles(actor.role)
+    ) {
+      throw new UnauthorizedError(
+        'Solo el Super Administrador puede desactivar a otro Super Administrador',
+      )
+    }
+
     const nextRole = request.role
     const roleChanged =
       nextRole !== undefined && nextRole !== existing.role
@@ -63,19 +79,19 @@ export class UpdateUserUseCase {
     }
 
     if (
-      roleChanged &&
-      (existing.role === UserRole.Administrador ||
-        existing.role === UserRole.SuperAdministrador) &&
-      nextRole !== UserRole.Administrador &&
-      nextRole !== UserRole.SuperAdministrador
+      (request.active === false && existingIsPrivileged) ||
+      (roleChanged &&
+        existingIsPrivileged &&
+        nextRole !== UserRole.Administrador &&
+        nextRole !== UserRole.SuperAdministrador)
     ) {
       const all = await this.userRepository.listAll()
       const otherActiveAdmins = all.filter(
         (item) =>
           item.id !== existing.id &&
-          (item.role === UserRole.Administrador ||
-            item.role === UserRole.SuperAdministrador) &&
-          item.active,
+          item.active &&
+          (hasAssignedRole(item, UserRole.Administrador) ||
+            hasAssignedRole(item, UserRole.SuperAdministrador)),
       )
       if (otherActiveAdmins.length === 0) {
         throw new ValidationError(
@@ -102,8 +118,13 @@ export class UpdateUserUseCase {
       })
     }
 
+    const rolesChanged = request.roles !== undefined
     const shouldPatch =
-      nameChanged || roleChanged || request.active !== undefined || request.dni !== undefined
+      nameChanged ||
+      roleChanged ||
+      rolesChanged ||
+      request.active !== undefined ||
+      request.dni !== undefined
 
     if (!shouldPatch) {
       return existing
@@ -113,8 +134,8 @@ export class UpdateUserUseCase {
     if (request.dni !== undefined) {
       nextDni = normalizeOptionalDni(request.dni)
       if (nextDni && nextDni !== existing.dni) {
-        const duplicate = await this.userRepository.findByDni(nextDni)
-        if (duplicate && duplicate.id !== existing.id) {
+        const matches = await this.userRepository.listByDni(nextDni)
+        if (matches.some((item) => item.id !== existing.id)) {
           throw new ValidationError('Ya existe un usuario con ese DNI')
         }
       }
@@ -122,13 +143,30 @@ export class UpdateUserUseCase {
 
     const resolvedRole = nextRole ?? existing.role
     const resolvedDni = nextDni !== undefined ? nextDni : existing.dni
-    if (resolvedRole === UserRole.Tecnico && !resolvedDni) {
-      throw new ValidationError('El DNI es el código de acceso del técnico')
+    const nextRoles = request.roles ?? existing.roles
+    if (
+      (request.role !== undefined ||
+        request.roles !== undefined ||
+        request.dni !== undefined) &&
+      (resolvedRole === UserRole.Tecnico ||
+        nextRoles.includes(UserRole.Tecnico) ||
+        nextRoles.includes(UserRole.Administrador)) &&
+      !resolvedDni
+    ) {
+      throw new ValidationError('El DNI es el código de acceso a la app')
+    }
+
+    if (request.active !== undefined && request.active !== existing.active) {
+      await this.authRepository.setManagedUserActive(
+        request.userId,
+        request.active,
+      )
     }
 
     return this.userRepository.update(request.userId, {
       ...(nameChanged ? { displayName } : {}),
       ...(request.role !== undefined ? { role: request.role } : {}),
+      ...(request.roles !== undefined ? { roles: request.roles } : {}),
       ...(request.active !== undefined ? { active: request.active } : {}),
       ...(nextDni !== undefined ? { dni: nextDni } : {}),
     })

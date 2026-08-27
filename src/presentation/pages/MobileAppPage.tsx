@@ -5,6 +5,7 @@ import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { swalError, swalSuccess } from '@/presentation/utils/appSwal'
 import { readApkReleaseVersion } from '@/presentation/utils/readApkReleaseVersion'
+import { SystemOrgNav } from '@/presentation/components/SystemOrgNav'
 import './MobileAppPage.css'
 
 function formatWhen(date: Date): string {
@@ -144,13 +145,14 @@ export function MobileAppPage() {
     <section className="mobile-app-page">
       <header className="mobile-app-page__header">
         <div>
-          <p className="mobile-app-page__eyebrow">App de técnicos</p>
+          <p className="mobile-app-page__eyebrow">Sistema</p>
           <h2>Actualización del APK</h2>
           <p>
             Sube el APK y la <strong>versión</strong> y el <strong>código</strong> se
             leen solos del archivo. Así no hay desfase con lo que tiene el celular.
           </p>
         </div>
+        <SystemOrgNav />
       </header>
 
       <article className="mobile-app-card">

@@ -1,5 +1,6 @@
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { Supply } from '@/domain/entities/Supply'
+import { supplyHasLocation } from '@/domain/entities/Supply'
 
 export const VIRTUAL_SUPPLY_FOLDER_PREFIX = 'virtual:'
 
@@ -53,10 +54,12 @@ export function folderFromSupply(input: {
     assignedTechnicianNames: [],
     imageCount: 0,
     routeCode: input.supply.routeCode,
-    location: {
-      latitude: input.supply.latitude,
-      longitude: input.supply.longitude,
-    },
+    location: supplyHasLocation(input.supply)
+      ? {
+          latitude: input.supply.latitude,
+          longitude: input.supply.longitude,
+        }
+      : undefined,
     createdAt: now,
     updatedAt: now,
   }

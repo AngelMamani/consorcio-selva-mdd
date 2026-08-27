@@ -16,7 +16,7 @@ abstract class AttendanceRepository {
     required GeoLocation location,
     required bool officeValidated,
     int? distanceToOfficeMeters,
-    String? officeQrToken,
+    String permissionNote = '',
     ImageFilePayload? environmentPhoto,
   });
 }

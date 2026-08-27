@@ -5,6 +5,7 @@ import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { User } from '@/domain/entities/User'
 import { assertUserCanAccessFolder } from '@/domain/entities/User'
 import { supplyFolderDocId } from '@/domain/services/SupplyFolderService'
+import { supplyHasLocation } from '@/domain/entities/Supply'
 import {
   isRouteCode,
   normalizeRouteCode,
@@ -89,10 +90,12 @@ export class EnsureSupplyFolderUseCase {
       assignedTechnicianIds: [],
       assignedTechnicianNames: [],
       routeCode: code,
-      location: {
-        latitude: supply.latitude,
-        longitude: supply.longitude,
-      },
+      location: supplyHasLocation(supply)
+        ? {
+            latitude: supply.latitude,
+            longitude: supply.longitude,
+          }
+        : undefined,
     })
   }
 }

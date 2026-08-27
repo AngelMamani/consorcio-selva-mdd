@@ -4,6 +4,34 @@ import '../../domain/errors/domain_exception.dart';
 import '../../domain/value_objects/geo_location.dart';
 
 class DeviceLocationService {
+  Future<bool> isGpsActive() async {
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    if (!enabled) return false;
+    final permission = await Geolocator.checkPermission();
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+  }
+
+  Stream<ServiceStatus> watchGpsService() {
+    return Geolocator.getServiceStatusStream();
+  }
+
+  Future<void> openGpsSettings() {
+    return Geolocator.openLocationSettings();
+  }
+
+  Future<void> openAppSettings() {
+    return Geolocator.openAppSettings();
+  }
+
+  Future<LocationPermission> ensurePermission() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    return permission;
+  }
+
   Future<GeoLocation> getCurrentLocation({
     bool openSettingsIfDisabled = true,
     String purpose = 'asignar la ubicación',

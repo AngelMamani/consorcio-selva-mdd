@@ -1,10 +1,11 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { usePermissions } from '@/presentation/providers/PermissionsProvider'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { UserRole, WEB_USER_ROLES } from '@/domain/value-objects/UserRole'
 import {
   pathToMenuKey,
   AppMenuKey,
+  HOME_PATH,
   type AppMenuKey as AppMenuKeyType,
 } from '@/domain/value-objects/AppMenuPermission'
 
@@ -51,11 +52,15 @@ export function ProtectedRoute({
   }
 
   if (!user.mustChangePassword && allowPasswordChange) {
-    return <Navigate to="/areas" replace />
+    return <Navigate to={HOME_PATH} replace />
+  }
+
+  if (!WEB_USER_ROLES.includes(user.role)) {
+    return <Navigate to="/login" replace />
   }
 
   if (roles && !roles.includes(user.role)) {
-    return <Navigate to="/areas" replace />
+    return <Navigate to={HOME_PATH} replace />
   }
 
   const requiredMenuKey = menuKey ?? pathToMenuKey(location.pathname)
@@ -65,12 +70,11 @@ export function ProtectedRoute({
   ) {
     if (
       requiredMenuKey === AppMenuKey.Roles &&
-      (user.role === UserRole.SuperAdministrador ||
-        user.role === UserRole.Administrador)
+      user.role === UserRole.SuperAdministrador
     ) {
       return <Outlet />
     }
-    return <Navigate to="/areas" replace />
+    return <Navigate to={HOME_PATH} replace />
   }
 
   return <Outlet />

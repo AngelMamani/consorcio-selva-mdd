@@ -89,3 +89,31 @@ export async function swalNotice(options: {
     animation: false,
   })
 }
+
+export async function swalPrompt(options: {
+  title: string
+  text?: string
+  inputLabel?: string
+  inputPlaceholder?: string
+  confirmButtonText?: string
+  maxLength?: number
+}): Promise<string | null> {
+  const result = await Swal.fire({
+    title: options.title,
+    text: options.text,
+    input: 'textarea',
+    inputLabel: options.inputLabel,
+    inputPlaceholder: options.inputPlaceholder,
+    inputAttributes: { maxlength: String(options.maxLength ?? 200) },
+    showCancelButton: true,
+    focusCancel: true,
+    confirmButtonText: options.confirmButtonText ?? 'Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#1e88e5',
+    cancelButtonColor: '#6b7385',
+    reverseButtons: true,
+    animation: false,
+  })
+  if (!result.isConfirmed) return null
+  return String(result.value ?? '')
+}

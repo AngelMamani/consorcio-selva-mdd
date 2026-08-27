@@ -3,7 +3,7 @@ import type { AreaRepository } from '@/domain/repositories/AreaRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { User } from '@/domain/entities/User'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { hasAssignedRole, UserRole } from '@/domain/value-objects/UserRole'
 import { UnauthorizedError, ValidationError } from '@/domain/errors/DomainError'
 
 export interface CreateFolderRequest {
@@ -103,7 +103,7 @@ export async function resolveAssignments(
   }
 
   const technicians = (await userRepository.listTechnicians()).filter(
-    (user) => user.role === UserRole.Tecnico && user.active,
+    (user) => hasAssignedRole(user, UserRole.Tecnico) && user.active,
   )
   const byId = new Map(technicians.map((user) => [user.id, user]))
 

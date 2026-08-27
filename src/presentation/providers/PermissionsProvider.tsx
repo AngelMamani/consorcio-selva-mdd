@@ -13,7 +13,7 @@ import {
 } from '@/domain/value-objects/AppMenuPermission'
 import {
   canManageOperationalRoles,
-  canManageUsers,
+  UserRole,
 } from '@/domain/value-objects/UserRole'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
@@ -58,15 +58,17 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshPermissions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role])
+  }, [user?.id, user?.role, user?.roles])
 
   const value = useMemo(
     () => ({
       permissions,
       loading,
       canAccessMenu: (key: AppMenuKeyType) => {
-        if (key === AppMenuKey.Roles && user && canManageUsers(user.role)) {
-          return true
+        if (key === AppMenuKey.Inicio) return true
+        if (user?.role === UserRole.SuperAdministrador) return true
+        if (key === AppMenuKey.Roles) {
+          return Boolean(user && canManageOperationalRoles(user.role))
         }
         return permissions.includes(key)
       },

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "942360682235",
+    "project_id": "consorcio-selva-mdd",
+    "storage_bucket": "consorcio-selva-mdd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:942360682235:android:16121536c25e613e4a9a5e",
+        "android_client_info": {
+          "package_name": "com.consorcioselvamdd.tecnico"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZLEA1nZ4R-iSQVOMFAiMiOX3EGkNHXSg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

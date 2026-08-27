@@ -33,6 +33,7 @@ export class ExportFolderImagesToPdfUseCase {
     folderId: string,
     requestedFileName: string,
     dateId?: string,
+    uploadedById?: string,
   ): Promise<PdfExportResult> {
     const folder = await this.folderRepository.getById(folderId)
     if (!folder) {
@@ -48,9 +49,13 @@ export class ExportFolderImagesToPdfUseCase {
       throw new ValidationError('El nombre del PDF es obligatorio')
     }
 
-    const images = dateId
+    const allImages = dateId
       ? await this.imageRepository.listByDate(folderId, dateId)
       : await this.imageRepository.listByFolder(folderId)
+    const technicianId = uploadedById?.trim()
+    const images = technicianId
+      ? allImages.filter((image) => image.uploadedById === technicianId)
+      : allImages
     if (images.length === 0) {
       throw new ValidationError('No hay imágenes para exportar')
     }

@@ -6,8 +6,8 @@ export function LocalidadesPage() {
   return (
     <NamedCatalogPage
       title="Localidades"
-      eyebrow="Personal"
-      description="Catálogo de localidades. Se usa en la relación de personal."
+      eyebrow="Organización"
+      description="Catálogo de localidades. Se usa en Recursos Humanos."
       createLabel="Nueva localidad"
       itemLabel="localidad"
       useCase={catalogLocalidadesUseCase}

@@ -45,6 +45,26 @@ class ImageFolder {
     return assignedTechnicianIds.contains(userId);
   }
 
+  ImageFolder copyWith({int? imageCount}) {
+    return ImageFolder(
+      id: id,
+      areaId: areaId,
+      areaName: areaName,
+      name: name,
+      description: description,
+      ownerId: ownerId,
+      ownerName: ownerName,
+      assignToAllTechnicians: assignToAllTechnicians,
+      assignedTechnicianIds: assignedTechnicianIds,
+      assignedTechnicianNames: assignedTechnicianNames,
+      imageCount: imageCount ?? this.imageCount,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      location: location,
+      routeCode: routeCode,
+    );
+  }
+
   String get assigneesLabel {
     if (assignToAllTechnicians) return 'Todos los técnicos';
     if (assignedTechnicianNames.isEmpty) {

@@ -33,12 +33,35 @@ onInit(() => {
   initializeApp()
 })
 
-function isPrivilegedRole(role: unknown): boolean {
-  return role === 'ADMINISTRADOR' || role === 'SUPER_ADMINISTRADOR'
+function actorRoleCodes(actor: Record<string, unknown> | undefined): string[] {
+  const fromList = Array.isArray(actor?.roles)
+    ? actor.roles.filter((item): item is string => typeof item === 'string')
+    : []
+  const primary = typeof actor?.role === 'string' ? actor.role : ''
+  return [...new Set([...fromList, primary].filter((item) => ALLOWED_ROLES.has(item)))]
+}
+
+function isPrivilegedActor(actor: Record<string, unknown> | undefined): boolean {
+  const codes = actorRoleCodes(actor)
+  return (
+    actor?.active === true &&
+    (codes.includes('ADMINISTRADOR') || codes.includes('SUPER_ADMINISTRADOR'))
+  )
+}
+
+function actorIsSuperAdmin(actor: Record<string, unknown> | undefined): boolean {
+  return actorRoleCodes(actor).includes('SUPER_ADMINISTRADOR')
+}
+
+function isPrivilegedUserData(data: Record<string, unknown> | undefined): boolean {
+  const codes = actorRoleCodes(data)
+  return (
+    codes.includes('ADMINISTRADOR') || codes.includes('SUPER_ADMINISTRADOR')
+  )
 }
 
 function assertAdmin(actor: Record<string, unknown> | undefined) {
-  if (!actor || actor.active !== true || !isPrivilegedRole(actor.role)) {
+  if (!actor || !isPrivilegedActor(actor)) {
     throw new HttpsError(
       'permission-denied',
       'Solo el administrador puede realizar esta acción',
@@ -134,7 +157,7 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
     throw new HttpsError('invalid-argument', 'Rol inválido')
   }
 
-  if (role === 'SUPER_ADMINISTRADOR' && actor?.role !== 'SUPER_ADMINISTRADOR') {
+  if (role === 'SUPER_ADMINISTRADOR' && !actorIsSuperAdmin(actor)) {
     throw new HttpsError(
       'permission-denied',
       'Solo el Super Administrador puede crear otro Super Administrador',
@@ -145,6 +168,25 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
     const aliasSnap = await db.collection('loginByDni').doc(dni).get()
     if (aliasSnap.exists) {
       throw new HttpsError('already-exists', 'Ya existe un usuario con ese DNI')
+    }
+    const byDni = await db
+      .collection('users')
+      .where('dni', '==', dni)
+      .limit(1)
+      .get()
+    if (!byDni.empty) {
+      throw new HttpsError('already-exists', 'Ya existe un usuario con ese DNI')
+    }
+  }
+
+  if (email) {
+    const byEmail = await db
+      .collection('users')
+      .where('email', '==', email)
+      .limit(1)
+      .get()
+    if (!byEmail.empty) {
+      throw new HttpsError('already-exists', 'El correo ya está registrado')
     }
   }
 
@@ -169,6 +211,7 @@ export const createManagedUser = onCall(callableOptions, async (request) => {
       displayName,
       dni,
       role,
+      roles: [role],
       theme: 'light',
       mustChangePassword: true,
       active: true,
@@ -230,7 +273,7 @@ export const resetUserTemporaryPassword = onCall(
     try {
       await getAuth().updateUser(targetUserId, {
         password: temporaryPassword,
-        disabled: false,
+        disabled: targetSnap.data()?.active === false,
       })
     } catch (error) {
       throw mapAuthAdminError(
@@ -242,7 +285,6 @@ export const resetUserTemporaryPassword = onCall(
     try {
       await db.collection('users').doc(targetUserId).update({
         mustChangePassword: true,
-        active: true,
         updatedAt: FieldValue.serverTimestamp(),
       })
     } catch (error) {
@@ -259,6 +301,169 @@ export const resetUserTemporaryPassword = onCall(
     }
   },
 )
+
+export const setManagedUserActive = onCall(
+  callableOptions,
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Debes iniciar sesión')
+    }
+
+    const targetUserId = String(request.data?.userId ?? '').trim()
+    const active = request.data?.active === true
+
+    if (!targetUserId) {
+      throw new HttpsError('invalid-argument', 'Falta el usuario a actualizar')
+    }
+
+    const db = getFirestore()
+    const actorSnap = await db.collection('users').doc(request.auth.uid).get()
+    const actor = actorSnap.data() as Record<string, unknown> | undefined
+    assertAdmin(actor)
+
+    if (targetUserId === request.auth.uid && !active) {
+      throw new HttpsError(
+        'failed-precondition',
+        'No puedes desactivar tu propia cuenta',
+      )
+    }
+
+    const targetSnap = await db.collection('users').doc(targetUserId).get()
+    if (!targetSnap.exists) {
+      throw new HttpsError('not-found', 'Usuario no encontrado en Firestore')
+    }
+
+    const target = targetSnap.data() as Record<string, unknown> | undefined
+    if (
+      actorRoleCodes(target).includes('SUPER_ADMINISTRADOR') &&
+      !actorIsSuperAdmin(actor)
+    ) {
+      throw new HttpsError(
+        'permission-denied',
+        'Solo el Super Administrador puede desactivar a otro Super Administrador',
+      )
+    }
+
+    if (!active && isPrivilegedUserData(target)) {
+      const all = await db.collection('users').get()
+      const otherAdmins = all.docs.filter((docSnap) => {
+        if (docSnap.id === targetUserId) return false
+        const data = docSnap.data() as Record<string, unknown>
+        return data.active !== false && isPrivilegedUserData(data)
+      })
+      if (otherAdmins.length === 0) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Debe quedar al menos un administrador activo',
+        )
+      }
+    }
+
+    try {
+      if (!active) {
+        await getAuth().revokeRefreshTokens(targetUserId)
+      }
+      await getAuth().updateUser(targetUserId, { disabled: !active })
+    } catch (error) {
+      throw mapAuthAdminError(
+        error,
+        'No se pudo actualizar el acceso en Authentication',
+      )
+    }
+
+    try {
+      await db.collection('users').doc(targetUserId).update({
+        active,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+    } catch (error) {
+      await getAuth()
+        .updateUser(targetUserId, { disabled: active })
+        .catch(() => undefined)
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'No se pudo actualizar el estado en Firestore'
+      throw new HttpsError('failed-precondition', message)
+    }
+
+    return { ok: true, active }
+  },
+)
+
+export const deleteManagedUser = onCall(callableOptions, async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Debes iniciar sesión')
+  }
+
+  const targetUserId = String(request.data?.userId ?? '').trim()
+  if (!targetUserId) {
+    throw new HttpsError('invalid-argument', 'Falta el usuario a eliminar')
+  }
+  if (targetUserId === request.auth.uid) {
+    throw new HttpsError(
+      'failed-precondition',
+      'No puedes eliminar tu propia cuenta',
+    )
+  }
+
+  const db = getFirestore()
+  const actorSnap = await db.collection('users').doc(request.auth.uid).get()
+  const actor = actorSnap.data() as Record<string, unknown> | undefined
+  assertAdmin(actor)
+
+  const targetSnap = await db.collection('users').doc(targetUserId).get()
+  if (!targetSnap.exists) {
+    throw new HttpsError('not-found', 'Usuario no encontrado en Firestore')
+  }
+
+  const target = targetSnap.data() as Record<string, unknown> | undefined
+  if (
+    actorRoleCodes(target).includes('SUPER_ADMINISTRADOR') &&
+    !actorIsSuperAdmin(actor)
+  ) {
+    throw new HttpsError(
+      'permission-denied',
+      'Solo el Super Administrador puede eliminar esa cuenta',
+    )
+  }
+
+  if (isPrivilegedUserData(target)) {
+    const all = await db.collection('users').get()
+    const otherAdmins = all.docs.filter((docSnap) => {
+      if (docSnap.id === targetUserId) return false
+      const data = docSnap.data() as Record<string, unknown>
+      return data.active !== false && isPrivilegedUserData(data)
+    })
+    if (otherAdmins.length === 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Debe quedar al menos un administrador activo',
+      )
+    }
+  }
+
+  const dni = String(target?.dni ?? '').replace(/\D/g, '')
+  try {
+    await getAuth().revokeRefreshTokens(targetUserId).catch(() => undefined)
+    await getAuth().deleteUser(targetUserId)
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code: string }).code)
+        : ''
+    if (code !== 'auth/user-not-found') {
+      throw mapAuthAdminError(error, 'No se pudo eliminar el usuario en Authentication')
+    }
+  }
+
+  if (/^\d{8}$/.test(dni)) {
+    await db.collection('loginByDni').doc(dni).delete().catch(() => undefined)
+  }
+  await db.collection('users').doc(targetUserId).delete()
+
+  return { ok: true }
+})
 
 export const updateManagedUserDisplayName = onCall(
   callableOptions,
@@ -382,8 +587,20 @@ export const claimConfiguredSuperAdmin = onCall(
     }
 
     const db = getFirestore()
+    const current = (await db.collection('users').doc(request.auth.uid).get()).data()
+    const currentRoles = Array.isArray(current?.roles)
+      ? current.roles.filter((item: unknown): item is string => typeof item === 'string')
+      : []
+    const nextRoles = [
+      ...new Set(
+        [...currentRoles, String(current?.role ?? ''), 'SUPER_ADMINISTRADOR'].filter(
+          (item) => ALLOWED_ROLES.has(item),
+        ),
+      ),
+    ]
     await db.collection('users').doc(request.auth.uid).update({
       role: 'SUPER_ADMINISTRADOR',
+      roles: nextRoles,
       updatedAt: FieldValue.serverTimestamp(),
     })
 

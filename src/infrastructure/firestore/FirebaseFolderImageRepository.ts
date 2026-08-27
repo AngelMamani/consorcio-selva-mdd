@@ -77,6 +77,15 @@ function sanitizeFileName(fileName: string): string {
   return fileName.replace(/[^\w.\-() ]+/g, '_').slice(0, 120)
 }
 
+function chunkIds(ids: string[], size = 30): string[][] {
+  const unique = [...new Set(ids.filter(Boolean))]
+  const chunks: string[][] = []
+  for (let index = 0; index < unique.length; index += size) {
+    chunks.push(unique.slice(index, index + size))
+  }
+  return chunks
+}
+
 export class FirebaseFolderImageRepository implements FolderImageRepository {
   private readonly collectionRef = collection(firestoreDb, 'folderImages')
 
@@ -86,6 +95,24 @@ export class FirebaseFolderImageRepository implements FolderImageRepository {
     )
     return snapshot.docs
       .map((item) => mapImage(item.id, item.data() as ImageDoc))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
+  async listByFolderIds(folderIds: string[]): Promise<FolderImage[]> {
+    const chunks = chunkIds(folderIds)
+    if (chunks.length === 0) return []
+    const nested = await Promise.all(
+      chunks.map(async (chunk) => {
+        const snapshot = await getDocs(
+          query(this.collectionRef, where('folderId', 'in', chunk)),
+        )
+        return snapshot.docs.map((item) =>
+          mapImage(item.id, item.data() as ImageDoc),
+        )
+      }),
+    )
+    return nested
+      .flat()
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
 

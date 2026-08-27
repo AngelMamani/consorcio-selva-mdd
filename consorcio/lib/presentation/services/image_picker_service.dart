@@ -67,6 +67,40 @@ class ImagePickerService {
   }
 }
 
+Future<String?> askOptionalPhotoNote(BuildContext context) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Nota de las fotos'),
+        content: TextField(
+          controller: controller,
+          maxLength: 200,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Nota descriptiva (opcional)',
+            hintText: 'Ej. Medidor dañado, se cambió el fusible',
+            alignLabelWithHint: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Continuar'),
+          ),
+        ],
+      );
+    },
+  ).whenComplete(controller.dispose);
+}
+
 Future<void> showPhotoSourceSheet({
   required BuildContext context,
   required Future<void> Function() onCamera,

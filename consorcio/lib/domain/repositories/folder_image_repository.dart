@@ -19,6 +19,7 @@ class ImageFilePayload {
 
 abstract class FolderImageRepository {
   Future<List<FolderImage>> listByFolder(String folderId);
+  Future<List<FolderImage>> listByFolderIds(List<String> folderIds);
   Future<List<FolderImage>> listByDate(String folderId, String dateId);
   Future<FolderImage> create({
     required String folderId,

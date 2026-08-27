@@ -2,6 +2,7 @@ import '../entities/app_user.dart';
 import '../errors/domain_exception.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
+import '../value_objects/user_role.dart';
 
 class LoginUseCase {
   LoginUseCase(this._authRepository, this._userRepository);
@@ -38,10 +39,16 @@ class LoginUseCase {
       throw DomainException('Tu cuenta está desactivada');
     }
 
-    if (!user.isTechnician) {
+    final mobile = user.mobileRoles;
+    if (mobile.isEmpty) {
       await _authRepository.logout();
+      if (user.assignedRoles.contains(UserRole.superAdministrador)) {
+        throw DomainException(
+          'El Super Administrador ingresa desde el panel web.',
+        );
+      }
       throw DomainException(
-        'Esta app es solo para técnicos. Usa el panel web si eres administrador.',
+        'Esta app es para Administrador y Técnico. Usa el panel web.',
       );
     }
 
