@@ -151,7 +151,10 @@ service cloud.firestore {
           !('neighborhoodRouteName' in request.resource.data)
           || (
             request.resource.data.neighborhoodRouteName is string
-            && request.resource.data.neighborhoodRouteName.size() <= 160
+            && (
+              request.resource.data.neighborhoodRouteName.size() == 0
+              || request.resource.data.neighborhoodRouteName.matches('^[0-9]{7,12}$')
+            )
           )
         )
         && (

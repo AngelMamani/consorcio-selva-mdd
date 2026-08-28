@@ -13,12 +13,12 @@ import type { Area } from '@/domain/entities/Area'
 import type { Task } from '@/domain/entities/Task'
 import {
   formatTaskAssignees,
-  isValidMapCoord,
   neighborhoodMapsUrl,
+  normalizeNeighborhoodRouteCode,
   normalizeTaskRoutes,
-  parseMapCoords,
   TaskStatus,
   taskHasNeighborhoodMapPoint,
+  taskHasNeighborhoodRoute,
   taskRouteHasMapPoint,
   taskStatusLabel,
   taskTitleFromActivity,
@@ -133,194 +133,6 @@ function IconCheck() {
         d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
       />
     </svg>
-  )
-}
-
-function NeighborhoodRouteFields({
-  name,
-  latitude,
-  longitude,
-  onNameChange,
-  onPick,
-  onClear,
-}: {
-  name: string
-  latitude: number | null
-  longitude: number | null
-  onNameChange: (value: string) => void
-  onPick: (latitude: number, longitude: number) => void
-  onClear: () => void
-}) {
-  const mapElRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const markerRef = useRef<L.Marker | null>(null)
-  const onPickRef = useRef(onPick)
-  const [searching, setSearching] = useState(false)
-  const [hits, setHits] = useState<
-    { label: string; latitude: number; longitude: number }[]
-  >([])
-  onPickRef.current = onPick
-
-  useEffect(() => {
-    const el = mapElRef.current
-    if (!el) return
-    const map = L.map(el, {
-      zoomControl: true,
-      attributionControl: false,
-      scrollWheelZoom: true,
-    }).setView(
-      isValidMapCoord(latitude, longitude)
-        ? [latitude as number, longitude as number]
-        : DEFAULT_CENTER,
-      isValidMapCoord(latitude, longitude) ? 15 : 12,
-    )
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-    }).addTo(map)
-    map.on('click', (event: L.LeafletMouseEvent) => {
-      onPickRef.current(event.latlng.lat, event.latlng.lng)
-    })
-    mapRef.current = map
-    window.setTimeout(() => map.invalidateSize({ animate: false }), 180)
-    window.setTimeout(() => map.invalidateSize({ animate: false }), 400)
-    return () => {
-      map.remove()
-      mapRef.current = null
-      markerRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (!isValidMapCoord(latitude, longitude)) {
-      markerRef.current?.remove()
-      markerRef.current = null
-      return
-    }
-    const point = L.latLng(latitude as number, longitude as number)
-    if (markerRef.current) {
-      markerRef.current.setLatLng(point)
-    } else {
-      markerRef.current = L.marker(point, {
-        icon: L.divIcon({
-          className: 'tasks-pin',
-          html: '<span class="tasks-pin__dot tasks-pin__dot--vecinal is-selected"></span><span class="tasks-pin__code">Vecinal</span>',
-          iconSize: [96, 36],
-          iconAnchor: [16, 30],
-        }),
-      }).addTo(map)
-    }
-    map.setView(point, Math.max(map.getZoom(), 15))
-  }, [latitude, longitude])
-
-  async function searchPlace() {
-    const query = name.trim()
-    if (query.length < 3) return
-    const parsed = parseMapCoords(query)
-    if (parsed) {
-      onPick(parsed.latitude, parsed.longitude)
-      setHits([])
-      return
-    }
-    setSearching(true)
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=pe&q=${encodeURIComponent(`${query} Madre de Dios`)}`
-      const response = await fetch(url, {
-        headers: { Accept: 'application/json' },
-      })
-      if (!response.ok) throw new Error('search')
-      const data = (await response.json()) as {
-        display_name?: string
-        lat?: string
-        lon?: string
-      }[]
-      const next = data
-        .map((item) => {
-          const lat = Number(item.lat)
-          const lng = Number(item.lon)
-          if (!isValidMapCoord(lat, lng)) return null
-          return {
-            label: (item.display_name ?? query).slice(0, 140),
-            latitude: lat,
-            longitude: lng,
-          }
-        })
-        .filter((item): item is NonNullable<typeof item> => item != null)
-      setHits(next)
-    } catch {
-      setHits([])
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  const hasPoint = isValidMapCoord(latitude, longitude)
-
-  return (
-    <div className="field tasks-vecinal">
-      <span>Ruta vecinal (opcional)</span>
-      <p className="tasks-vecinal__hint">
-        Sirve para orientar al técnico. Escribe el nombre de la vía y márcala
-        en el mapa, o pega coordenadas / un enlace de Google Maps.
-      </p>
-      <div className="tasks-vecinal__row">
-        <input
-          value={name}
-          onChange={(event) => {
-            const next = event.target.value
-            onNameChange(next)
-            const parsed = parseMapCoords(next)
-            if (parsed) onPick(parsed.latitude, parsed.longitude)
-          }}
-          placeholder="Ej. carretera a La Novia, km 8"
-          maxLength={160}
-        />
-        <button
-          type="button"
-          className="btn btn--soft-blue btn--small"
-          onClick={() => void searchPlace()}
-          disabled={name.trim().length < 3 || searching}
-        >
-          {searching ? 'Buscando…' : 'Buscar'}
-        </button>
-      </div>
-      {hits.length > 0 ? (
-        <ul className="tasks-vecinal__hits">
-          {hits.map((hit) => (
-            <li key={`${hit.latitude},${hit.longitude}`}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(hit.latitude, hit.longitude)
-                  if (!name.trim()) onNameChange(hit.label.slice(0, 80))
-                  setHits([])
-                }}
-              >
-                {hit.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <div ref={mapElRef} className="tasks-vecinal__map" />
-      <div className="tasks-vecinal__meta">
-        <small>
-          {hasPoint
-            ? `Punto marcado: ${latitude?.toFixed(5)}, ${longitude?.toFixed(5)}`
-            : 'Toca el mapa para marcar la vía'}
-        </small>
-        {name.trim() || hasPoint ? (
-          <button
-            type="button"
-            className="btn btn--soft-muted btn--small"
-            onClick={onClear}
-          >
-            Quitar
-          </button>
-        ) : null}
-      </div>
-    </div>
   )
 }
 
@@ -581,13 +393,10 @@ export function TasksPage() {
   const [draftRoutes, setDraftRoutes] = useState<DraftRoute[]>([])
   const [assignToAll, setAssignToAll] = useState(false)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
-  const [neighborhoodName, setNeighborhoodName] = useState('')
-  const [neighborhoodLatitude, setNeighborhoodLatitude] = useState<
-    number | null
-  >(null)
-  const [neighborhoodLongitude, setNeighborhoodLongitude] = useState<
-    number | null
-  >(null)
+  const [vecinalDraft, setVecinalDraft] = useState('')
+  const [vecinalSuggestions, setVecinalSuggestions] = useState<Supply[]>([])
+  const [searchingVecinal, setSearchingVecinal] = useState(false)
+  const [draftVecinal, setDraftVecinal] = useState<DraftRoute | null>(null)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState(false)
 
   const selectedAreaName = areas.find((area) => area.id === areaId)?.name ?? ''
@@ -604,7 +413,7 @@ export function TasksPage() {
         .map((route) => route.routeCode)
         .join(' ')
       const haystack =
-        `${task.title} ${task.description} ${task.areaName} ${routes} ${formatTaskAssignees(task)}`.toLowerCase()
+        `${task.title} ${task.description} ${task.areaName} ${task.neighborhoodRouteName} ${routes} ${formatTaskAssignees(task)}`.toLowerCase()
       return haystack.includes(query)
     })
   }, [tasks, deferredSearch, statusFilter, areaFilter])
@@ -642,20 +451,31 @@ export function TasksPage() {
   }, [filteredTasks, mapPoints, selectedTaskId, selectedAreaId])
 
   const neighborhoodPoints = useMemo(() => {
-    return filteredTasks
-      .filter((task) => {
-        if (!taskHasNeighborhoodMapPoint(task)) return false
-        if (selectedTaskId) return task.id === selectedTaskId
-        if (selectedAreaId) return task.areaId === selectedAreaId
-        return true
-      })
-      .map((task) => ({
-        task,
-        name: task.neighborhoodRouteName.trim() || 'Ruta vecinal',
-        latitude: task.neighborhoodLatitude as number,
-        longitude: task.neighborhoodLongitude as number,
-      }))
-  }, [filteredTasks, selectedTaskId, selectedAreaId])
+    return filteredTasks.flatMap((task) => {
+      const code = normalizeNeighborhoodRouteCode(task.neighborhoodRouteName)
+      if (!code) return []
+      if (selectedTaskId && task.id !== selectedTaskId) return []
+      if (selectedAreaId && task.areaId !== selectedAreaId) return []
+      let latitude = task.neighborhoodLatitude
+      let longitude = task.neighborhoodLongitude
+      if (!taskHasNeighborhoodMapPoint(task)) {
+        const fromCatalog = mapPoints.find(
+          (point) => point.routeCode === code,
+        )
+        if (!fromCatalog) return []
+        latitude = fromCatalog.latitude
+        longitude = fromCatalog.longitude
+      }
+      return [
+        {
+          task,
+          name: code,
+          latitude: latitude as number,
+          longitude: longitude as number,
+        },
+      ]
+    })
+  }, [filteredTasks, selectedTaskId, selectedAreaId, mapPoints])
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -775,6 +595,46 @@ export function TasksPage() {
       window.clearTimeout(handle)
     }
   }, [routeDraft, user, modalOpen, draftRoutes, searchSuppliesUseCase])
+
+  useEffect(() => {
+    if (!user || !modalOpen) {
+      setVecinalSuggestions([])
+      setSearchingVecinal(false)
+      return
+    }
+    const digits = normalizeRouteCode(vecinalDraft)
+    if (digits.length < 3) {
+      setVecinalSuggestions([])
+      setSearchingVecinal(false)
+      return
+    }
+
+    let cancelled = false
+    setSearchingVecinal(true)
+    const handle = window.setTimeout(() => {
+      void searchSuppliesUseCase
+        .execute(user, digits)
+        .then((hits) => {
+          if (cancelled) return
+          setVecinalSuggestions(
+            hits.filter(
+              (supply) => supply.routeCode !== draftVecinal?.routeCode,
+            ),
+          )
+        })
+        .catch(() => {
+          if (!cancelled) setVecinalSuggestions([])
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingVecinal(false)
+        })
+    }, 220)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [vecinalDraft, user, modalOpen, draftVecinal, searchSuppliesUseCase])
 
   useEffect(() => {
     if (!user) {
@@ -966,14 +826,14 @@ export function TasksPage() {
       const marker = L.marker([point.latitude, point.longitude], {
         icon: L.divIcon({
           className: 'tasks-pin',
-          html: `<span class="tasks-pin__dot tasks-pin__dot--vecinal${selected ? ' is-selected' : ''}"></span><span class="tasks-pin__code">Vecinal</span>`,
+          html: `<span class="tasks-pin__dot tasks-pin__dot--vecinal${selected ? ' is-selected' : ''}"></span><span class="tasks-pin__code">${escapeHtml(point.name)}</span>`,
           iconSize: [96, 36],
           iconAnchor: [16, 30],
         }),
         zIndexOffset: selected ? 1000 : 700,
       })
       marker.bindPopup(
-        `<strong>Ruta vecinal</strong><br/>${escapeHtml(point.name)}<br/><small>${escapeHtml(point.task.areaName || point.task.title)}</small>${
+        `<strong>Ruta vecinal</strong><br/>Suministro ${escapeHtml(point.name)}<br/><small>${escapeHtml(point.task.areaName || point.task.title)}</small>${
           mapsHref
             ? `<br/><a class="tasks-pin__photos" href="${mapsHref}" target="_blank" rel="noopener noreferrer">Cómo llegar</a>`
             : ''
@@ -1034,9 +894,9 @@ export function TasksPage() {
     setDraftRoutes([])
     setAssignToAll(false)
     setAssignedIds([])
-    setNeighborhoodName('')
-    setNeighborhoodLatitude(null)
-    setNeighborhoodLongitude(null)
+    setVecinalDraft('')
+    setVecinalSuggestions([])
+    setDraftVecinal(null)
     setModalOpen(true)
   }
 
@@ -1059,9 +919,21 @@ export function TasksPage() {
     )
     setAssignToAll(task.assignToAllTechnicians)
     setAssignedIds([...new Set(task.assignedTechnicianIds)])
-    setNeighborhoodName(task.neighborhoodRouteName)
-    setNeighborhoodLatitude(task.neighborhoodLatitude)
-    setNeighborhoodLongitude(task.neighborhoodLongitude)
+    setVecinalDraft('')
+    setVecinalSuggestions([])
+    const vecinalCode = normalizeNeighborhoodRouteCode(task.neighborhoodRouteName)
+    setDraftVecinal(
+      vecinalCode
+        ? {
+            routeCode: vecinalCode,
+            latitude: task.neighborhoodLatitude,
+            longitude: task.neighborhoodLongitude,
+            note: '',
+            hasLocation: taskHasNeighborhoodMapPoint(task),
+            isNew: false,
+          }
+        : null,
+    )
     setModalOpen(true)
   }
 
@@ -1089,6 +961,55 @@ export function TasksPage() {
       hasLocation: supplyHasLocation(supply),
       isNew: false,
     })
+  }
+
+  function pickVecinal(supply: Supply) {
+    setDraftVecinal({
+      routeCode: supply.routeCode,
+      latitude: supply.latitude,
+      longitude: supply.longitude,
+      note: supply.note,
+      hasLocation: supplyHasLocation(supply),
+      isNew: false,
+    })
+    setVecinalDraft('')
+    setVecinalSuggestions([])
+  }
+
+  async function handleAddVecinal() {
+    if (!user) return
+    const code = normalizeRouteCode(vecinalDraft)
+    if (!isRouteCode(code)) {
+      swalError('Ingresa un código de suministro de 7 a 12 dígitos')
+      return
+    }
+    if (draftVecinal?.routeCode === code) {
+      setVecinalDraft('')
+      return
+    }
+    try {
+      const supply = await getSupplyByRouteCodeUseCase.find(user, code)
+      if (!supply) {
+        setDraftVecinal({
+          routeCode: code,
+          latitude: null,
+          longitude: null,
+          note: '',
+          hasLocation: false,
+          isNew: true,
+        })
+        setVecinalDraft('')
+        setVecinalSuggestions([])
+        return
+      }
+      pickVecinal(supply)
+    } catch (err) {
+      swalError(
+        err instanceof DomainError
+          ? err.message
+          : 'No se pudo buscar el suministro',
+      )
+    }
   }
 
   async function handleAddRoute() {
@@ -1165,9 +1086,7 @@ export function TasksPage() {
         note: route.note,
       }))
       const neighborhood = {
-        neighborhoodRouteName: neighborhoodName,
-        neighborhoodLatitude,
-        neighborhoodLongitude,
+        neighborhoodRouteName: draftVecinal?.routeCode ?? '',
       }
       if (editing) {
         const updated = await updateTaskUseCase.execute(user, editing.id, {
@@ -1518,12 +1437,13 @@ export function TasksPage() {
                               {doneCount}/{routes.length || 0} puntos
                               completados
                             </span>
-                            {task.neighborhoodRouteName.trim() ? (
-                              <span>Vecinal: {task.neighborhoodRouteName}</span>
+                            {taskHasNeighborhoodRoute(task) ? (
+                              <span>
+                                Vecinal: {task.neighborhoodRouteName}
+                              </span>
                             ) : null}
                           </div>
-                          {task.neighborhoodRouteName.trim() ||
-                          taskHasNeighborhoodMapPoint(task) ? (
+                          {taskHasNeighborhoodRoute(task) ? (
                             <div className="tasks-card__vecinal">
                               {taskHasNeighborhoodMapPoint(task) ? (
                                 <button
@@ -1539,7 +1459,7 @@ export function TasksPage() {
                                     setSelectedNeighborhood(true)
                                   }}
                                 >
-                                  Ver vía
+                                  Ver en mapa
                                 </button>
                               ) : null}
                               {neighborhoodMapsUrl(task) ? (
@@ -1850,27 +1770,98 @@ export function TasksPage() {
                 </ul>
               )}
             </div>
-            {modalOpen ? (
-              <NeighborhoodRouteFields
-                key={editing?.id ?? 'new'}
-                name={neighborhoodName}
-                latitude={neighborhoodLatitude}
-                longitude={neighborhoodLongitude}
-                onNameChange={setNeighborhoodName}
-                onPick={(latitude, longitude) => {
-                  setNeighborhoodLatitude(latitude)
-                  setNeighborhoodLongitude(longitude)
-                  if (!neighborhoodName.trim()) {
-                    setNeighborhoodName('Ruta vecinal')
-                  }
-                }}
-                onClear={() => {
-                  setNeighborhoodName('')
-                  setNeighborhoodLatitude(null)
-                  setNeighborhoodLongitude(null)
-                }}
-              />
-            ) : null}
+            <div className="field">
+              <span>Ruta vecinal (opcional)</span>
+              <p className="tasks-vecinal__hint">
+                Un suministro de referencia para que el técnico se oriente en
+                el mapa. No hace falta que esté entre las rutas de trabajo.
+              </p>
+              {draftVecinal ? (
+                <ul className="tasks-routes">
+                  <li className="tasks-routes__item">
+                    <div>
+                      <strong>{draftVecinal.routeCode}</strong>
+                      <small>
+                        {draftVecinal.hasLocation
+                          ? 'Con GPS · el técnico puede ir a este punto'
+                          : draftVecinal.isNew
+                            ? 'Nueva · sin GPS'
+                            : 'Sin GPS'}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn--soft-rose btn--small"
+                      onClick={() => setDraftVecinal(null)}
+                    >
+                      Quitar
+                    </button>
+                  </li>
+                </ul>
+              ) : (
+                <div className="tasks-routes__search">
+                  <div className="tasks-routes__add">
+                    <input
+                      value={vecinalDraft}
+                      onChange={(event) => setVecinalDraft(event.target.value)}
+                      placeholder="Buscar suministro vecinal"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          if (vecinalSuggestions.length === 1) {
+                            pickVecinal(vecinalSuggestions[0])
+                            return
+                          }
+                          void handleAddVecinal()
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--soft-blue btn--small"
+                      onClick={() => void handleAddVecinal()}
+                    >
+                      Agregar
+                    </button>
+                  </div>
+                  {searchingVecinal ? (
+                    <p className="tasks-routes__hint">Buscando suministros…</p>
+                  ) : null}
+                  {vecinalSuggestions.length > 0 ? (
+                    <ul className="tasks-routes__suggest" role="listbox">
+                      {vecinalSuggestions.map((supply) => (
+                        <li key={supply.routeCode}>
+                          <button
+                            type="button"
+                            onClick={() => pickVecinal(supply)}
+                          >
+                            <strong>{supply.routeCode}</strong>
+                            <small>
+                              {supplyHasLocation(supply)
+                                ? 'Con GPS'
+                                : 'Sin GPS'}
+                              {supply.note ? ` · ${supply.note}` : ''}
+                            </small>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : normalizeRouteCode(vecinalDraft).length >= 3 &&
+                    !searchingVecinal ? (
+                    <p className="tasks-routes__hint">
+                      Sin coincidencias. Puedes agregarla igual si es una ruta
+                      nueva.
+                    </p>
+                  ) : (
+                    <p className="tasks-routes__hint">
+                      Escribe al menos 3 dígitos del código de suministro.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <TaskAssigneePicker
               assignToAllTechnicians={assignToAll}
               assignedTechnicianIds={assignedIds}

@@ -4,7 +4,6 @@ import {
   allTaskRoutesCompleted,
   assertUserCanAccessTask,
   isValidMapCoord,
-  normalizeNeighborhoodRoute,
   normalizeTaskRoutes,
   primaryTaskRoute,
   TaskStatus,
@@ -158,6 +157,34 @@ async function resolveTaskRoutes(
   return routes
 }
 
+async function resolveNeighborhoodSupply(
+  supplyRepository: SupplyRepository,
+  raw: string | undefined,
+): Promise<{
+  routeCode: string
+  latitude: number | null
+  longitude: number | null
+}> {
+  const code = normalizeRouteCode(raw ?? '')
+  if (!code) {
+    return { routeCode: '', latitude: null, longitude: null }
+  }
+  if (!isRouteCode(code)) {
+    throw new ValidationError(
+      'La ruta vecinal debe ser un código de suministro válido',
+    )
+  }
+  let supply = await supplyRepository.getByRouteCode(code)
+  if (!supply) {
+    supply = await supplyRepository.ensureManual({ routeCode: code })
+  }
+  return {
+    routeCode: code,
+    latitude: supplyHasLocation(supply) ? supply.latitude : null,
+    longitude: supplyHasLocation(supply) ? supply.longitude : null,
+  }
+}
+
 function buildNotice(
   actor: User,
   message: string,
@@ -275,11 +302,10 @@ export class CreateTaskUseCase {
     )
     const routes = await resolveTaskRoutes(this.supplyRepository, input.routes)
     const primary = primaryTaskRoute(routes)
-    const neighborhood = normalizeNeighborhoodRoute({
-      name: input.neighborhoodRouteName,
-      latitude: input.neighborhoodLatitude,
-      longitude: input.neighborhoodLongitude,
-    })
+    const neighborhood = await resolveNeighborhoodSupply(
+      this.supplyRepository,
+      input.neighborhoodRouteName,
+    )
 
     return this.taskRepository.create({
       title: taskTitleFromActivity(area.name),
@@ -292,7 +318,7 @@ export class CreateTaskUseCase {
       latitude: primary?.latitude ?? null,
       longitude: primary?.longitude ?? null,
       routes,
-      neighborhoodRouteName: neighborhood.name,
+      neighborhoodRouteName: neighborhood.routeCode,
       neighborhoodLatitude: neighborhood.latitude,
       neighborhoodLongitude: neighborhood.longitude,
       assignToAllTechnicians: assignment.assignToAllTechnicians,
@@ -381,11 +407,12 @@ export class UpdateTaskUseCase {
       }
     })
     const primary = primaryTaskRoute(routes)
-    const neighborhood = normalizeNeighborhoodRoute({
-      name: input.neighborhoodRouteName,
-      latitude: input.neighborhoodLatitude,
-      longitude: input.neighborhoodLongitude,
-    })
+    const neighborhood = await resolveNeighborhoodSupply(
+      this.supplyRepository,
+      input.neighborhoodRouteName === undefined
+        ? existing.neighborhoodRouteName
+        : input.neighborhoodRouteName,
+    )
 
     const nextStatus = input.status ?? existing.status
     const completing =
@@ -416,7 +443,7 @@ export class UpdateTaskUseCase {
       latitude: primary?.latitude ?? null,
       longitude: primary?.longitude ?? null,
       routes: finalRoutes,
-      neighborhoodRouteName: neighborhood.name,
+      neighborhoodRouteName: neighborhood.routeCode,
       neighborhoodLatitude: neighborhood.latitude,
       neighborhoodLongitude: neighborhood.longitude,
       assignToAllTechnicians: assignment.assignToAllTechnicians,

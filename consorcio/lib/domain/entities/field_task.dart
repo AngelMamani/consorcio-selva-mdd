@@ -210,7 +210,10 @@ class FieldTask {
     }
   }
 
-  bool get hasNeighborhoodRoute => neighborhoodRouteName.trim().isNotEmpty;
+  bool get hasNeighborhoodRoute {
+    final code = neighborhoodRouteName.replaceAll(RegExp(r'\D'), '');
+    return code.length >= 7 && code.length <= 12;
+  }
 
   bool get hasNeighborhoodMapPoint {
     final lat = neighborhoodLatitude;
@@ -223,15 +226,9 @@ class FieldTask {
   }
 
   Uri? get neighborhoodMapsUri {
-    if (hasNeighborhoodMapPoint) {
-      return Uri.parse(
-        'https://www.google.com/maps/dir/?api=1&destination=$neighborhoodLatitude,$neighborhoodLongitude&travelmode=driving',
-      );
-    }
-    final name = neighborhoodRouteName.trim();
-    if (name.isEmpty) return null;
+    if (!hasNeighborhoodMapPoint) return null;
     return Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent('$name Madre de Dios Peru')}',
+      'https://www.google.com/maps/dir/?api=1&destination=$neighborhoodLatitude,$neighborhoodLongitude&travelmode=driving',
     );
   }
 }

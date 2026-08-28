@@ -402,8 +402,6 @@ class CreateFieldTaskUseCase {
     required List<String> assignedTechnicianIds,
     DateTime? dueDate,
     String neighborhoodRouteName = '',
-    double? neighborhoodLatitude,
-    double? neighborhoodLongitude,
   }) async {
     if (!actor.isMobileAdmin) {
       throw DomainException('Solo el administrador puede asignar tareas');
@@ -486,19 +484,26 @@ class CreateFieldTaskUseCase {
         : (area.name.trim().length > 160
             ? area.name.trim().substring(0, 160)
             : area.name.trim());
-    var vecinalName = neighborhoodRouteName.trim();
-    if (vecinalName.length > 160) {
-      vecinalName = vecinalName.substring(0, 160);
+    final vecinalCode = normalizeRouteCode(neighborhoodRouteName);
+    if (vecinalCode.isNotEmpty && !isRouteCode(vecinalCode)) {
+      throw DomainException(
+        'La ruta vecinal debe ser un código de suministro válido',
+      );
     }
-    final vecinalLat = neighborhoodLatitude;
-    final vecinalLng = neighborhoodLongitude;
-    final hasVecinalPoint = vecinalLat != null &&
-        vecinalLng != null &&
-        vecinalLat.isFinite &&
-        vecinalLng.isFinite &&
-        !(vecinalLat == 0 && vecinalLng == 0);
-    if (vecinalName.isEmpty && hasVecinalPoint) {
-      vecinalName = 'Ruta vecinal';
+    String storedVecinal = '';
+    double? storedLat;
+    double? storedLng;
+    if (vecinalCode.isNotEmpty) {
+      var supply = await _supplyRepository.getByRouteCode(vecinalCode);
+      supply ??= await _supplyRepository.ensureManual(
+        routeCode: vecinalCode,
+        note: '',
+      );
+      storedVecinal = vecinalCode;
+      if (supply.hasLocation) {
+        storedLat = supply.latitude;
+        storedLng = supply.longitude;
+      }
     }
     final primary = uniqueRoutes.first;
     return _taskRepository.create(
@@ -517,9 +522,9 @@ class CreateFieldTaskUseCase {
         assignedTechnicianNames: names,
         createdById: actor.id,
         createdByName: actor.displayName,
-        neighborhoodRouteName: vecinalName,
-        neighborhoodLatitude: hasVecinalPoint ? vecinalLat : null,
-        neighborhoodLongitude: hasVecinalPoint ? vecinalLng : null,
+        neighborhoodRouteName: storedVecinal,
+        neighborhoodLatitude: storedLat,
+        neighborhoodLongitude: storedLng,
       ),
     );
   }

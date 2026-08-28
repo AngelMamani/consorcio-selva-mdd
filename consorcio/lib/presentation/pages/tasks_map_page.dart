@@ -925,13 +925,17 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                           task.neighborhoodLatitude!,
                                           task.neighborhoodLongitude!,
                                         ),
-                                        width: 128,
+                                        width: 148,
                                         height: 56,
                                         alignment: Alignment.bottomCenter,
                                         child: GestureDetector(
                                           onTap: () =>
                                               _openNeighborhoodNavigation(task),
-                                          child: const _NeighborhoodMarker(),
+                                          child: _NeighborhoodMarker(
+                                            code: _shortCode(
+                                              task.neighborhoodRouteName,
+                                            ),
+                                          ),
                                         ),
                                       );
                                     }),
@@ -1152,7 +1156,9 @@ class _TasksMapPageState extends State<TasksMapPage> {
 }
 
 class _NeighborhoodMarker extends StatelessWidget {
-  const _NeighborhoodMarker();
+  const _NeighborhoodMarker({required this.code});
+
+  final String code;
 
   @override
   Widget build(BuildContext context) {
@@ -1174,9 +1180,9 @@ class _NeighborhoodMarker extends StatelessWidget {
               ),
             ],
           ),
-          child: const Text(
-            'Ruta vecinal',
-            style: TextStyle(
+          child: Text(
+            'Vecinal $code',
+            style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,
               fontSize: 11,

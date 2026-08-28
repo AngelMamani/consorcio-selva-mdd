@@ -26,29 +26,6 @@ class _DraftRoute {
   final bool isNew;
 }
 
-({double lat, double lng})? _parseNeighborhoodCoords(String raw) {
-  final text = raw.trim();
-  if (text.isEmpty) return null;
-  final patterns = <RegExp>[
-    RegExp(r'@(-?\d+\.\d+),(-?\d+\.\d+)'),
-    RegExp(r'[?&]q=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)'),
-    RegExp(r'[?&]query=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)'),
-    RegExp(r'^(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)$'),
-  ];
-  for (final pattern in patterns) {
-    final match = pattern.firstMatch(text);
-    if (match == null) continue;
-    final lat = double.tryParse(match.group(1)!);
-    final lng = double.tryParse(match.group(2)!);
-    if (lat == null || lng == null) continue;
-    if (!lat.isFinite || !lng.isFinite) continue;
-    if (lat == 0 && lng == 0) continue;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-    return (lat: lat, lng: lng);
-  }
-  return null;
-}
-
 class AssignTaskPage extends StatefulWidget {
   const AssignTaskPage({super.key});
 
@@ -61,16 +38,19 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
   final _descriptionController = TextEditingController();
   final _routeController = TextEditingController();
   final _noteController = TextEditingController();
-  final _vecinalNameController = TextEditingController();
-  final _vecinalCoordsController = TextEditingController();
+  final _vecinalController = TextEditingController();
 
   List<Area> _areas = [];
   List<AppUser> _technicians = [];
   final Set<String> _selectedTechnicianIds = {};
   final List<_DraftRoute> _routes = [];
+  _DraftRoute? _vecinal;
   List<Supply> _suggestions = [];
+  List<Supply> _vecinalSuggestions = [];
   Timer? _searchTimer;
+  Timer? _vecinalTimer;
   bool _searchingRoutes = false;
+  bool _searchingVecinal = false;
   String? _areaId;
   bool _assignAll = false;
   DateTime? _dueDate;
@@ -82,18 +62,20 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
   void initState() {
     super.initState();
     _routeController.addListener(_onRouteQueryChanged);
+    _vecinalController.addListener(_onVecinalQueryChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadLookups());
   }
 
   @override
   void dispose() {
     _searchTimer?.cancel();
+    _vecinalTimer?.cancel();
     _routeController.removeListener(_onRouteQueryChanged);
+    _vecinalController.removeListener(_onVecinalQueryChanged);
     _descriptionController.dispose();
     _routeController.dispose();
     _noteController.dispose();
-    _vecinalNameController.dispose();
-    _vecinalCoordsController.dispose();
+    _vecinalController.dispose();
     super.dispose();
   }
 
@@ -180,6 +162,94 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
         _suggestions = [];
         _searchingRoutes = false;
       });
+    }
+  }
+
+  void _onVecinalQueryChanged() {
+    _vecinalTimer?.cancel();
+    final digits = normalizeRouteCode(_vecinalController.text);
+    if (digits.length < 3) {
+      if (_vecinalSuggestions.isNotEmpty || _searchingVecinal) {
+        setState(() {
+          _vecinalSuggestions = [];
+          _searchingVecinal = false;
+        });
+      }
+      return;
+    }
+    setState(() => _searchingVecinal = true);
+    _vecinalTimer = Timer(const Duration(milliseconds: 220), () {
+      unawaited(_searchVecinal(digits));
+    });
+  }
+
+  Future<void> _searchVecinal(String digits) async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null) return;
+    try {
+      final hits = await deps.searchSuppliesUseCase.execute(user, digits);
+      if (!mounted) return;
+      setState(() {
+        _vecinalSuggestions = hits
+            .where((supply) => supply.routeCode != _vecinal?.routeCode)
+            .toList();
+        _searchingVecinal = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _vecinalSuggestions = [];
+        _searchingVecinal = false;
+      });
+    }
+  }
+
+  void _pickVecinal(Supply supply) {
+    setState(() {
+      _vecinal = _DraftRoute(
+        routeCode: supply.routeCode,
+        note: supply.note,
+        hasLocation: supply.hasLocation,
+        isNew: false,
+      );
+      _vecinalSuggestions = [];
+      _searchingVecinal = false;
+      _vecinalController.clear();
+    });
+  }
+
+  Future<void> _addVecinal() async {
+    final deps = context.read<AppDependencies>();
+    final code = normalizeRouteCode(_vecinalController.text);
+    if (!isRouteCode(code)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ingresa un código de 7 a 12 dígitos'),
+        ),
+      );
+      return;
+    }
+    try {
+      final lookup = await deps.createFieldTaskUseCase.lookupRoute(code);
+      if (!mounted) return;
+      setState(() {
+        _vecinal = _DraftRoute(
+          routeCode: code,
+          note: lookup.note,
+          hasLocation: lookup.hasLocation,
+          isNew: !lookup.exists,
+        );
+        _vecinalSuggestions = [];
+        _searchingVecinal = false;
+        _vecinalController.clear();
+      });
+    } on DomainException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
     }
   }
 
@@ -304,10 +374,6 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
     final user = session.user;
     if (user == null || _saving) return;
 
-    final coords = _parseNeighborhoodCoords(
-      '${_vecinalCoordsController.text} ${_vecinalNameController.text}',
-    );
-
     setState(() => _saving = true);
     try {
       await deps.createFieldTaskUseCase.execute(
@@ -320,9 +386,7 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
         assignToAllTechnicians: _assignAll,
         assignedTechnicianIds: _selectedTechnicianIds.toList(),
         dueDate: _dueDate,
-        neighborhoodRouteName: _vecinalNameController.text,
-        neighborhoodLatitude: coords?.lat,
-        neighborhoodLongitude: coords?.lng,
+        neighborhoodRouteName: _vecinal?.routeCode ?? '',
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -483,22 +547,87 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
                           ),
                         ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _vecinalNameController,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          labelText: 'Ruta vecinal (opcional)',
-                          hintText: 'Nombre de la vía para orientar al técnico',
+                      Text(
+                        'Ruta vecinal (opcional)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: _vecinalCoordsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Punto de la vía (opcional)',
-                          hintText: 'Lat, lng o enlace de Google Maps',
-                        ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Suministro de referencia para orientar al técnico en el mapa.',
+                        style: TextStyle(color: muted, fontSize: 13),
                       ),
+                      if (_vecinal != null)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_vecinal!.routeCode),
+                          subtitle: Text(
+                            _vecinal!.hasLocation
+                                ? 'Con GPS'
+                                : _vecinal!.isNew
+                                    ? 'Nueva · sin GPS'
+                                    : 'Sin GPS',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => setState(() => _vecinal = null),
+                          ),
+                        )
+                      else ...[
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _vecinalController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Buscar suministro vecinal',
+                            hintText: 'Código o últimos dígitos',
+                            prefixIcon: Icon(Icons.search_rounded),
+                          ),
+                        ),
+                        if (_searchingVecinal)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: LinearProgressIndicator(minHeight: 2),
+                          ),
+                        if (_vecinalSuggestions.isNotEmpty)
+                          ..._vecinalSuggestions.take(8).map(
+                            (supply) => ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              leading: Icon(
+                                supply.hasLocation
+                                    ? Icons.place_rounded
+                                    : Icons.place_outlined,
+                              ),
+                              title: Text(supply.routeCode),
+                              subtitle: Text(
+                                supply.hasLocation ? 'Con GPS' : 'Sin GPS',
+                              ),
+                              onTap: () => _pickVecinal(supply),
+                            ),
+                          )
+                        else if (!_searchingVecinal &&
+                            normalizeRouteCode(_vecinalController.text)
+                                    .length >=
+                                3)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Sin coincidencias. Puedes agregarla si es una ruta nueva.',
+                              style: TextStyle(color: muted),
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.tonal(
+                            onPressed: _addVecinal,
+                            child: const Text('Agregar vecinal'),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       ListTile(
                         contentPadding: EdgeInsets.zero,

@@ -16,7 +16,7 @@ import {
 import type { Task, TaskNotice, TaskRoute, TaskStatus } from '@/domain/entities/Task'
 import {
   isValidMapCoord,
-  normalizeNeighborhoodRoute,
+  normalizeNeighborhoodRouteCode,
   normalizeTaskRoutes,
   primaryTaskRoute,
   TaskStatus as Status,
@@ -166,17 +166,21 @@ function mapTask(id: string, data: TaskDoc): Task {
     completedAt: data.completedAt?.toDate() ?? null,
   })
   const primary = primaryTaskRoute(routes)
-  const neighborhood = normalizeNeighborhoodRoute({
-    name: data.neighborhoodRouteName,
-    latitude:
-      typeof data.neighborhoodLatitude === 'number'
-        ? data.neighborhoodLatitude
-        : null,
-    longitude:
-      typeof data.neighborhoodLongitude === 'number'
-        ? data.neighborhoodLongitude
-        : null,
-  })
+  const neighborhoodCode = normalizeNeighborhoodRouteCode(
+    data.neighborhoodRouteName,
+  )
+  const neighborhoodLatitude =
+    typeof data.neighborhoodLatitude === 'number'
+      ? data.neighborhoodLatitude
+      : null
+  const neighborhoodLongitude =
+    typeof data.neighborhoodLongitude === 'number'
+      ? data.neighborhoodLongitude
+      : null
+  const hasNeighborhoodPoint = isValidMapCoord(
+    neighborhoodLatitude,
+    neighborhoodLongitude,
+  )
   return {
     id,
     title: data.title,
@@ -191,9 +195,9 @@ function mapTask(id: string, data: TaskDoc): Task {
       primary?.longitude ?? (isValidMapCoord(latitude, longitude) ? longitude : null),
     routes,
     lastNotice: mapNotice(data.lastNotice),
-    neighborhoodRouteName: neighborhood.name,
-    neighborhoodLatitude: neighborhood.latitude,
-    neighborhoodLongitude: neighborhood.longitude,
+    neighborhoodRouteName: neighborhoodCode,
+    neighborhoodLatitude: hasNeighborhoodPoint ? neighborhoodLatitude : null,
+    neighborhoodLongitude: hasNeighborhoodPoint ? neighborhoodLongitude : null,
     assignToAllTechnicians: data.assignToAllTechnicians === true,
     assignedTechnicianIds: data.assignedTechnicianIds ?? [],
     assignedTechnicianNames: data.assignedTechnicianNames ?? [],
@@ -213,11 +217,11 @@ function applyNeighborhood(
   latitude: number | null | undefined,
   longitude: number | null | undefined,
 ): Record<string, unknown> {
-  const neighborhood = normalizeNeighborhoodRoute({ name, latitude, longitude })
-  payload.neighborhoodRouteName = neighborhood.name
-  if (isValidMapCoord(neighborhood.latitude, neighborhood.longitude)) {
-    payload.neighborhoodLatitude = neighborhood.latitude ?? undefined
-    payload.neighborhoodLongitude = neighborhood.longitude ?? undefined
+  const routeCode = normalizeNeighborhoodRouteCode(name)
+  payload.neighborhoodRouteName = routeCode
+  if (routeCode && isValidMapCoord(latitude, longitude)) {
+    payload.neighborhoodLatitude = latitude ?? undefined
+    payload.neighborhoodLongitude = longitude ?? undefined
     return {}
   }
   delete payload.neighborhoodLatitude

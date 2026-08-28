@@ -1,3 +1,8 @@
+import {
+  isRouteCode,
+  normalizeRouteCode,
+} from '@/domain/value-objects/RouteCode'
+
 export const TaskStatus = {
   Pendiente: 'PENDIENTE',
   EnProgreso: 'EN_PROGRESO',
@@ -76,58 +81,16 @@ export function isValidMapCoord(
   )
 }
 
-export function parseMapCoords(
-  raw: string,
-): { latitude: number; longitude: number } | null {
-  const text = raw.trim()
-  if (!text) return null
-  const patterns = [
-    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /[?&]q=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/,
-    /[?&]query=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/,
-    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,
-    /^(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)$/,
-  ]
-  for (const pattern of patterns) {
-    const match = text.match(pattern)
-    if (!match) continue
-    const latitude = Number(match[1])
-    const longitude = Number(match[2])
-    if (isValidMapCoord(latitude, longitude)) {
-      return { latitude, longitude }
-    }
-  }
-  return null
+export function normalizeNeighborhoodRouteCode(value: string | undefined): string {
+  const code = normalizeRouteCode(value ?? '')
+  if (!code) return ''
+  return isRouteCode(code) ? code : ''
 }
 
-export function normalizeNeighborhoodRoute(input: {
-  name?: string
-  latitude?: number | null
-  longitude?: number | null
-}): {
-  name: string
-  latitude: number | null
-  longitude: number | null
-} {
-  const fromText = parseMapCoords(input.name ?? '')
-  const latitude = isValidMapCoord(input.latitude, input.longitude)
-    ? (input.latitude ?? null)
-    : (fromText?.latitude ?? null)
-  const longitude = isValidMapCoord(input.latitude, input.longitude)
-    ? (input.longitude ?? null)
-    : (fromText?.longitude ?? null)
-  const name = (input.name ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 160)
-  if (!name && latitude == null) {
-    return { name: '', latitude: null, longitude: null }
-  }
-  return {
-    name: name || 'Ruta vecinal',
-    latitude,
-    longitude,
-  }
+export function taskHasNeighborhoodRoute(
+  task: Pick<Task, 'neighborhoodRouteName'>,
+): boolean {
+  return Boolean(normalizeNeighborhoodRouteCode(task.neighborhoodRouteName))
 }
 
 export function taskHasNeighborhoodMapPoint(
@@ -138,14 +101,10 @@ export function taskHasNeighborhoodMapPoint(
 
 export function neighborhoodMapsUrl(task: Pick<
   Task,
-  'neighborhoodRouteName' | 'neighborhoodLatitude' | 'neighborhoodLongitude'
+  'neighborhoodLatitude' | 'neighborhoodLongitude'
 >): string | null {
-  if (taskHasNeighborhoodMapPoint(task)) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${task.neighborhoodLatitude},${task.neighborhoodLongitude}&travelmode=driving`
-  }
-  const name = task.neighborhoodRouteName.trim()
-  if (!name) return null
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${name} Madre de Dios Peru`)}`
+  if (!taskHasNeighborhoodMapPoint(task)) return null
+  return `https://www.google.com/maps/dir/?api=1&destination=${task.neighborhoodLatitude},${task.neighborhoodLongitude}&travelmode=driving`
 }
 
 export function taskRouteHasMapPoint(
