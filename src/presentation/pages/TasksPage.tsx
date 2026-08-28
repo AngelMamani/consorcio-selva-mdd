@@ -156,6 +156,73 @@ function fromDateInputValue(value: string): Date | null {
   return new Date(year, month - 1, day, 12, 0, 0, 0)
 }
 
+const STATUS_ORDER: Record<string, number> = {
+  [TaskStatus.Pendiente]: 0,
+  [TaskStatus.EnProgreso]: 1,
+  [TaskStatus.Completada]: 2,
+}
+
+function sameLabel(left: string, right: string): boolean {
+  return left.trim().toLocaleUpperCase('es') === right.trim().toLocaleUpperCase('es')
+}
+
+function taskHeading(task: Task): string {
+  if (task.areaName && sameLabel(task.title, task.areaName)) {
+    const description = task.description.trim()
+    if (description) return description
+    const routes = normalizeTaskRoutes(task)
+    if (routes.length === 1) return `Suministro ${routes[0]?.routeCode ?? ''}`
+    return `${routes.length} suministros`
+  }
+  return task.title
+}
+
+interface ActivityGroup {
+  areaId: string
+  areaName: string
+  tasks: Task[]
+  doneRoutes: number
+  totalRoutes: number
+}
+
+function groupTasksByActivity(tasks: Task[]): ActivityGroup[] {
+  const groups = new Map<string, ActivityGroup>()
+  for (const task of tasks) {
+    const areaId = task.areaId.trim() || `sin:${task.areaName.trim() || task.id}`
+    const areaName = task.areaName.trim() || 'Sin actividad'
+    const routes = normalizeTaskRoutes(task)
+    const current = groups.get(areaId)
+    if (current) {
+      current.tasks.push(task)
+      current.doneRoutes += routes.filter((route) => route.completed).length
+      current.totalRoutes += routes.length
+      continue
+    }
+    groups.set(areaId, {
+      areaId,
+      areaName,
+      tasks: [task],
+      doneRoutes: routes.filter((route) => route.completed).length,
+      totalRoutes: routes.length,
+    })
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      tasks: [...group.tasks].sort((left, right) => {
+        const byStatus =
+          (STATUS_ORDER[left.status] ?? 9) - (STATUS_ORDER[right.status] ?? 9)
+        if (byStatus !== 0) return byStatus
+        const leftDue = left.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER
+        const rightDue = right.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER
+        if (leftDue !== rightDue) return leftDue - rightDue
+        return left.title.localeCompare(right.title, 'es')
+      }),
+    }))
+    .sort((left, right) => left.areaName.localeCompare(right.areaName, 'es'))
+}
+
 function TaskAssigneePicker({
   assignToAllTechnicians,
   assignedTechnicianIds,
@@ -298,11 +365,14 @@ export function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [areaFilter, setAreaFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const deferredSearch = useDeferredValue(searchTerm)
   const [mapPoints, setMapPoints] = useState<TaskMapPoint[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedRouteCode, setSelectedRouteCode] = useState<string | null>(null)
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null)
+  const [collapsedAreas, setCollapsedAreas] = useState<string[]>([])
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -328,6 +398,7 @@ export function TasksPage() {
       const matchesStatus =
         statusFilter === 'all' || task.status === statusFilter
       if (!matchesStatus) return false
+      if (areaFilter && task.areaId !== areaFilter) return false
       if (!query) return true
       const routes = normalizeTaskRoutes(task)
         .map((route) => route.routeCode)
@@ -336,19 +407,55 @@ export function TasksPage() {
         `${task.title} ${task.description} ${task.areaName} ${routes} ${formatTaskAssignees(task)}`.toLowerCase()
       return haystack.includes(query)
     })
-  }, [tasks, deferredSearch, statusFilter])
+  }, [tasks, deferredSearch, statusFilter, areaFilter])
+
+  const activityGroups = useMemo(
+    () => groupTasksByActivity(filteredTasks),
+    [filteredTasks],
+  )
+
+  const activityOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const area of areas) {
+      if (area.id) byId.set(area.id, area.name)
+    }
+    for (const task of tasks) {
+      if (task.areaId && !byId.has(task.areaId)) {
+        byId.set(task.areaId, task.areaName.trim() || 'Actividad')
+      }
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'es'))
+  }, [areas, tasks])
 
   const filteredMapPoints = useMemo(() => {
     const ids = new Set(filteredTasks.map((task) => task.id))
     const visible = mapPoints.filter((point) => ids.has(point.task.id))
-    if (!selectedTaskId) return visible
-    return visible.filter((point) => point.task.id === selectedTaskId)
-  }, [filteredTasks, mapPoints, selectedTaskId])
+    if (selectedTaskId) {
+      return visible.filter((point) => point.task.id === selectedTaskId)
+    }
+    if (selectedAreaId) {
+      return visible.filter((point) => point.task.areaId === selectedAreaId)
+    }
+    return visible
+  }, [filteredTasks, mapPoints, selectedTaskId, selectedAreaId])
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
     [tasks, selectedTaskId],
   )
+
+  const selectedActivityName = useMemo(() => {
+    if (selectedTask?.areaName.trim()) return selectedTask.areaName.trim()
+    if (!selectedAreaId) return ''
+    return (
+      activityGroups.find((group) => group.areaId === selectedAreaId)
+        ?.areaName ??
+      activityOptions.find((item) => item.id === selectedAreaId)?.name ??
+      ''
+    )
+  }, [selectedTask, selectedAreaId, activityGroups, activityOptions])
 
   const pointsByTaskId = useMemo(() => {
     const map = new Map<string, TaskMapPoint[]>()
@@ -853,6 +960,26 @@ export function TasksPage() {
     }
   }
 
+  function clearMapFocus() {
+    setSelectedTaskId(null)
+    setSelectedRouteCode(null)
+    setSelectedAreaId(null)
+  }
+
+  function selectActivity(nextAreaId: string) {
+    setSelectedAreaId(nextAreaId)
+    setSelectedTaskId(null)
+    setSelectedRouteCode(null)
+  }
+
+  function toggleActivity(nextAreaId: string) {
+    setCollapsedAreas((current) =>
+      current.includes(nextAreaId)
+        ? current.filter((id) => id !== nextAreaId)
+        : [...current, nextAreaId],
+    )
+  }
+
   if (!user) return null
 
   return (
@@ -863,8 +990,8 @@ export function TasksPage() {
           <h1>Tareas</h1>
           <p>
             {isAdmin
-              ? 'Asigna el trabajo. El técnico completa cada punto en el aplicativo. Aquí ves el avance, quién lo cerró y las fotos.'
-              : 'Tus tareas asignadas. El avance se marca desde el aplicativo.'}
+              ? 'Las tareas se agrupan por actividad. El técnico completa cada punto en el aplicativo; aquí ves el avance, quién lo cerró y las fotos.'
+              : 'Tus tareas, agrupadas por actividad. El avance se marca desde el aplicativo.'}
           </p>
         </div>
         {isAdmin ? (
@@ -915,43 +1042,65 @@ export function TasksPage() {
         </button>
       </div>
 
-      <label className="tasks-search">
-        <span className="sr-only">Buscar tareas</span>
-        <input
-          type="search"
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Buscar por título, técnico, actividad o código…"
-        />
-      </label>
+      <div className="tasks-toolbar">
+        <label className="tasks-search">
+          <span className="sr-only">Buscar tareas</span>
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Buscar por título, técnico, actividad o código…"
+          />
+        </label>
+        {activityOptions.length > 0 ? (
+          <label className="tasks-filter">
+            <span>Actividad</span>
+            <select
+              value={areaFilter}
+              onChange={(event) => {
+                const next = event.target.value
+                setAreaFilter(next)
+                if (next) selectActivity(next)
+                else if (selectedAreaId) setSelectedAreaId(null)
+              }}
+            >
+              <option value="">Todas</option>
+              {activityOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
 
       <div className="tasks-map panel">
         <div className="tasks-map__head">
           <div>
             <p className="tasks-page__eyebrow">Ubicaciones</p>
             <h2>
-              {selectedTask
-                ? selectedTask.title
-                : 'Suministros de las tareas'}
+              {selectedActivityName || 'Suministros por actividad'}
             </h2>
             <p>
               {filteredMapPoints.length === 0
                 ? selectedTask
-                  ? 'Esta tarea aún no tiene puntos con GPS.'
-                  : 'Elige una tarea para ver sus puntos. El técnico los marca en verde al completarlos.'
+                  ? `«${taskHeading(selectedTask)}» aún no tiene puntos con GPS.`
+                  : selectedActivityName
+                    ? 'Esta actividad aún no tiene puntos con GPS.'
+                    : 'Elige una actividad o una tarea para ver sus puntos. El técnico los marca en verde al completarlos.'
                 : selectedTask
-                  ? `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'} de esta tarea. Verde = completado por el técnico.`
-                  : `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'}. Elige una tarea para verla aparte.`}
+                  ? `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'} de «${taskHeading(selectedTask)}». Verde = completado.`
+                  : selectedActivityName
+                    ? `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'} de ${selectedActivityName}.`
+                    : `${filteredMapPoints.length} punto${filteredMapPoints.length === 1 ? '' : 's'} en las actividades visibles.`}
             </p>
           </div>
-          {selectedTask ? (
+          {selectedTask || selectedAreaId ? (
             <button
               type="button"
               className="btn btn--soft-muted btn--small"
-              onClick={() => {
-                setSelectedTaskId(null)
-                setSelectedRouteCode(null)
-              }}
+              onClick={clearMapFocus}
             >
               Ver todas
             </button>
@@ -978,140 +1127,239 @@ export function TasksPage() {
         </div>
       ) : (
         <div className="tasks-list">
-          {filteredTasks.map((task) => {
-            const routes = normalizeTaskRoutes(task)
-            const taskPoints = pointsByTaskId.get(task.id) ?? []
-            const selected = selectedTaskId === task.id
-            const doneCount = routes.filter((route) => route.completed).length
+          {activityGroups.map((group) => {
+            const collapsed = collapsedAreas.includes(group.areaId)
+            const activitySelected =
+              selectedAreaId === group.areaId ||
+              group.tasks.some((task) => task.id === selectedTaskId)
+            const progress =
+              group.totalRoutes === 0
+                ? 0
+                : Math.round((group.doneRoutes / group.totalRoutes) * 100)
             return (
-              <article
-                key={task.id}
-                className={`tasks-card tasks-card--${task.status.toLowerCase()}${selected ? ' is-selected' : ''}`}
-                onClick={() => {
-                  setSelectedTaskId(task.id)
-                  setSelectedRouteCode(null)
-                }}
+              <section
+                key={group.areaId}
+                className={`tasks-activity${activitySelected ? ' is-selected' : ''}`}
               >
-                <div className="tasks-card__top">
-                  <span className="tasks-card__status">
-                    {taskStatusLabel(task.status)}
-                  </span>
-                  <span className="tasks-card__due">
-                    Límite: {formatDate(task.dueDate)}
-                  </span>
-                </div>
-                <h2>{task.title}</h2>
-                <p>
-                  {task.description.trim()
-                    ? task.description
-                    : 'Sin descripción'}
-                </p>
-                <div className="tasks-card__meta">
-                  <span>{formatTaskAssignees(task)}</span>
-                  {task.areaName ? <span>{task.areaName}</span> : null}
-                  <span>
-                    {doneCount}/{routes.length || 0} puntos completados
-                  </span>
-                </div>
-                <ul className="tasks-routes-list">
-                  {routes.map((route) => {
-                    const point = taskPoints.find(
-                      (item) => item.routeCode === route.routeCode,
-                    )
-                    const active =
-                      selected && selectedRouteCode === route.routeCode
-                    return (
-                      <li
-                        key={route.routeCode}
-                        className={`tasks-routes-list__item${route.completed ? ' is-done' : ''}${active ? ' is-active' : ''}`}
-                      >
-                        <button
-                          type="button"
-                          className="tasks-routes-list__select"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setSelectedTaskId(task.id)
-                            setSelectedRouteCode(route.routeCode)
-                          }}
-                        >
-                          <span
-                            className={`tasks-routes-list__dot ${route.completed ? 'is-done' : 'is-pending'}`}
-                          />
-                          <span className="tasks-routes-list__copy">
-                            <strong>Suministro {route.routeCode}</strong>
-                            <small>
-                              {route.completed
-                                ? `Completó ${route.completedByName || 'un técnico'}${
-                                    route.completedAt
-                                      ? ` · ${formatCompletedAt(route.completedAt)}`
-                                      : ''
-                                  }`
-                                : route.claimedByName
-                                  ? `Tomado por ${route.claimedByName}${
-                                      route.photosUploaded ? ' · con fotos' : ''
-                                    }`
-                                  : 'Libre · el técnico debe agarrarlo'}
-                            </small>
-                          </span>
-                        </button>
-                        <div className="tasks-routes-list__actions">
-                          {point ? (
-                            <button
-                              type="button"
-                              className="btn btn--soft-blue btn--small"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setSelectedTaskId(task.id)
-                                setSelectedRouteCode(route.routeCode)
-                                openSupplyMaps(point.latitude, point.longitude)
-                              }}
-                            >
-                              Mapa
-                            </button>
-                          ) : null}
-                          <Link
-                            className="btn btn--soft-primary btn--small"
-                            to={photosPath(task.areaId, route.routeCode)}
-                            state={{
-                              areaName: task.areaName,
-                              routeCode: route.routeCode,
-                            }}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            Fotos
-                          </Link>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-                {isAdmin ? (
-                  <div className="tasks-card__actions">
+                <header className="tasks-activity__head">
+                  <div className="tasks-activity__lead">
+                    <button
+                      type="button"
+                      className="tasks-activity__chevron-btn"
+                      aria-expanded={!collapsed}
+                      aria-label={
+                        collapsed
+                          ? `Mostrar tareas de ${group.areaName}`
+                          : `Ocultar tareas de ${group.areaName}`
+                      }
+                      onClick={() => toggleActivity(group.areaId)}
+                    >
+                      <span className="tasks-activity__chevron" aria-hidden="true">
+                        {collapsed ? '▸' : '▾'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tasks-activity__toggle"
+                      onClick={() => {
+                        selectActivity(group.areaId)
+                        setCollapsedAreas((current) =>
+                          current.filter((id) => id !== group.areaId),
+                        )
+                      }}
+                    >
+                      <strong>{group.areaName}</strong>
+                      <small>
+                        {group.tasks.length} tarea
+                        {group.tasks.length === 1 ? '' : 's'}
+                        {group.totalRoutes > 0
+                          ? ` · ${group.doneRoutes}/${group.totalRoutes} puntos`
+                          : ''}
+                      </small>
+                    </button>
+                  </div>
+                  <div className="tasks-activity__aside">
+                    <div
+                      className="tasks-activity__bar"
+                      aria-label={`${progress}% completado`}
+                    >
+                      <span style={{ width: `${progress}%` }} />
+                    </div>
                     <button
                       type="button"
                       className="btn btn--soft-muted btn--small"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openEdit(task)
+                      onClick={() => {
+                        selectActivity(group.areaId)
+                        setCollapsedAreas((current) =>
+                          current.filter((id) => id !== group.areaId),
+                        )
                       }}
-                      disabled={busy}
                     >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--soft-rose btn--small"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void handleDelete(task)
-                      }}
-                      disabled={busy}
-                    >
-                      Eliminar
+                      Ver en mapa
                     </button>
                   </div>
-                ) : null}
-              </article>
+                </header>
+                {collapsed ? null : (
+                  <div className="tasks-activity__tasks">
+                    {group.tasks.map((task) => {
+                      const routes = normalizeTaskRoutes(task)
+                      const taskPoints = pointsByTaskId.get(task.id) ?? []
+                      const selected = selectedTaskId === task.id
+                      const doneCount = routes.filter(
+                        (route) => route.completed,
+                      ).length
+                      const heading = taskHeading(task)
+                      const showDescription =
+                        task.description.trim() &&
+                        heading !== task.description.trim()
+                      return (
+                        <article
+                          key={task.id}
+                          className={`tasks-card tasks-card--${task.status.toLowerCase()}${selected ? ' is-selected' : ''}`}
+                          onClick={() => {
+                            setSelectedTaskId(task.id)
+                            setSelectedRouteCode(null)
+                            setSelectedAreaId(task.areaId || group.areaId)
+                          }}
+                        >
+                          <div className="tasks-card__top">
+                            <span className="tasks-card__status">
+                              {taskStatusLabel(task.status)}
+                            </span>
+                            <span className="tasks-card__due">
+                              Límite: {formatDate(task.dueDate)}
+                            </span>
+                          </div>
+                          <h2>{heading}</h2>
+                          {showDescription ? (
+                            <p>{task.description}</p>
+                          ) : !task.description.trim() ? (
+                            <p>Sin descripción</p>
+                          ) : null}
+                          <div className="tasks-card__meta">
+                            <span>{formatTaskAssignees(task)}</span>
+                            <span>
+                              {doneCount}/{routes.length || 0} puntos
+                              completados
+                            </span>
+                          </div>
+                          <ul className="tasks-routes-list">
+                            {routes.map((route) => {
+                              const point = taskPoints.find(
+                                (item) => item.routeCode === route.routeCode,
+                              )
+                              const active =
+                                selected &&
+                                selectedRouteCode === route.routeCode
+                              return (
+                                <li
+                                  key={route.routeCode}
+                                  className={`tasks-routes-list__item${route.completed ? ' is-done' : ''}${active ? ' is-active' : ''}`}
+                                >
+                                  <button
+                                    type="button"
+                                    className="tasks-routes-list__select"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setSelectedTaskId(task.id)
+                                      setSelectedRouteCode(route.routeCode)
+                                      setSelectedAreaId(
+                                        task.areaId || group.areaId,
+                                      )
+                                    }}
+                                  >
+                                    <span
+                                      className={`tasks-routes-list__dot ${route.completed ? 'is-done' : 'is-pending'}`}
+                                    />
+                                    <span className="tasks-routes-list__copy">
+                                      <strong>
+                                        Suministro {route.routeCode}
+                                      </strong>
+                                      <small>
+                                        {route.completed
+                                          ? `Completó ${route.completedByName || 'un técnico'}${
+                                              route.completedAt
+                                                ? ` · ${formatCompletedAt(route.completedAt)}`
+                                                : ''
+                                            }`
+                                          : route.claimedByName
+                                            ? `Tomado por ${route.claimedByName}${
+                                                route.photosUploaded
+                                                  ? ' · con fotos'
+                                                  : ''
+                                              }`
+                                            : 'Libre · el técnico debe agarrarlo'}
+                                      </small>
+                                    </span>
+                                  </button>
+                                  <div className="tasks-routes-list__actions">
+                                    {point ? (
+                                      <button
+                                        type="button"
+                                        className="btn btn--soft-blue btn--small"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          setSelectedTaskId(task.id)
+                                          setSelectedRouteCode(route.routeCode)
+                                          openSupplyMaps(
+                                            point.latitude,
+                                            point.longitude,
+                                          )
+                                        }}
+                                      >
+                                        Mapa
+                                      </button>
+                                    ) : null}
+                                    <Link
+                                      className="btn btn--soft-primary btn--small"
+                                      to={photosPath(task.areaId, route.routeCode)}
+                                      state={{
+                                        areaName: task.areaName,
+                                        routeCode: route.routeCode,
+                                      }}
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                    >
+                                      Fotos
+                                    </Link>
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                          {isAdmin ? (
+                            <div className="tasks-card__actions">
+                              <button
+                                type="button"
+                                className="btn btn--soft-muted btn--small"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openEdit(task)
+                                }}
+                                disabled={busy}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--soft-rose btn--small"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleDelete(task)
+                                }}
+                                disabled={busy}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          ) : null}
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
             )
           })}
         </div>
