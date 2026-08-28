@@ -113,6 +113,9 @@ class FieldTask {
     required this.completedByName,
     required this.createdAt,
     required this.updatedAt,
+    this.neighborhoodRouteName = '',
+    this.neighborhoodLatitude,
+    this.neighborhoodLongitude,
   });
 
   final String id;
@@ -137,6 +140,9 @@ class FieldTask {
   final String completedByName;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String neighborhoodRouteName;
+  final double? neighborhoodLatitude;
+  final double? neighborhoodLongitude;
 
   List<TaskRoute> get normalizedRoutes {
     if (routes.isNotEmpty) return routes;
@@ -202,5 +208,30 @@ class FieldTask {
       default:
         return 'Pendiente';
     }
+  }
+
+  bool get hasNeighborhoodRoute => neighborhoodRouteName.trim().isNotEmpty;
+
+  bool get hasNeighborhoodMapPoint {
+    final lat = neighborhoodLatitude;
+    final lng = neighborhoodLongitude;
+    return lat != null &&
+        lng != null &&
+        lat.isFinite &&
+        lng.isFinite &&
+        !(lat == 0 && lng == 0);
+  }
+
+  Uri? get neighborhoodMapsUri {
+    if (hasNeighborhoodMapPoint) {
+      return Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=$neighborhoodLatitude,$neighborhoodLongitude&travelmode=driving',
+      );
+    }
+    final name = neighborhoodRouteName.trim();
+    if (name.isEmpty) return null;
+    return Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent('$name Madre de Dios Peru')}',
+    );
   }
 }

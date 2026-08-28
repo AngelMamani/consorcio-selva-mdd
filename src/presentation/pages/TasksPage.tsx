@@ -13,8 +13,12 @@ import type { Area } from '@/domain/entities/Area'
 import type { Task } from '@/domain/entities/Task'
 import {
   formatTaskAssignees,
+  isValidMapCoord,
+  neighborhoodMapsUrl,
   normalizeTaskRoutes,
+  parseMapCoords,
   TaskStatus,
+  taskHasNeighborhoodMapPoint,
   taskRouteHasMapPoint,
   taskStatusLabel,
   taskTitleFromActivity,
@@ -129,6 +133,194 @@ function IconCheck() {
         d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
       />
     </svg>
+  )
+}
+
+function NeighborhoodRouteFields({
+  name,
+  latitude,
+  longitude,
+  onNameChange,
+  onPick,
+  onClear,
+}: {
+  name: string
+  latitude: number | null
+  longitude: number | null
+  onNameChange: (value: string) => void
+  onPick: (latitude: number, longitude: number) => void
+  onClear: () => void
+}) {
+  const mapElRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const markerRef = useRef<L.Marker | null>(null)
+  const onPickRef = useRef(onPick)
+  const [searching, setSearching] = useState(false)
+  const [hits, setHits] = useState<
+    { label: string; latitude: number; longitude: number }[]
+  >([])
+  onPickRef.current = onPick
+
+  useEffect(() => {
+    const el = mapElRef.current
+    if (!el) return
+    const map = L.map(el, {
+      zoomControl: true,
+      attributionControl: false,
+      scrollWheelZoom: true,
+    }).setView(
+      isValidMapCoord(latitude, longitude)
+        ? [latitude as number, longitude as number]
+        : DEFAULT_CENTER,
+      isValidMapCoord(latitude, longitude) ? 15 : 12,
+    )
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map)
+    map.on('click', (event: L.LeafletMouseEvent) => {
+      onPickRef.current(event.latlng.lat, event.latlng.lng)
+    })
+    mapRef.current = map
+    window.setTimeout(() => map.invalidateSize({ animate: false }), 180)
+    window.setTimeout(() => map.invalidateSize({ animate: false }), 400)
+    return () => {
+      map.remove()
+      mapRef.current = null
+      markerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!isValidMapCoord(latitude, longitude)) {
+      markerRef.current?.remove()
+      markerRef.current = null
+      return
+    }
+    const point = L.latLng(latitude as number, longitude as number)
+    if (markerRef.current) {
+      markerRef.current.setLatLng(point)
+    } else {
+      markerRef.current = L.marker(point, {
+        icon: L.divIcon({
+          className: 'tasks-pin',
+          html: '<span class="tasks-pin__dot tasks-pin__dot--vecinal is-selected"></span><span class="tasks-pin__code">Vecinal</span>',
+          iconSize: [96, 36],
+          iconAnchor: [16, 30],
+        }),
+      }).addTo(map)
+    }
+    map.setView(point, Math.max(map.getZoom(), 15))
+  }, [latitude, longitude])
+
+  async function searchPlace() {
+    const query = name.trim()
+    if (query.length < 3) return
+    const parsed = parseMapCoords(query)
+    if (parsed) {
+      onPick(parsed.latitude, parsed.longitude)
+      setHits([])
+      return
+    }
+    setSearching(true)
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=pe&q=${encodeURIComponent(`${query} Madre de Dios`)}`
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error('search')
+      const data = (await response.json()) as {
+        display_name?: string
+        lat?: string
+        lon?: string
+      }[]
+      const next = data
+        .map((item) => {
+          const lat = Number(item.lat)
+          const lng = Number(item.lon)
+          if (!isValidMapCoord(lat, lng)) return null
+          return {
+            label: (item.display_name ?? query).slice(0, 140),
+            latitude: lat,
+            longitude: lng,
+          }
+        })
+        .filter((item): item is NonNullable<typeof item> => item != null)
+      setHits(next)
+    } catch {
+      setHits([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const hasPoint = isValidMapCoord(latitude, longitude)
+
+  return (
+    <div className="field tasks-vecinal">
+      <span>Ruta vecinal (opcional)</span>
+      <p className="tasks-vecinal__hint">
+        Sirve para orientar al técnico. Escribe el nombre de la vía y márcala
+        en el mapa, o pega coordenadas / un enlace de Google Maps.
+      </p>
+      <div className="tasks-vecinal__row">
+        <input
+          value={name}
+          onChange={(event) => {
+            const next = event.target.value
+            onNameChange(next)
+            const parsed = parseMapCoords(next)
+            if (parsed) onPick(parsed.latitude, parsed.longitude)
+          }}
+          placeholder="Ej. carretera a La Novia, km 8"
+          maxLength={160}
+        />
+        <button
+          type="button"
+          className="btn btn--soft-blue btn--small"
+          onClick={() => void searchPlace()}
+          disabled={name.trim().length < 3 || searching}
+        >
+          {searching ? 'Buscando…' : 'Buscar'}
+        </button>
+      </div>
+      {hits.length > 0 ? (
+        <ul className="tasks-vecinal__hits">
+          {hits.map((hit) => (
+            <li key={`${hit.latitude},${hit.longitude}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(hit.latitude, hit.longitude)
+                  if (!name.trim()) onNameChange(hit.label.slice(0, 80))
+                  setHits([])
+                }}
+              >
+                {hit.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div ref={mapElRef} className="tasks-vecinal__map" />
+      <div className="tasks-vecinal__meta">
+        <small>
+          {hasPoint
+            ? `Punto marcado: ${latitude?.toFixed(5)}, ${longitude?.toFixed(5)}`
+            : 'Toca el mapa para marcar la vía'}
+        </small>
+        {name.trim() || hasPoint ? (
+          <button
+            type="button"
+            className="btn btn--soft-muted btn--small"
+            onClick={onClear}
+          >
+            Quitar
+          </button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -389,6 +581,14 @@ export function TasksPage() {
   const [draftRoutes, setDraftRoutes] = useState<DraftRoute[]>([])
   const [assignToAll, setAssignToAll] = useState(false)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
+  const [neighborhoodName, setNeighborhoodName] = useState('')
+  const [neighborhoodLatitude, setNeighborhoodLatitude] = useState<
+    number | null
+  >(null)
+  const [neighborhoodLongitude, setNeighborhoodLongitude] = useState<
+    number | null
+  >(null)
+  const [selectedNeighborhood, setSelectedNeighborhood] = useState(false)
 
   const selectedAreaName = areas.find((area) => area.id === areaId)?.name ?? ''
 
@@ -440,6 +640,22 @@ export function TasksPage() {
     }
     return visible
   }, [filteredTasks, mapPoints, selectedTaskId, selectedAreaId])
+
+  const neighborhoodPoints = useMemo(() => {
+    return filteredTasks
+      .filter((task) => {
+        if (!taskHasNeighborhoodMapPoint(task)) return false
+        if (selectedTaskId) return task.id === selectedTaskId
+        if (selectedAreaId) return task.areaId === selectedAreaId
+        return true
+      })
+      .map((task) => ({
+        task,
+        name: task.neighborhoodRouteName.trim() || 'Ruta vecinal',
+        latitude: task.neighborhoodLatitude as number,
+        longitude: task.neighborhoodLongitude as number,
+      }))
+  }, [filteredTasks, selectedTaskId, selectedAreaId])
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -680,13 +896,13 @@ export function TasksPage() {
 
     layer.clearLayers()
 
-    if (filteredMapPoints.length === 0) {
+    const bounds = L.latLngBounds([])
+    if (filteredMapPoints.length === 0 && neighborhoodPoints.length === 0) {
       map.setView(DEFAULT_CENTER, 12)
       window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
       return
     }
 
-    const bounds = L.latLngBounds([])
     for (const point of filteredMapPoints) {
       const selected =
         point.task.id === selectedTaskId &&
@@ -718,6 +934,7 @@ export function TasksPage() {
       marker.on('click', () => {
         setSelectedTaskId(point.task.id)
         setSelectedRouteCode(point.routeCode)
+        setSelectedNeighborhood(false)
       })
       marker.on('popupopen', () => {
         const link = document.querySelector<HTMLAnchorElement>(
@@ -742,27 +959,70 @@ export function TasksPage() {
       bounds.extend([point.latitude, point.longitude])
     }
 
+    for (const point of neighborhoodPoints) {
+      const selected =
+        selectedNeighborhood && point.task.id === selectedTaskId
+      const mapsHref = neighborhoodMapsUrl(point.task) ?? ''
+      const marker = L.marker([point.latitude, point.longitude], {
+        icon: L.divIcon({
+          className: 'tasks-pin',
+          html: `<span class="tasks-pin__dot tasks-pin__dot--vecinal${selected ? ' is-selected' : ''}"></span><span class="tasks-pin__code">Vecinal</span>`,
+          iconSize: [96, 36],
+          iconAnchor: [16, 30],
+        }),
+        zIndexOffset: selected ? 1000 : 700,
+      })
+      marker.bindPopup(
+        `<strong>Ruta vecinal</strong><br/>${escapeHtml(point.name)}<br/><small>${escapeHtml(point.task.areaName || point.task.title)}</small>${
+          mapsHref
+            ? `<br/><a class="tasks-pin__photos" href="${mapsHref}" target="_blank" rel="noopener noreferrer">Cómo llegar</a>`
+            : ''
+        }`,
+      )
+      marker.on('click', () => {
+        setSelectedTaskId(point.task.id)
+        setSelectedRouteCode(null)
+        setSelectedAreaId(point.task.areaId || null)
+        setSelectedNeighborhood(true)
+      })
+      marker.addTo(layer)
+      bounds.extend([point.latitude, point.longitude])
+    }
+
+    const selectedNeighborhoodPoint = neighborhoodPoints.find(
+      (point) => selectedNeighborhood && point.task.id === selectedTaskId,
+    )
     const selectedPoint =
+      selectedNeighborhoodPoint ??
       filteredMapPoints.find(
         (point) =>
           point.task.id === selectedTaskId &&
           (!selectedRouteCode || point.routeCode === selectedRouteCode),
-      ) ?? filteredMapPoints[0]
-    if (selectedPoint && selectedTaskId) {
+      ) ??
+      filteredMapPoints[0] ??
+      neighborhoodPoints[0]
+    if (selectedPoint && (selectedTaskId || selectedNeighborhood)) {
       map.setView(
         [selectedPoint.latitude, selectedPoint.longitude],
         Math.max(map.getZoom(), 15),
       )
-    } else if (filteredMapPoints.length === 1) {
-      map.setView(
-        [filteredMapPoints[0].latitude, filteredMapPoints[0].longitude],
-        15,
-      )
-    } else {
+    } else if (
+      selectedPoint &&
+      filteredMapPoints.length + neighborhoodPoints.length === 1
+    ) {
+      map.setView([selectedPoint.latitude, selectedPoint.longitude], 15)
+    } else if (bounds.isValid()) {
       map.fitBounds(bounds.pad(0.18), { maxZoom: 16 })
     }
     window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
-  }, [filteredMapPoints, selectedTaskId, selectedRouteCode, navigate])
+  }, [
+    filteredMapPoints,
+    neighborhoodPoints,
+    selectedTaskId,
+    selectedRouteCode,
+    selectedNeighborhood,
+    navigate,
+  ])
 
   function openCreate() {
     setEditing(null)
@@ -774,6 +1034,9 @@ export function TasksPage() {
     setDraftRoutes([])
     setAssignToAll(false)
     setAssignedIds([])
+    setNeighborhoodName('')
+    setNeighborhoodLatitude(null)
+    setNeighborhoodLongitude(null)
     setModalOpen(true)
   }
 
@@ -796,6 +1059,9 @@ export function TasksPage() {
     )
     setAssignToAll(task.assignToAllTechnicians)
     setAssignedIds([...new Set(task.assignedTechnicianIds)])
+    setNeighborhoodName(task.neighborhoodRouteName)
+    setNeighborhoodLatitude(task.neighborhoodLatitude)
+    setNeighborhoodLongitude(task.neighborhoodLongitude)
     setModalOpen(true)
   }
 
@@ -898,12 +1164,18 @@ export function TasksPage() {
         routeCode: route.routeCode,
         note: route.note,
       }))
+      const neighborhood = {
+        neighborhoodRouteName: neighborhoodName,
+        neighborhoodLatitude,
+        neighborhoodLongitude,
+      }
       if (editing) {
         const updated = await updateTaskUseCase.execute(user, editing.id, {
           description,
           dueDate: fromDateInputValue(dueDate),
           areaId,
           routes,
+          ...neighborhood,
           assignToAllTechnicians: assignToAll,
           assignedTechnicianIds: assignedIds,
         })
@@ -919,6 +1191,7 @@ export function TasksPage() {
           dueDate: fromDateInputValue(dueDate),
           areaId,
           routes,
+          ...neighborhood,
           assignToAllTechnicians: assignToAll,
           assignedTechnicianIds: assignedIds,
         })
@@ -964,12 +1237,14 @@ export function TasksPage() {
     setSelectedTaskId(null)
     setSelectedRouteCode(null)
     setSelectedAreaId(null)
+    setSelectedNeighborhood(false)
   }
 
   function selectActivity(nextAreaId: string) {
     setSelectedAreaId(nextAreaId)
     setSelectedTaskId(null)
     setSelectedRouteCode(null)
+    setSelectedNeighborhood(false)
   }
 
   function toggleActivity(nextAreaId: string) {
@@ -1220,6 +1495,7 @@ export function TasksPage() {
                             setSelectedTaskId(task.id)
                             setSelectedRouteCode(null)
                             setSelectedAreaId(task.areaId || group.areaId)
+                            setSelectedNeighborhood(false)
                           }}
                         >
                           <div className="tasks-card__top">
@@ -1242,7 +1518,43 @@ export function TasksPage() {
                               {doneCount}/{routes.length || 0} puntos
                               completados
                             </span>
+                            {task.neighborhoodRouteName.trim() ? (
+                              <span>Vecinal: {task.neighborhoodRouteName}</span>
+                            ) : null}
                           </div>
+                          {task.neighborhoodRouteName.trim() ||
+                          taskHasNeighborhoodMapPoint(task) ? (
+                            <div className="tasks-card__vecinal">
+                              {taskHasNeighborhoodMapPoint(task) ? (
+                                <button
+                                  type="button"
+                                  className="btn btn--soft-muted btn--small"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setSelectedTaskId(task.id)
+                                    setSelectedRouteCode(null)
+                                    setSelectedAreaId(
+                                      task.areaId || group.areaId,
+                                    )
+                                    setSelectedNeighborhood(true)
+                                  }}
+                                >
+                                  Ver vía
+                                </button>
+                              ) : null}
+                              {neighborhoodMapsUrl(task) ? (
+                                <a
+                                  className="btn btn--soft-blue btn--small"
+                                  href={neighborhoodMapsUrl(task) ?? '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  Cómo llegar
+                                </a>
+                              ) : null}
+                            </div>
+                          ) : null}
                           <ul className="tasks-routes-list">
                             {routes.map((route) => {
                               const point = taskPoints.find(
@@ -1266,6 +1578,7 @@ export function TasksPage() {
                                       setSelectedAreaId(
                                         task.areaId || group.areaId,
                                       )
+                                      setSelectedNeighborhood(false)
                                     }}
                                   >
                                     <span
@@ -1537,6 +1850,27 @@ export function TasksPage() {
                 </ul>
               )}
             </div>
+            {modalOpen ? (
+              <NeighborhoodRouteFields
+                key={editing?.id ?? 'new'}
+                name={neighborhoodName}
+                latitude={neighborhoodLatitude}
+                longitude={neighborhoodLongitude}
+                onNameChange={setNeighborhoodName}
+                onPick={(latitude, longitude) => {
+                  setNeighborhoodLatitude(latitude)
+                  setNeighborhoodLongitude(longitude)
+                  if (!neighborhoodName.trim()) {
+                    setNeighborhoodName('Ruta vecinal')
+                  }
+                }}
+                onClear={() => {
+                  setNeighborhoodName('')
+                  setNeighborhoodLatitude(null)
+                  setNeighborhoodLongitude(null)
+                }}
+              />
+            ) : null}
             <TaskAssigneePicker
               assignToAllTechnicians={assignToAll}
               assignedTechnicianIds={assignedIds}

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/composition_root.dart';
 import '../../domain/entities/field_task.dart';
@@ -138,6 +139,18 @@ class _TasksPageState extends State<TasksPage> {
         _gpsRequired = false;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _openNeighborhood(FieldTask task) async {
+    widget.onOpenTaskMap?.call(task.id);
+    final uri = task.neighborhoodMapsUri;
+    if (uri == null) return;
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir Google Maps')),
+      );
     }
   }
 
@@ -663,6 +676,13 @@ class _TasksPageState extends State<TasksPage> {
                                 label: Text('Suministro ${item.routeCode}'),
                                 visualDensity: VisualDensity.compact,
                               ),
+                            if (task.hasNeighborhoodRoute)
+                              Chip(
+                                label: Text(
+                                  'Vecinal: ${task.neighborhoodRouteName}',
+                                ),
+                                visualDensity: VisualDensity.compact,
+                              ),
                             if (task.normalizedRoutes.length > 1)
                               Chip(
                                 label: Text(task.routesLabel),
@@ -755,6 +775,19 @@ class _TasksPageState extends State<TasksPage> {
                                 ),
                               ],
                             ),
+                          if (task.hasNeighborhoodRoute) ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: actionsBlocked
+                                    ? null
+                                    : () => _openNeighborhood(task),
+                                icon: const Icon(Icons.alt_route_rounded),
+                                label: const Text('Ruta vecinal'),
+                              ),
+                            ),
+                          ],
                           if (task.isInProgress) ...[
                             const SizedBox(height: 8),
                             SizedBox(

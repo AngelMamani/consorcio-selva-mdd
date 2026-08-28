@@ -11,10 +11,12 @@ import {
   Timestamp,
   updateDoc,
   where,
+  deleteField,
 } from 'firebase/firestore'
 import type { Task, TaskNotice, TaskRoute, TaskStatus } from '@/domain/entities/Task'
 import {
   isValidMapCoord,
+  normalizeNeighborhoodRoute,
   normalizeTaskRoutes,
   primaryTaskRoute,
   TaskStatus as Status,
@@ -61,6 +63,9 @@ interface TaskDoc {
   latitude?: number
   longitude?: number
   routes?: TaskRouteDoc[]
+  neighborhoodRouteName?: string
+  neighborhoodLatitude?: number
+  neighborhoodLongitude?: number
   lastNotice?: TaskNoticeDoc | null
   assignToAllTechnicians: boolean
   assignedTechnicianIds: string[]
@@ -161,6 +166,17 @@ function mapTask(id: string, data: TaskDoc): Task {
     completedAt: data.completedAt?.toDate() ?? null,
   })
   const primary = primaryTaskRoute(routes)
+  const neighborhood = normalizeNeighborhoodRoute({
+    name: data.neighborhoodRouteName,
+    latitude:
+      typeof data.neighborhoodLatitude === 'number'
+        ? data.neighborhoodLatitude
+        : null,
+    longitude:
+      typeof data.neighborhoodLongitude === 'number'
+        ? data.neighborhoodLongitude
+        : null,
+  })
   return {
     id,
     title: data.title,
@@ -175,6 +191,9 @@ function mapTask(id: string, data: TaskDoc): Task {
       primary?.longitude ?? (isValidMapCoord(latitude, longitude) ? longitude : null),
     routes,
     lastNotice: mapNotice(data.lastNotice),
+    neighborhoodRouteName: neighborhood.name,
+    neighborhoodLatitude: neighborhood.latitude,
+    neighborhoodLongitude: neighborhood.longitude,
     assignToAllTechnicians: data.assignToAllTechnicians === true,
     assignedTechnicianIds: data.assignedTechnicianIds ?? [],
     assignedTechnicianNames: data.assignedTechnicianNames ?? [],
@@ -185,6 +204,27 @@ function mapTask(id: string, data: TaskDoc): Task {
     completedByName: data.completedByName ?? '',
     createdAt: data.createdAt.toDate(),
     updatedAt: data.updatedAt.toDate(),
+  }
+}
+
+function applyNeighborhood(
+  payload: TaskDoc,
+  name: string,
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+): Record<string, unknown> {
+  const neighborhood = normalizeNeighborhoodRoute({ name, latitude, longitude })
+  payload.neighborhoodRouteName = neighborhood.name
+  if (isValidMapCoord(neighborhood.latitude, neighborhood.longitude)) {
+    payload.neighborhoodLatitude = neighborhood.latitude ?? undefined
+    payload.neighborhoodLongitude = neighborhood.longitude ?? undefined
+    return {}
+  }
+  delete payload.neighborhoodLatitude
+  delete payload.neighborhoodLongitude
+  return {
+    neighborhoodLatitude: deleteField(),
+    neighborhoodLongitude: deleteField(),
   }
 }
 
@@ -342,6 +382,12 @@ export class FirebaseTaskRepository implements TaskRepository {
       primary?.latitude ?? input.latitude,
       primary?.longitude ?? input.longitude,
     )
+    applyNeighborhood(
+      payload,
+      input.neighborhoodRouteName,
+      input.neighborhoodLatitude,
+      input.neighborhoodLongitude,
+    )
     const id = crypto.randomUUID()
     await setDoc(doc(this.collectionRef, id), payload)
     return mapTask(id, payload)
@@ -421,7 +467,18 @@ export class FirebaseTaskRepository implements TaskRepository {
       primary?.longitude ?? null,
     )
 
-    await updateDoc(ref, { ...payload })
+    const neighborhoodPatch = applyNeighborhood(
+      payload,
+      input.neighborhoodRouteName ?? mapped.neighborhoodRouteName,
+      input.neighborhoodLatitude === undefined
+        ? mapped.neighborhoodLatitude
+        : input.neighborhoodLatitude,
+      input.neighborhoodLongitude === undefined
+        ? mapped.neighborhoodLongitude
+        : input.neighborhoodLongitude,
+    )
+
+    await updateDoc(ref, { ...payload, ...neighborhoodPatch })
     return mapTask(id, payload)
   }
 

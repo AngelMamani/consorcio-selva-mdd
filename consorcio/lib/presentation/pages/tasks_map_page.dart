@@ -101,6 +101,16 @@ class _TasksMapPageState extends State<TasksMapPage> {
     return null;
   }
 
+  List<FieldTask> get _neighborhoodTasks {
+    final byId = <String, FieldTask>{};
+    for (final item in _visibleRanked) {
+      if (item.task.hasNeighborhoodMapPoint) {
+        byId[item.task.id] = item.task;
+      }
+    }
+    return byId.values.toList();
+  }
+
   @override
   void didUpdateWidget(covariant TasksMapPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -222,6 +232,9 @@ class _TasksMapPageState extends State<TasksMapPage> {
     final points = <LatLng>[
       LatLng(location.latitude, location.longitude),
       ...open.map((item) => LatLng(item.latitude!, item.longitude!)),
+      ..._neighborhoodTasks.map(
+        (task) => LatLng(task.neighborhoodLatitude!, task.neighborhoodLongitude!),
+      ),
     ];
     if (points.length == 1) {
       _mapController.move(points.first, 16);
@@ -458,6 +471,23 @@ class _TasksMapPageState extends State<TasksMapPage> {
     final uri = Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=${item.latitude},${item.longitude}&travelmode=driving',
     );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir Google Maps')),
+      );
+    }
+  }
+
+  Future<void> _openNeighborhoodNavigation(FieldTask task) async {
+    final uri = task.neighborhoodMapsUri;
+    if (uri == null) return;
+    if (task.hasNeighborhoodMapPoint) {
+      _mapController.move(
+        LatLng(task.neighborhoodLatitude!, task.neighborhoodLongitude!),
+        16,
+      );
+    }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -889,6 +919,22 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                         ),
                                       );
                                     }),
+                                    ..._neighborhoodTasks.map((task) {
+                                      return Marker(
+                                        point: LatLng(
+                                          task.neighborhoodLatitude!,
+                                          task.neighborhoodLongitude!,
+                                        ),
+                                        width: 128,
+                                        height: 56,
+                                        alignment: Alignment.bottomCenter,
+                                        child: GestureDetector(
+                                          onTap: () =>
+                                              _openNeighborhoodNavigation(task),
+                                          child: const _NeighborhoodMarker(),
+                                        ),
+                                      );
+                                    }),
                                     ..._nearby.map((item) {
                                       final selected =
                                           _searchHit?.code == item.routeCode;
@@ -1008,6 +1054,17 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                               !_selected!.hasMapPoint
                                           ? null
                                           : () => _openNavigation(_selected!),
+                                      onNavigateNeighborhood: (_selected?.task ??
+                                                      _focusedTask)
+                                                  ?.hasNeighborhoodRoute ==
+                                              true
+                                          ? () {
+                                              final task = _selected?.task ??
+                                                  _focusedTask;
+                                              if (task == null) return;
+                                              _openNeighborhoodNavigation(task);
+                                            }
+                                          : null,
                                       onClaim: _selected == null ||
                                               _selected!.routeCompleted ||
                                               _selected!.isClaimed
@@ -1090,6 +1147,54 @@ class _TasksMapPageState extends State<TasksMapPage> {
                               ),
                           ],
                         ),
+    );
+  }
+}
+
+class _NeighborhoodMarker extends StatelessWidget {
+  const _NeighborhoodMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    const color = Color(0xFF6A1B9A);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.45),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Text(
+            'Ruta vecinal',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+            ),
+          ),
+        ),
+        Container(
+          width: 0,
+          height: 0,
+          decoration: const BoxDecoration(
+            border: Border(
+              left: BorderSide(width: 6, color: Colors.transparent),
+              right: BorderSide(width: 6, color: Colors.transparent),
+              top: BorderSide(width: 8, color: color),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1527,6 +1632,7 @@ class _BottomPanel extends StatelessWidget {
     required this.nearest,
     required this.onSelectNearest,
     required this.onNavigate,
+    this.onNavigateNeighborhood,
     required this.onCenterMe,
     required this.onPickMissing,
     required this.onClose,
@@ -1545,6 +1651,7 @@ class _BottomPanel extends StatelessWidget {
   final RankedFieldTask? nearest;
   final VoidCallback? onSelectNearest;
   final VoidCallback? onNavigate;
+  final VoidCallback? onNavigateNeighborhood;
   final VoidCallback onCenterMe;
   final void Function(RankedFieldTask item) onPickMissing;
   final VoidCallback onClose;
@@ -1710,6 +1817,17 @@ class _BottomPanel extends StatelessWidget {
                   ),
                 ],
               ),
+              if (onNavigateNeighborhood != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: onNavigateNeighborhood,
+                    icon: const Icon(Icons.alt_route_rounded),
+                    label: const Text('Ruta vecinal'),
+                  ),
+                ),
+              ],
               if (onClaim != null) ...[
                 const SizedBox(height: 8),
                 SizedBox(

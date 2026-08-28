@@ -123,6 +123,9 @@ class FirebaseTaskRepository implements TaskRepository {
       completedByName: (data['completedByName'] as String?) ?? '',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      neighborhoodRouteName: (data['neighborhoodRouteName'] as String?) ?? '',
+      neighborhoodLatitude: _coord(data['neighborhoodLatitude']),
+      neighborhoodLongitude: _coord(data['neighborhoodLongitude']),
     );
     return FieldTask(
       id: task.id,
@@ -153,6 +156,13 @@ class FirebaseTaskRepository implements TaskRepository {
       completedByName: task.completedByName,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
+      neighborhoodRouteName: task.neighborhoodRouteName,
+      neighborhoodLatitude: task.hasNeighborhoodMapPoint
+          ? task.neighborhoodLatitude
+          : null,
+      neighborhoodLongitude: task.hasNeighborhoodMapPoint
+          ? task.neighborhoodLongitude
+          : null,
     );
   }
 
@@ -244,10 +254,16 @@ class FirebaseTaskRepository implements TaskRepository {
       'completedByName': '',
       'createdAt': now,
       'updatedAt': now,
+      'neighborhoodRouteName': input.neighborhoodRouteName.trim(),
     };
     if (input.latitude != null && input.longitude != null) {
       payload['latitude'] = input.latitude;
       payload['longitude'] = input.longitude;
+    }
+    if (input.neighborhoodLatitude != null &&
+        input.neighborhoodLongitude != null) {
+      payload['neighborhoodLatitude'] = input.neighborhoodLatitude;
+      payload['neighborhoodLongitude'] = input.neighborhoodLongitude;
     }
     await _tasks.doc(id).set(payload);
     return _map(id, payload);

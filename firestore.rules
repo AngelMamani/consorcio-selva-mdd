@@ -147,6 +147,29 @@ service cloud.firestore {
             && request.resource.data.longitude <= 180
           )
         )
+        && (
+          !('neighborhoodRouteName' in request.resource.data)
+          || (
+            request.resource.data.neighborhoodRouteName is string
+            && request.resource.data.neighborhoodRouteName.size() <= 160
+          )
+        )
+        && (
+          !('neighborhoodLatitude' in request.resource.data)
+          || (
+            request.resource.data.neighborhoodLatitude is number
+            && request.resource.data.neighborhoodLatitude >= -90
+            && request.resource.data.neighborhoodLatitude <= 90
+          )
+        )
+        && (
+          !('neighborhoodLongitude' in request.resource.data)
+          || (
+            request.resource.data.neighborhoodLongitude is number
+            && request.resource.data.neighborhoodLongitude >= -180
+            && request.resource.data.neighborhoodLongitude <= 180
+          )
+        )
         && validAssignment(request.resource.data)
         && request.resource.data.createdByName is string
         && request.resource.data.createdByName.size() > 0
@@ -158,6 +181,7 @@ service cloud.firestore {
           'title', 'description', 'status', 'dueDate',
           'areaId', 'areaName', 'routeCode', 'latitude', 'longitude',
           'routes', 'lastNotice',
+          'neighborhoodRouteName', 'neighborhoodLatitude', 'neighborhoodLongitude',
           'assignToAllTechnicians', 'assignedTechnicianIds', 'assignedTechnicianNames',
           'createdById', 'createdByName',
           'completedAt', 'completedById', 'completedByName',

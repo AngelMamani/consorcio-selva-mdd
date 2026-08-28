@@ -401,6 +401,9 @@ class CreateFieldTaskUseCase {
     required bool assignToAllTechnicians,
     required List<String> assignedTechnicianIds,
     DateTime? dueDate,
+    String neighborhoodRouteName = '',
+    double? neighborhoodLatitude,
+    double? neighborhoodLongitude,
   }) async {
     if (!actor.isMobileAdmin) {
       throw DomainException('Solo el administrador puede asignar tareas');
@@ -483,6 +486,20 @@ class CreateFieldTaskUseCase {
         : (area.name.trim().length > 160
             ? area.name.trim().substring(0, 160)
             : area.name.trim());
+    var vecinalName = neighborhoodRouteName.trim();
+    if (vecinalName.length > 160) {
+      vecinalName = vecinalName.substring(0, 160);
+    }
+    final vecinalLat = neighborhoodLatitude;
+    final vecinalLng = neighborhoodLongitude;
+    final hasVecinalPoint = vecinalLat != null &&
+        vecinalLng != null &&
+        vecinalLat.isFinite &&
+        vecinalLng.isFinite &&
+        !(vecinalLat == 0 && vecinalLng == 0);
+    if (vecinalName.isEmpty && hasVecinalPoint) {
+      vecinalName = 'Ruta vecinal';
+    }
     final primary = uniqueRoutes.first;
     return _taskRepository.create(
       CreateFieldTaskInput(
@@ -500,6 +517,9 @@ class CreateFieldTaskUseCase {
         assignedTechnicianNames: names,
         createdById: actor.id,
         createdByName: actor.displayName,
+        neighborhoodRouteName: vecinalName,
+        neighborhoodLatitude: hasVecinalPoint ? vecinalLat : null,
+        neighborhoodLongitude: hasVecinalPoint ? vecinalLng : null,
       ),
     );
   }

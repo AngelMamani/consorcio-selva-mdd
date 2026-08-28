@@ -26,6 +26,29 @@ class _DraftRoute {
   final bool isNew;
 }
 
+({double lat, double lng})? _parseNeighborhoodCoords(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return null;
+  final patterns = <RegExp>[
+    RegExp(r'@(-?\d+\.\d+),(-?\d+\.\d+)'),
+    RegExp(r'[?&]q=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)'),
+    RegExp(r'[?&]query=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)'),
+    RegExp(r'^(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)$'),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(text);
+    if (match == null) continue;
+    final lat = double.tryParse(match.group(1)!);
+    final lng = double.tryParse(match.group(2)!);
+    if (lat == null || lng == null) continue;
+    if (!lat.isFinite || !lng.isFinite) continue;
+    if (lat == 0 && lng == 0) continue;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+    return (lat: lat, lng: lng);
+  }
+  return null;
+}
+
 class AssignTaskPage extends StatefulWidget {
   const AssignTaskPage({super.key});
 
@@ -38,6 +61,8 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
   final _descriptionController = TextEditingController();
   final _routeController = TextEditingController();
   final _noteController = TextEditingController();
+  final _vecinalNameController = TextEditingController();
+  final _vecinalCoordsController = TextEditingController();
 
   List<Area> _areas = [];
   List<AppUser> _technicians = [];
@@ -67,6 +92,8 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
     _descriptionController.dispose();
     _routeController.dispose();
     _noteController.dispose();
+    _vecinalNameController.dispose();
+    _vecinalCoordsController.dispose();
     super.dispose();
   }
 
@@ -277,6 +304,10 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
     final user = session.user;
     if (user == null || _saving) return;
 
+    final coords = _parseNeighborhoodCoords(
+      '${_vecinalCoordsController.text} ${_vecinalNameController.text}',
+    );
+
     setState(() => _saving = true);
     try {
       await deps.createFieldTaskUseCase.execute(
@@ -289,6 +320,9 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
         assignToAllTechnicians: _assignAll,
         assignedTechnicianIds: _selectedTechnicianIds.toList(),
         dueDate: _dueDate,
+        neighborhoodRouteName: _vecinalNameController.text,
+        neighborhoodLatitude: coords?.lat,
+        neighborhoodLongitude: coords?.lng,
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -448,6 +482,23 @@ class _AssignTaskPageState extends State<AssignTaskPage> {
                             ),
                           ),
                         ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _vecinalNameController,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: const InputDecoration(
+                          labelText: 'Ruta vecinal (opcional)',
+                          hintText: 'Nombre de la vía para orientar al técnico',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _vecinalCoordsController,
+                        decoration: const InputDecoration(
+                          labelText: 'Punto de la vía (opcional)',
+                          hintText: 'Lat, lng o enlace de Google Maps',
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       ListTile(
                         contentPadding: EdgeInsets.zero,

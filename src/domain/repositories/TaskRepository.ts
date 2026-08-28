@@ -16,6 +16,9 @@ export interface CreateTaskInput {
   latitude: number | null
   longitude: number | null
   routes: TaskRoute[]
+  neighborhoodRouteName: string
+  neighborhoodLatitude: number | null
+  neighborhoodLongitude: number | null
   assignToAllTechnicians: boolean
   assignedTechnicianIds: string[]
   assignedTechnicianNames: string[]
@@ -34,6 +37,9 @@ export interface UpdateTaskInput {
   latitude?: number | null
   longitude?: number | null
   routes?: TaskRoute[]
+  neighborhoodRouteName?: string
+  neighborhoodLatitude?: number | null
+  neighborhoodLongitude?: number | null
   lastNotice?: TaskNotice | null
   assignToAllTechnicians?: boolean
   assignedTechnicianIds?: string[]

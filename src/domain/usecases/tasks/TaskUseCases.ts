@@ -4,6 +4,7 @@ import {
   allTaskRoutesCompleted,
   assertUserCanAccessTask,
   isValidMapCoord,
+  normalizeNeighborhoodRoute,
   normalizeTaskRoutes,
   primaryTaskRoute,
   TaskStatus,
@@ -245,6 +246,9 @@ export class CreateTaskUseCase {
       dueDate?: Date | null
       areaId?: string
       routes: TaskRouteInput[]
+      neighborhoodRouteName?: string
+      neighborhoodLatitude?: number | null
+      neighborhoodLongitude?: number | null
       assignToAllTechnicians: boolean
       assignedTechnicianIds: string[]
     },
@@ -271,6 +275,11 @@ export class CreateTaskUseCase {
     )
     const routes = await resolveTaskRoutes(this.supplyRepository, input.routes)
     const primary = primaryTaskRoute(routes)
+    const neighborhood = normalizeNeighborhoodRoute({
+      name: input.neighborhoodRouteName,
+      latitude: input.neighborhoodLatitude,
+      longitude: input.neighborhoodLongitude,
+    })
 
     return this.taskRepository.create({
       title: taskTitleFromActivity(area.name),
@@ -283,6 +292,9 @@ export class CreateTaskUseCase {
       latitude: primary?.latitude ?? null,
       longitude: primary?.longitude ?? null,
       routes,
+      neighborhoodRouteName: neighborhood.name,
+      neighborhoodLatitude: neighborhood.latitude,
+      neighborhoodLongitude: neighborhood.longitude,
       assignToAllTechnicians: assignment.assignToAllTechnicians,
       assignedTechnicianIds: assignment.assignedTechnicianIds,
       assignedTechnicianNames: assignment.assignedTechnicianNames,
@@ -318,6 +330,9 @@ export class UpdateTaskUseCase {
       dueDate?: Date | null
       areaId?: string
       routes: TaskRouteInput[]
+      neighborhoodRouteName?: string
+      neighborhoodLatitude?: number | null
+      neighborhoodLongitude?: number | null
       assignToAllTechnicians: boolean
       assignedTechnicianIds: string[]
       status?: TaskStatus
@@ -366,6 +381,11 @@ export class UpdateTaskUseCase {
       }
     })
     const primary = primaryTaskRoute(routes)
+    const neighborhood = normalizeNeighborhoodRoute({
+      name: input.neighborhoodRouteName,
+      latitude: input.neighborhoodLatitude,
+      longitude: input.neighborhoodLongitude,
+    })
 
     const nextStatus = input.status ?? existing.status
     const completing =
@@ -396,6 +416,9 @@ export class UpdateTaskUseCase {
       latitude: primary?.latitude ?? null,
       longitude: primary?.longitude ?? null,
       routes: finalRoutes,
+      neighborhoodRouteName: neighborhood.name,
+      neighborhoodLatitude: neighborhood.latitude,
+      neighborhoodLongitude: neighborhood.longitude,
       assignToAllTechnicians: assignment.assignToAllTechnicians,
       assignedTechnicianIds: assignment.assignedTechnicianIds,
       assignedTechnicianNames: assignment.assignedTechnicianNames,

@@ -29,6 +29,9 @@ class CreateFieldTaskInput {
     required this.assignedTechnicianNames,
     required this.createdById,
     required this.createdByName,
+    this.neighborhoodRouteName = '',
+    this.neighborhoodLatitude,
+    this.neighborhoodLongitude,
   });
 
   final String title;
@@ -45,6 +48,9 @@ class CreateFieldTaskInput {
   final List<String> assignedTechnicianNames;
   final String createdById;
   final String createdByName;
+  final String neighborhoodRouteName;
+  final double? neighborhoodLatitude;
+  final double? neighborhoodLongitude;
 }
 
 class UpdateFieldTaskInput {
