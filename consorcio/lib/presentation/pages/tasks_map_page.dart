@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -8,9 +9,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/composition_root.dart';
 import '../../domain/entities/field_task.dart';
+import '../../domain/entities/supply.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/usecases/rank_my_tasks_by_proximity_use_case.dart';
+import '../../domain/usecases/search_supplies_use_case.dart';
 import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
@@ -36,6 +39,8 @@ class _TasksMapPageState extends State<TasksMapPage> {
   final _locationService = DeviceLocationService();
   final _picker = ImagePickerService();
   final _mapController = MapController();
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
 
   List<RankedFieldTask> _ranked = [];
   GeoLocation? _location;
@@ -50,6 +55,13 @@ class _TasksMapPageState extends State<TasksMapPage> {
   int _tasksEpoch = 0;
   final DateTime _openedAt = DateTime.now();
   final Set<String> _seenNoticeKeys = {};
+  Timer? _suggestTimer;
+  bool _searching = false;
+  String? _searchError;
+  List<StationHit> _suggestions = const [];
+  StationHit? _searchHit;
+  List<NearbySupply> _nearby = const [];
+  int _searchEpoch = 0;
 
   @override
   void initState() {
@@ -60,6 +72,9 @@ class _TasksMapPageState extends State<TasksMapPage> {
   @override
   void dispose() {
     _tasksSub?.cancel();
+    _suggestTimer?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
     _mapController.dispose();
     super.dispose();
   }
@@ -155,7 +170,9 @@ class _TasksMapPageState extends State<TasksMapPage> {
           _ranked = ranked;
           _selected = selected;
         });
-        _fitMap(location, points);
+        if (_searchHit == null) {
+          _fitMap(location, points);
+        }
       }, onError: (_) {
         if (!mounted) return;
         setState(() => _error = 'No se pudo actualizar el mapa de tareas');
@@ -225,11 +242,215 @@ class _TasksMapPageState extends State<TasksMapPage> {
     setState(() {
       _selected = item;
       _panelOpen = true;
+      _searchHit = null;
+      _nearby = const [];
+      _suggestions = const [];
     });
     _mapController.move(
       LatLng(item.latitude!, item.longitude!),
       17,
     );
+  }
+
+  RankedFieldTask? _taskForCode(String code) {
+    for (final item in _ranked) {
+      if (item.routeCode == code && item.hasMapPoint) return item;
+    }
+    return null;
+  }
+
+  String _shortCode(String code) {
+    final trimmed = code.trim();
+    if (trimmed.length <= 6) return trimmed.isEmpty ? '•' : trimmed;
+    return trimmed.substring(trimmed.length - 6);
+  }
+
+  void _onSearchChanged(String value) {
+    _suggestTimer?.cancel();
+    final code = normalizeRouteCode(value);
+    if (code.length < 4) {
+      setState(() {
+        _suggestions = const [];
+        _searchError = null;
+      });
+      return;
+    }
+    _suggestTimer = Timer(const Duration(milliseconds: 250), () {
+      _suggest(code);
+    });
+  }
+
+  Future<void> _suggest(String code) async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null || !mounted) return;
+    final epoch = ++_searchEpoch;
+    try {
+      final found = await deps.searchStationsUseCase.execute(user, code);
+      if (!mounted || epoch != _searchEpoch) return;
+      setState(() {
+        _suggestions = found;
+        _searchError = found.isEmpty ? 'No hay coincidencias' : null;
+      });
+    } catch (_) {
+      if (!mounted || epoch != _searchEpoch) return;
+      setState(() => _suggestions = const []);
+    }
+  }
+
+  Future<void> _searchRoute({String? raw}) async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null || _searching) return;
+
+    final code = normalizeRouteCode(raw ?? _searchController.text);
+    if (code.length < 4) {
+      setState(() {
+        _searchError = 'Escribe al menos 4 dígitos del código';
+        _suggestions = const [];
+      });
+      return;
+    }
+
+    _suggestTimer?.cancel();
+    setState(() {
+      _searching = true;
+      _searchError = null;
+      _suggestions = const [];
+    });
+
+    try {
+      StationHit? hit;
+      if (code.length >= 7) {
+        try {
+          hit = await deps.getStationByCodeUseCase.execute(user, code);
+        } on DomainException {
+          hit = null;
+        }
+      }
+      if (hit == null) {
+        final found = await deps.searchStationsUseCase.execute(user, code);
+        if (!mounted) return;
+        if (found.length > 1) {
+          setState(() {
+            _searching = false;
+            _suggestions = found;
+            _searchError = null;
+          });
+          return;
+        }
+        if (found.isEmpty) {
+          setState(() {
+            _searching = false;
+            _searchError = 'No hay suministro ni SED con ese código';
+          });
+          return;
+        }
+        hit = found.first;
+      }
+      if (!mounted) return;
+      await _selectSearchHit(hit);
+    } on DomainException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _searchError = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _searchError = 'No se pudo buscar la ruta';
+      });
+    }
+  }
+
+  Future<void> _selectSearchHit(StationHit hit) async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    final matching = _taskForCode(hit.code);
+
+    _searchFocus.unfocus();
+    _searchController.text = hit.code;
+    setState(() {
+      _searching = false;
+      _searchHit = hit;
+      _suggestions = const [];
+      _searchError = null;
+      _nearby = const [];
+      _panelOpen = true;
+      if (matching != null) {
+        _selected = matching;
+      }
+    });
+
+    _mapController.move(
+      LatLng(hit.latitude, hit.longitude),
+      hit.isSed ? 16 : 18,
+    );
+
+    if (matching != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1565C0),
+          content: Text('Este suministro está en tu tarea ${matching.task.title}'),
+        ),
+      );
+    }
+
+    if (!hit.isSed || user == null) return;
+    try {
+      final nearby = await deps.listSuppliesNearUseCase.execute(
+        user,
+        latitude: hit.latitude,
+        longitude: hit.longitude,
+      );
+      if (!mounted || _searchHit?.code != hit.code) return;
+      setState(() => _nearby = nearby);
+      if (nearby.isEmpty) return;
+      final points = <LatLng>[
+        LatLng(hit.latitude, hit.longitude),
+        ...nearby.map((item) => LatLng(item.latitude, item.longitude)),
+      ];
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.fromLTRB(48, 100, 48, 240),
+          maxZoom: 17,
+        ),
+      );
+    } catch (_) {
+      if (!mounted || _searchHit?.code != hit.code) return;
+      setState(() => _nearby = const []);
+    }
+  }
+
+  void _clearSearch() {
+    _suggestTimer?.cancel();
+    _searchFocus.unfocus();
+    _searchController.clear();
+    setState(() {
+      _searchHit = null;
+      _nearby = const [];
+      _suggestions = const [];
+      _searchError = null;
+      _searching = false;
+    });
+  }
+
+  Future<void> _openSearchNavigation(StationHit hit) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${hit.latitude},${hit.longitude}&travelmode=driving',
+    );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir Google Maps')),
+      );
+    }
   }
 
   Future<void> _openNavigation(RankedFieldTask item) async {
@@ -598,6 +819,10 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                 ),
                                 initialZoom: 15,
                                 onTap: (_, __) {
+                                  _searchFocus.unfocus();
+                                  if (_suggestions.isNotEmpty) {
+                                    setState(() => _suggestions = const []);
+                                  }
                                   if (_panelOpen) {
                                     setState(() => _panelOpen = false);
                                   }
@@ -613,6 +838,22 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                   userAgentPackageName:
                                       'com.consorcioselvamdd.tecnico',
                                 ),
+                                if (_searchHit != null && _searchHit!.isSed)
+                                  CircleLayer(
+                                    circles: [
+                                      CircleMarker(
+                                        point: LatLng(
+                                          _searchHit!.latitude,
+                                          _searchHit!.longitude,
+                                        ),
+                                        radius: sedFeederRadiusMeters,
+                                        useRadiusInMeter: true,
+                                        color: const Color(0x332E7D32),
+                                        borderColor: const Color(0xFF2E7D32),
+                                        borderStrokeWidth: 2,
+                                      ),
+                                    ],
+                                  ),
                                 MarkerLayer(
                                   markers: [
                                     Marker(
@@ -626,11 +867,9 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                     ),
                                     ...open.map((item) {
                                       final selected =
+                                          _searchHit == null &&
                                           _selected?.key == item.key;
-                                      final code = item.routeCode.trim();
-                                      final shortCode = code.length <= 6
-                                          ? code
-                                          : code.substring(code.length - 6);
+                                      final shortCode = _shortCode(item.routeCode);
                                       return Marker(
                                         point: LatLng(
                                           item.latitude!,
@@ -643,25 +882,114 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                           onTap: () => _selectTask(item),
                                           child: _TaskMarker(
                                             color: _markerColor(item, userId),
-                                            code: shortCode.isEmpty
-                                                ? '•'
-                                                : shortCode,
+                                            code: shortCode,
                                             recommended: false,
                                             selected: selected,
                                           ),
                                         ),
                                       );
                                     }),
+                                    ..._nearby.map((item) {
+                                      final selected =
+                                          _searchHit?.code == item.routeCode;
+                                      return Marker(
+                                        point: LatLng(
+                                          item.latitude,
+                                          item.longitude,
+                                        ),
+                                        width: selected ? 108 : 96,
+                                        height: selected ? 52 : 46,
+                                        alignment: Alignment.bottomCenter,
+                                        child: GestureDetector(
+                                          onTap: () => _searchRoute(
+                                            raw: item.routeCode,
+                                          ),
+                                          child: _CatalogMarker(
+                                            code: _shortCode(item.routeCode),
+                                            selected: selected,
+                                            sed: false,
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                    if (_searchHit != null)
+                                      Marker(
+                                        point: LatLng(
+                                          _searchHit!.latitude,
+                                          _searchHit!.longitude,
+                                        ),
+                                        width: 124,
+                                        height: 58,
+                                        alignment: Alignment.bottomCenter,
+                                        child: _CatalogMarker(
+                                          code: _shortCode(_searchHit!.code),
+                                          selected: true,
+                                          sed: _searchHit!.isSed,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ],
+                            ),
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              right: 12,
+                              child: _RouteSearchOverlay(
+                                controller: _searchController,
+                                focusNode: _searchFocus,
+                                searching: _searching,
+                                error: _searchError,
+                                suggestions: _suggestions,
+                                onChanged: _onSearchChanged,
+                                onSubmitted: () => _searchRoute(),
+                                onSelect: _selectSearchHit,
+                                onClear: _searchController.text.isEmpty &&
+                                        _searchHit == null
+                                    ? null
+                                    : _clearSearch,
+                              ),
                             ),
                             Positioned(
                               left: 12,
                               right: 12,
                               bottom: 12,
                               child: _panelOpen
-                                  ? _BottomPanel(
+                                  ? (_searchHit != null
+                                      ? _SearchHitPanel(
+                                          hit: _searchHit!,
+                                          nearby: _nearby,
+                                          matchingTask: _taskForCode(
+                                            _searchHit!.code,
+                                          ),
+                                          onClose: () {
+                                            setState(() => _panelOpen = false);
+                                          },
+                                          onClear: _clearSearch,
+                                          onNavigate: () =>
+                                              _openSearchNavigation(_searchHit!),
+                                          onPickNearby: (item) {
+                                            _searchRoute(raw: item.routeCode);
+                                          },
+                                          onOpenTask: () {
+                                            final matching = _taskForCode(
+                                              _searchHit!.code,
+                                            );
+                                            if (matching != null) {
+                                              _selectTask(matching);
+                                            }
+                                          },
+                                          onCenterMe: () {
+                                            _mapController.move(
+                                              LatLng(
+                                                location.latitude,
+                                                location.longitude,
+                                              ),
+                                              16,
+                                            );
+                                          },
+                                        )
+                                      : _BottomPanel(
                                       focusedTask: _focusedTask,
                                       openCount: nearestOpen.length,
                                       missingGps: _missingGps,
@@ -722,6 +1050,7 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                         );
                                       },
                                     )
+                                      )
                                   : _ClosedPanelBar(
                                       selected: _selected,
                                       onOpen: () {
@@ -761,6 +1090,335 @@ class _TasksMapPageState extends State<TasksMapPage> {
                               ),
                           ],
                         ),
+    );
+  }
+}
+
+class _CatalogMarker extends StatelessWidget {
+  const _CatalogMarker({
+    required this.code,
+    required this.selected,
+    required this.sed,
+  });
+
+  final String code;
+  final bool selected;
+  final bool sed;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = sed ? const Color(0xFF2E7D32) : const Color(0xFF00897B);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: EdgeInsets.symmetric(
+            horizontal: selected ? 8 : 7,
+            vertical: selected ? 5 : 4,
+          ),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white, width: selected ? 2.5 : 2),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.45),
+                blurRadius: selected ? 12 : 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            sed ? 'SED $code' : code,
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: selected ? 12 : 11,
+            ),
+          ),
+        ),
+        Container(
+          width: 0,
+          height: 0,
+          decoration: BoxDecoration(
+            border: Border(
+              left: const BorderSide(width: 6, color: Colors.transparent),
+              right: const BorderSide(width: 6, color: Colors.transparent),
+              top: BorderSide(width: 8, color: color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RouteSearchOverlay extends StatelessWidget {
+  const _RouteSearchOverlay({
+    required this.controller,
+    required this.focusNode,
+    required this.searching,
+    required this.error,
+    required this.suggestions,
+    required this.onChanged,
+    required this.onSubmitted,
+    required this.onSelect,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool searching;
+  final String? error;
+  final List<StationHit> suggestions;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onSubmitted;
+  final Future<void> Function(StationHit hit) onSelect;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(14),
+          color: Theme.of(context).colorScheme.surface,
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 12,
+            textInputAction: TextInputAction.search,
+            onChanged: onChanged,
+            onSubmitted: (_) => onSubmitted(),
+            decoration: InputDecoration(
+              hintText: 'Buscar ruta o SED',
+              counterText: '',
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              prefixIcon: searching
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : const Icon(Icons.search_rounded),
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 48,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onClear != null)
+                    IconButton(
+                      tooltip: 'Limpiar',
+                      onPressed: onClear,
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  IconButton(
+                    tooltip: 'Buscar',
+                    onPressed: onSubmitted,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (error != null && suggestions.isEmpty) ...[
+          const SizedBox(height: 8),
+          Material(
+            elevation: 2,
+            borderRadius: BorderRadius.circular(10),
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  error!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+        if (suggestions.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(14),
+            color: Theme.of(context).colorScheme.surface,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                itemCount: suggestions.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final hit = suggestions[index];
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      hit.isSed
+                          ? Icons.electrical_services_rounded
+                          : Icons.pin_drop_rounded,
+                    ),
+                    title: Text(
+                      hit.code,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text(
+                      hit.isSed ? hit.detail : 'Suministro',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => onSelect(hit),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SearchHitPanel extends StatelessWidget {
+  const _SearchHitPanel({
+    required this.hit,
+    required this.nearby,
+    required this.matchingTask,
+    required this.onClose,
+    required this.onClear,
+    required this.onNavigate,
+    required this.onPickNearby,
+    required this.onOpenTask,
+    required this.onCenterMe,
+  });
+
+  final StationHit hit;
+  final List<NearbySupply> nearby;
+  final RankedFieldTask? matchingTask;
+  final VoidCallback onClose;
+  final VoidCallback onClear;
+  final VoidCallback onNavigate;
+  final void Function(NearbySupply item) onPickNearby;
+  final VoidCallback onOpenTask;
+  final VoidCallback onCenterMe;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(18),
+      color: Theme.of(context).colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    hit.isSed ? 'SED ${hit.code}' : 'Suministro ${hit.code}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Mi ubicación',
+                  onPressed: onCenterMe,
+                  icon: const Icon(Icons.my_location_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Cerrar',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            Text(
+              hit.detail,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (matchingTask != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Está en tu tarea ${matchingTask!.task.title}',
+                style: const TextStyle(
+                  color: Color(0xFF1565C0),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            if (hit.isSed && nearby.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                '${nearby.length} suministro${nearby.length == 1 ? '' : 's'} a 300 m',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 120),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: nearby.take(8).map((item) {
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        item.routeCode,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      trailing: Text(item.distanceLabel),
+                      onTap: () => onPickNearby(item),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: onNavigate,
+                  icon: const Icon(Icons.directions_rounded),
+                  label: const Text('Cómo llegar'),
+                ),
+                if (matchingTask != null)
+                  FilledButton.tonal(
+                    onPressed: onOpenTask,
+                    child: const Text('Ver en la tarea'),
+                  ),
+                TextButton(
+                  onPressed: onClear,
+                  child: const Text('Limpiar búsqueda'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
