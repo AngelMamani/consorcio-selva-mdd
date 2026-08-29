@@ -1,0 +1,105 @@
+.tech-search {
+  position: relative;
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.tech-search__field {
+  position: relative;
+  display: block;
+}
+
+.tech-search__field svg {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--brand-blue);
+  pointer-events: none;
+}
+
+.tech-search__field input {
+  width: 100%;
+  min-height: 2.2rem;
+  padding: 0.4rem 0.7rem 0.4rem 2.05rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.tech-search__field input:focus {
+  outline: none;
+  border-color: var(--brand-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.tech-search__field input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.tech-search__menu {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.tech-search__menu--floating {
+  position: fixed;
+  z-index: 2300;
+}
+
+.field .tech-search__field input {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.7rem 0.4rem 2.05rem;
+}
+
+.tech-search__option {
+  display: grid;
+  justify-items: start;
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tech-search__option:hover,
+.tech-search__option.is-selected {
+  background: var(--brand-blue-soft);
+  color: var(--sidebar-active-text, var(--brand-blue));
+}
+
+.tech-search__empty {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.tech-search--compact .tech-search__field input {
+  min-height: 2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--brand-blue);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--brand-blue) 35%, var(--line));
+}

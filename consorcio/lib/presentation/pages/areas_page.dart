@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../../domain/value_objects/user_role.dart';
 import 'activity_technicians_page.dart';
 import 'folders_page.dart';
+import 'installation_orders_page.dart';
 
 class AreasPage extends StatefulWidget {
   const AreasPage({super.key});
@@ -62,6 +63,17 @@ class _AreasPageState extends State<AreasPage> {
   }
 
   Future<void> _openArea(Area area) async {
+    if (area.isWorkOrders) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => InstallationOrdersPage(
+            areaId: area.id,
+            areaName: area.name,
+          ),
+        ),
+      );
+      return;
+    }
     final session = context.read<SessionController>();
     final isAdmin = session.user?.role == UserRole.administrador;
     await Navigator.of(context).push(
@@ -198,9 +210,13 @@ class _AreasPageState extends State<AreasPage> {
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text(
-                      area.description.trim().isEmpty
-                          ? 'Sin descripción'
-                          : area.description,
+                      [
+                        area.isWorkOrders
+                            ? 'Órdenes de trabajo'
+                            : (area.description.trim().isEmpty
+                                ? 'Sin descripción'
+                                : area.description),
+                      ].join(),
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => _openArea(area),

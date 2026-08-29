@@ -9,6 +9,7 @@ import '../domain/usecases/get_folder_date_detail_use_case.dart';
 import '../domain/usecases/get_folder_detail_use_case.dart';
 import '../domain/usecases/get_my_today_attendance_use_case.dart';
 import '../domain/usecases/list_activity_published_work_use_case.dart';
+import '../domain/usecases/installation_order_use_cases.dart';
 import '../domain/usecases/list_areas_use_case.dart';
 import '../domain/usecases/list_my_folders_use_case.dart';
 import '../domain/usecases/login_use_case.dart';
@@ -28,6 +29,7 @@ import '../domain/usecases/update_own_theme_use_case.dart';
 import '../domain/usecases/upload_folder_images_use_case.dart';
 import '../domain/usecases/upload_task_photos_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
+import '../infrastructure/firestore/firebase_installation_order_repository.dart';
 import '../infrastructure/firestore/firebase_area_repository.dart';
 import '../infrastructure/firestore/firebase_attendance_repository.dart';
 import '../infrastructure/firestore/firebase_mobile_app_release_repository.dart';
@@ -69,6 +71,7 @@ class AppDependencies {
     required this.searchStationsUseCase,
     required this.listSuppliesNearUseCase,
     required this.listMyTasksUseCase,
+    required this.listInstallationOrdersUseCase,
     required this.listManagedTasksUseCase,
     required this.createFieldTaskUseCase,
     required this.startMyTaskUseCase,
@@ -115,6 +118,7 @@ class AppDependencies {
   final SearchStationsUseCase searchStationsUseCase;
   final ListSuppliesNearUseCase listSuppliesNearUseCase;
   final ListMyTasksUseCase listMyTasksUseCase;
+  final ListInstallationOrdersUseCase listInstallationOrdersUseCase;
   final ListManagedTasksUseCase listManagedTasksUseCase;
   final CreateFieldTaskUseCase createFieldTaskUseCase;
   final StartMyTaskUseCase startMyTaskUseCase;
@@ -141,6 +145,7 @@ AppDependencies createAppDependencies() {
   final mobileAppReleaseRepository = FirebaseMobileAppReleaseRepository();
   final supplyRepository = FirebaseSupplyRepository();
   final taskRepository = FirebaseTaskRepository();
+  final installationOrderRepository = FirebaseInstallationOrderRepository();
   final supportTicketRepository = FirebaseSupportTicketRepository();
 
   final ensureSupplyFolderUseCase = EnsureSupplyFolderUseCase(
@@ -218,6 +223,8 @@ AppDependencies createAppDependencies() {
     searchStationsUseCase: SearchStationsUseCase(supplyRepository),
     listSuppliesNearUseCase: ListSuppliesNearUseCase(supplyRepository),
     listMyTasksUseCase: ListMyTasksUseCase(taskRepository),
+    listInstallationOrdersUseCase:
+        ListInstallationOrdersUseCase(installationOrderRepository),
     listManagedTasksUseCase: ListManagedTasksUseCase(taskRepository),
     createFieldTaskUseCase: CreateFieldTaskUseCase(
       taskRepository,

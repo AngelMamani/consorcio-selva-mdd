@@ -407,14 +407,106 @@ service cloud.firestore {
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 500
         && request.resource.data.createdById == request.auth.uid
-        && request.resource.data.createdByName is string;
+        && request.resource.data.createdByName is string
+        && (!('assignmentMode' in request.resource.data)
+          || request.resource.data.assignmentMode in ['routes', 'work_orders'])
+        && (!('reportCode' in request.resource.data)
+          || (request.resource.data.reportCode is string
+            && request.resource.data.reportCode.size() <= 8));
       allow update: if isAdmin()
         && unchangedKeys(['createdById', 'createdByName', 'createdAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 120
         && request.resource.data.description is string
-        && request.resource.data.description.size() <= 500;
+        && request.resource.data.description.size() <= 500
+        && (!('assignmentMode' in request.resource.data)
+          || request.resource.data.assignmentMode in ['routes', 'work_orders'])
+        && (!('reportCode' in request.resource.data)
+          || (request.resource.data.reportCode is string
+            && request.resource.data.reportCode.size() <= 8));
+      allow delete: if isAdmin();
+    }
+
+    function validInstallationOrderWrite() {
+      return request.resource.data.keys().hasOnly([
+          'areaId', 'areaName', 'orderNumber', 'subType', 'applicantName',
+          'applicantAddress', 'sectorCijp', 'sector', 'supplyCode',
+          'neighborRouteCode', 'attentionCenter', 'executionNotes',
+          'registeredFlag', 'categoryCode', 'referenceNumber', 'recordedAt',
+          'typeInitials', 'classification', 'technicianId', 'technicianName',
+          'scheduledDate', 'status', 'createdById', 'createdByName',
+          'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.areaId is string
+        && request.resource.data.areaId.size() > 0
+        && request.resource.data.areaId.size() <= 80
+        && request.resource.data.areaName is string
+        && request.resource.data.areaName.size() <= 120
+        && request.resource.data.orderNumber is string
+        && request.resource.data.orderNumber.matches('^[0-9]{8,20}$')
+        && request.resource.data.subType is string
+        && request.resource.data.subType.size() <= 80
+        && request.resource.data.applicantName is string
+        && request.resource.data.applicantName.size() <= 160
+        && request.resource.data.applicantAddress is string
+        && request.resource.data.applicantAddress.size() <= 220
+        && request.resource.data.sectorCijp is string
+        && request.resource.data.sectorCijp.size() <= 80
+        && request.resource.data.sector is string
+        && request.resource.data.sector.size() <= 80
+        && request.resource.data.supplyCode is string
+        && (request.resource.data.supplyCode == ''
+          || request.resource.data.supplyCode.matches('^[0-9]{7,15}$'))
+        && request.resource.data.neighborRouteCode is string
+        && (request.resource.data.neighborRouteCode == ''
+          || request.resource.data.neighborRouteCode.matches('^[0-9]{7,13}$'))
+        && request.resource.data.attentionCenter is string
+        && request.resource.data.attentionCenter.size() <= 80
+        && request.resource.data.executionNotes is string
+        && request.resource.data.executionNotes.size() <= 500
+        && request.resource.data.registeredFlag is string
+        && request.resource.data.registeredFlag.size() <= 8
+        && request.resource.data.categoryCode is string
+        && request.resource.data.categoryCode.size() <= 20
+        && request.resource.data.referenceNumber is string
+        && request.resource.data.referenceNumber.size() <= 20
+        && (request.resource.data.recordedAt == null
+          || request.resource.data.recordedAt is timestamp)
+        && request.resource.data.typeInitials is string
+        && request.resource.data.typeInitials.size() <= 8
+        && request.resource.data.classification is string
+        && request.resource.data.classification.size() <= 4
+        && request.resource.data.technicianId is string
+        && request.resource.data.technicianId.size() <= 80
+        && request.resource.data.technicianName is string
+        && request.resource.data.technicianName.size() <= 120
+        && (
+          (request.resource.data.technicianId == ''
+            && request.resource.data.scheduledDate == null
+            && request.resource.data.status == 'NO_REGISTRADO')
+          || (request.resource.data.technicianId.size() > 0
+            && request.resource.data.technicianName.size() > 0
+            && request.resource.data.scheduledDate is timestamp
+            && request.resource.data.status == 'PROGRAMADO')
+        )
+        && request.resource.data.createdById is string
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    match /installationOrders/{orderId} {
+      allow get: if isActiveUser()
+        && (isAdmin() || resource.data.technicianId == request.auth.uid);
+      allow list: if isActiveUser()
+        && (isAdmin() || resource.data.technicianId == request.auth.uid);
+      allow create: if isAdmin()
+        && validInstallationOrderWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isAdmin()
+        && validInstallationOrderWrite()
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt', 'areaId', 'orderNumber']);
       allow delete: if isAdmin();
     }
 

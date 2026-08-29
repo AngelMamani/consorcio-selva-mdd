@@ -7,6 +7,7 @@ import { ChangePasswordPage } from '@/presentation/pages/ChangePasswordPage'
 import { UsersPage } from '@/presentation/pages/UsersPage'
 import { MobileAppPage } from '@/presentation/pages/MobileAppPage'
 import { AreasPage } from '@/presentation/pages/AreasPage'
+import { InstallationOrdersPage } from '@/presentation/pages/InstallationOrdersPage'
 import { ActivityTechniciansPage } from '@/presentation/pages/ActivityTechniciansPage'
 import { TechnicianWorkPage } from '@/presentation/pages/TechnicianWorkPage'
 import { FoldersPage } from '@/presentation/pages/FoldersPage'
@@ -49,6 +50,7 @@ export function AppRouter() {
             <Route path="/documentacion" element={<Navigate to="/areas" replace />} />
             <Route path="/documentacion/:typeId" element={<Navigate to="/areas" replace />} />
             <Route path="/areas" element={<AreasPage />} />
+            <Route path="/areas/:areaId/ordenes" element={<InstallationOrdersPage />} />
             <Route path="/areas/:areaId/tecnicos" element={<ActivityTechniciansPage />} />
             <Route
               path="/areas/:areaId/tecnicos/:technicianId"

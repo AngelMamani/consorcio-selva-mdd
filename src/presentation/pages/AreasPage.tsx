@@ -9,6 +9,13 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
+import { isWorkOrderArea } from '@/domain/entities/Area'
+import {
+  AreaAssignmentMode,
+  inferAreaAssignmentMode,
+  looksLikeInstallationActivity,
+  type AreaAssignmentMode as AssignmentMode,
+} from '@/domain/value-objects/AreaAssignmentMode'
 import { DomainError } from '@/domain/errors/DomainError'
 import { canManageUsers } from '@/domain/value-objects/UserRole'
 import { useAuth } from '@/presentation/providers/AuthProvider'
@@ -140,6 +147,10 @@ export function AreasPage() {
   const [editing, setEditing] = useState<Area | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>(
+    AreaAssignmentMode.Routes,
+  )
+  const [reportCode, setReportCode] = useState('')
   const nameInputRef = useRef<HTMLInputElement>(null)
   const cancelledTempIds = useRef(new Set<string>())
   const deletedIds = useRef(new Set<string>())
@@ -152,12 +163,24 @@ export function AreasPage() {
 
   const filteredAreas = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase()
-    if (!query) return areas
-    return areas.filter((area) => {
+    const unique: Area[] = []
+    const seen = new Set<string>()
+    for (const area of areas) {
+      if (seen.has(area.id)) continue
+      seen.add(area.id)
+      unique.push(area)
+    }
+    if (!query) return unique
+    return unique.filter((area) => {
       const haystack = `${area.name} ${area.description}`.toLowerCase()
       return haystack.includes(query)
     })
   }, [areas, deferredSearch])
+
+  const installationAreas = useMemo(
+    () => areas.filter((area) => looksLikeInstallationActivity(area.name)),
+    [areas],
+  )
 
   async function loadAreasFast() {
     if (!user) return
@@ -216,6 +239,8 @@ export function AreasPage() {
     setEditing(null)
     setName('')
     setDescription('')
+    setAssignmentMode(AreaAssignmentMode.Routes)
+    setReportCode('')
     setModalOpen(true)
   }
 
@@ -225,6 +250,8 @@ export function AreasPage() {
     setEditing(area)
     setName(area.name)
     setDescription(area.description)
+    setAssignmentMode(area.assignmentMode)
+    setReportCode(area.reportCode)
     setModalOpen(true)
   }
 
@@ -263,8 +290,12 @@ export function AreasPage() {
     }
   }
 
-  function openArea(areaId: string) {
-    navigate(`/areas/${areaId}/tecnicos`)
+  function openArea(area: Area) {
+    navigate(
+      isWorkOrderArea(area)
+        ? `/areas/${area.id}/ordenes`
+        : `/areas/${area.id}/tecnicos`,
+    )
   }
 
   async function handleSave(event: FormEvent) {
@@ -278,6 +309,8 @@ export function AreasPage() {
           ...previous,
           name: name.trim(),
           description: description.trim(),
+          assignmentMode,
+          reportCode: reportCode.trim().toUpperCase(),
           updatedAt: new Date(),
         }
         setAreas((current) =>
@@ -290,6 +323,8 @@ export function AreasPage() {
         const updated = await updateAreaUseCase.execute(user, previous.id, {
           name,
           description,
+          assignmentMode,
+          reportCode,
         })
         setAreas((current) =>
           current
@@ -301,6 +336,8 @@ export function AreasPage() {
           id: `temp:${crypto.randomUUID()}`,
           name: name.trim(),
           description: description.trim(),
+          assignmentMode,
+          reportCode: reportCode.trim().toUpperCase(),
           createdById: user.id,
           createdByName: user.displayName,
           createdAt: new Date(),
@@ -316,6 +353,8 @@ export function AreasPage() {
         const created = await createAreaUseCase.execute(user, {
           name,
           description,
+          assignmentMode,
+          reportCode,
         })
         if (cancelledTempIds.current.has(optimistic.id)) {
           cancelledTempIds.current.delete(optimistic.id)
@@ -379,9 +418,8 @@ export function AreasPage() {
           <p className="areas-page__eyebrow">Campo</p>
           <h1>Actividades</h1>
           <p>
-            Cada actividad agrupa el trabajo de campo: carpeta del técnico,
-            luego la carpeta de la ruta con la fecha publicada, y dentro las
-            fotos para exportar a PDF.
+            Cada actividad agrupa el trabajo de campo. El encargado asigna las
+            tareas en Tareas; aquí se ve lo ya asignado y las fotos del técnico.
           </p>
         </div>
         {isAdmin ? (
@@ -396,6 +434,17 @@ export function AreasPage() {
           </button>
         ) : null}
       </div>
+
+      {isAdmin && installationAreas.length > 1 ? (
+        <div className="areas-notice" role="status">
+          <p>
+            Hay {installationAreas.length} actividades de instalaciones (
+            {installationAreas.map((area) => area.name).join(' · ')}). Debe
+            quedar una sola. Elimina la que no uses; el trabajo se asigna en
+            Tareas sobre la que dejes.
+          </p>
+        </div>
+      ) : null}
 
       {!loading && areas.length > 0 ? (
         <div className="areas-summary" aria-label="Resumen de actividades">
@@ -508,11 +557,11 @@ export function AreasPage() {
               role="listitem"
               className="areas-tile"
               tabIndex={0}
-              onClick={() => openArea(area.id)}
+              onClick={() => openArea(area)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  openArea(area.id)
+                  openArea(area)
                 }
               }}
             >
@@ -531,9 +580,13 @@ export function AreasPage() {
                 </p>
               </div>
               <div className="areas-tile__footer">
-                <span>Actualizada {formatDate(area.updatedAt)}</span>
+                <span>
+                  {isWorkOrderArea(area) ? 'Órdenes de trabajo' : 'Rutas'}
+                  {' · '}
+                  Actualizada {formatDate(area.updatedAt)}
+                </span>
                 <span className="areas-tile__enter">
-                  Abrir
+                  Ver trabajo
                   <IconChevron />
                 </span>
               </div>
@@ -547,6 +600,7 @@ export function AreasPage() {
               <tr>
                 <th>Actividad</th>
                 <th>Descripción</th>
+                <th>Asignación</th>
                 <th>Actualizada</th>
                 <th>Acciones</th>
               </tr>
@@ -556,11 +610,11 @@ export function AreasPage() {
                 <tr
                   key={area.id}
                   tabIndex={0}
-                  onClick={() => openArea(area.id)}
+                  onClick={() => openArea(area)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      openArea(area.id)
+                      openArea(area)
                     }
                   }}
                 >
@@ -579,6 +633,9 @@ export function AreasPage() {
                         : 'Sin descripción'}
                     </span>
                   </td>
+                  <td>
+                    {isWorkOrderArea(area) ? 'Órdenes' : 'Rutas'}
+                  </td>
                   <td>{formatDate(area.updatedAt)}</td>
                   <td>
                     <div className="areas-table__actions">
@@ -596,7 +653,7 @@ export function AreasPage() {
       <AppModal
         open={modalOpen}
         title={editing ? 'Editar actividad' : 'Nueva actividad'}
-        description="Nombre de la actividad. Ej. Notificaciones, Cortes, Reclamos."
+        description="Nombre de la actividad. Después, en Tareas, se asigna el trabajo de esta actividad."
         size="sm"
         onClose={() => !busy && setModalOpen(false)}
         footer={
@@ -627,8 +684,14 @@ export function AreasPage() {
               <input
                 ref={nameInputRef}
                 value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Ej. Notificaciones"
+                onChange={(event) => {
+                  const next = event.target.value
+                  setName(next)
+                  if (!editing) {
+                    setAssignmentMode(inferAreaAssignmentMode(next))
+                  }
+                }}
+                placeholder="Ej. Instalaciones nuevas"
                 required
                 maxLength={120}
               />
@@ -642,6 +705,40 @@ export function AreasPage() {
                 maxLength={500}
               />
             </label>
+            <fieldset className="field areas-form__mode">
+              <legend>Cómo se asignan las tareas</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="assignmentMode"
+                  checked={assignmentMode === AreaAssignmentMode.WorkOrders}
+                  onChange={() =>
+                    setAssignmentMode(AreaAssignmentMode.WorkOrders)
+                  }
+                />
+                Órdenes de trabajo (una OT = un técnico). Ej. Instalaciones nuevas
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="assignmentMode"
+                  checked={assignmentMode === AreaAssignmentMode.Routes}
+                  onChange={() => setAssignmentMode(AreaAssignmentMode.Routes)}
+                />
+                Rutas de suministro (tareas de campo actuales)
+              </label>
+            </fieldset>
+            {assignmentMode === AreaAssignmentMode.WorkOrders ? (
+              <label className="field">
+                <span>Código de reporte PDF (opcional)</span>
+                <input
+                  value={reportCode}
+                  onChange={(event) => setReportCode(event.target.value)}
+                  placeholder="IN"
+                  maxLength={8}
+                />
+              </label>
+            ) : null}
           </div>
         </form>
       </AppModal>

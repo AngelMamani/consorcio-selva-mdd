@@ -113,6 +113,20 @@ import { XlsxAttendanceExcelService } from '@/infrastructure/excel/XlsxAttendanc
 import { XlsxPersonalExcelService } from '@/infrastructure/excel/XlsxPersonalExcelService'
 import { JsPdfAttendanceExportService } from '@/infrastructure/pdf/JsPdfAttendanceExportService'
 import { JsPdfPersonalExportService } from '@/infrastructure/pdf/JsPdfPersonalExportService'
+import { FirebaseInstallationOrderRepository } from '@/infrastructure/firestore/FirebaseInstallationOrderRepository'
+import { XlsxInstallationOrderExcelService } from '@/infrastructure/excel/XlsxInstallationOrderExcelService'
+import { JsPdfInstallationOrderExportService } from '@/infrastructure/pdf/JsPdfInstallationOrderExportService'
+import {
+  AssignInstallationOrderUseCase,
+  DeleteInstallationOrderUseCase,
+  ExportInstallationOrdersToExcelUseCase,
+  ExportInstallationOrdersToPdfUseCase,
+  ImportInstallationOrdersUseCase,
+  ListInstallationOrdersUseCase,
+  ListMyInstallationOrdersUseCase,
+  UpdateInstallationOrderUseCase,
+  UpsertInstallationOrderUseCase,
+} from '@/domain/usecases/installations/InstallationOrderUseCases'
 
 export interface AppDependencies {
   loginUseCase: LoginUseCase
@@ -157,6 +171,15 @@ export interface AppDependencies {
   saveTaskRouteLocationUseCase: SaveTaskRouteLocationUseCase
   startTaskUseCase: StartTaskUseCase
   deleteTaskUseCase: DeleteTaskUseCase
+  listInstallationOrdersUseCase: ListInstallationOrdersUseCase
+  listMyInstallationOrdersUseCase: ListMyInstallationOrdersUseCase
+  upsertInstallationOrderUseCase: UpsertInstallationOrderUseCase
+  updateInstallationOrderUseCase: UpdateInstallationOrderUseCase
+  assignInstallationOrderUseCase: AssignInstallationOrderUseCase
+  deleteInstallationOrderUseCase: DeleteInstallationOrderUseCase
+  importInstallationOrdersUseCase: ImportInstallationOrdersUseCase
+  exportInstallationOrdersToPdfUseCase: ExportInstallationOrdersToPdfUseCase
+  exportInstallationOrdersToExcelUseCase: ExportInstallationOrdersToExcelUseCase
   listAttendanceDayUseCase: ListAttendanceDayUseCase
   getAttendanceSettingsUseCase: GetAttendanceSettingsUseCase
   saveAttendanceSettingsUseCase: SaveAttendanceSettingsUseCase
@@ -214,6 +237,9 @@ export function createAppDependencies(): AppDependencies {
   const attendancePdfService = new JsPdfAttendanceExportService()
   const personalExcelService = new XlsxPersonalExcelService()
   const personalPdfService = new JsPdfPersonalExportService()
+  const installationOrderRepository = new FirebaseInstallationOrderRepository()
+  const installationOrderExcelService = new XlsxInstallationOrderExcelService()
+  const installationOrderPdfService = new JsPdfInstallationOrderExportService()
   const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
   const supportTicketRepository = new FirebaseSupportTicketRepository()
   const supplyRepository = new FirebaseSupplyRepository()
@@ -339,7 +365,11 @@ export function createAppDependencies(): AppDependencies {
     listAreasUseCase: new ListAreasUseCase(areaRepository),
     getAreaUseCase: new GetAreaUseCase(areaRepository),
     createAreaUseCase: new CreateAreaUseCase(areaRepository),
-    updateAreaUseCase: new UpdateAreaUseCase(areaRepository),
+    updateAreaUseCase: new UpdateAreaUseCase(
+      areaRepository,
+      taskRepository,
+      installationOrderRepository,
+    ),
     deleteAreaUseCase: new DeleteAreaUseCase(
       areaRepository,
       folderRepository,
@@ -372,6 +402,36 @@ export function createAppDependencies(): AppDependencies {
     ),
     startTaskUseCase: new StartTaskUseCase(taskRepository),
     deleteTaskUseCase: new DeleteTaskUseCase(taskRepository),
+    listInstallationOrdersUseCase: new ListInstallationOrdersUseCase(
+      installationOrderRepository,
+    ),
+    listMyInstallationOrdersUseCase: new ListMyInstallationOrdersUseCase(
+      installationOrderRepository,
+    ),
+    upsertInstallationOrderUseCase: new UpsertInstallationOrderUseCase(
+      installationOrderRepository,
+      areaRepository,
+    ),
+    updateInstallationOrderUseCase: new UpdateInstallationOrderUseCase(
+      installationOrderRepository,
+      areaRepository,
+    ),
+    assignInstallationOrderUseCase: new AssignInstallationOrderUseCase(
+      installationOrderRepository,
+      areaRepository,
+    ),
+    deleteInstallationOrderUseCase: new DeleteInstallationOrderUseCase(
+      installationOrderRepository,
+    ),
+    importInstallationOrdersUseCase: new ImportInstallationOrdersUseCase(
+      installationOrderRepository,
+      areaRepository,
+      userRepository,
+    ),
+    exportInstallationOrdersToPdfUseCase:
+      new ExportInstallationOrdersToPdfUseCase(installationOrderPdfService),
+    exportInstallationOrdersToExcelUseCase:
+      new ExportInstallationOrdersToExcelUseCase(installationOrderExcelService),
     listAttendanceDayUseCase,
     getAttendanceSettingsUseCase,
     saveAttendanceSettingsUseCase: new SaveAttendanceSettingsUseCase(

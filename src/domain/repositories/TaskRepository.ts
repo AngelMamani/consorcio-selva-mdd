@@ -65,4 +65,5 @@ export interface TaskRepository {
   create(input: CreateTaskInput): Promise<Task>
   update(id: string, input: UpdateTaskInput): Promise<Task>
   delete(id: string): Promise<void>
+  renameAreaName(areaId: string, areaName: string): Promise<void>
 }

@@ -6,10 +6,19 @@ import {
   useState,
   type FormEvent,
 } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Area } from '@/domain/entities/Area'
+import { isWorkOrderArea } from '@/domain/entities/Area'
+import {
+  emptyInstallationOrderDraft,
+  type InstallationOrderDraft,
+} from '@/domain/entities/InstallationOrder'
+import { InstallationOrdersBoard } from '@/presentation/pages/InstallationOrdersPage'
+import { RegisteredFlagPicker } from '@/presentation/components/RegisteredFlagPicker'
+import { SupplyCatalogSearch } from '@/presentation/components/SupplyCatalogSearch'
+import { TechnicianSearchSelect } from '@/presentation/components/TechnicianSearchSelect'
 import type { Task } from '@/domain/entities/Task'
 import {
   formatTaskAssignees,
@@ -67,6 +76,17 @@ type DraftRoute = {
 }
 
 const DEFAULT_CENTER: L.LatLngExpression = [-12.5933, -69.1891]
+
+function mapIsAlive(map: L.Map | null): map is L.Map {
+  if (!map) return false
+  const container = map.getContainer()
+  return Boolean(container?.isConnected && map.getPane('mapPane'))
+}
+
+function safeInvalidateSize(map: L.Map | null) {
+  if (!mapIsAlive(map)) return
+  map.invalidateSize({ animate: false })
+}
 
 function statusPinClass(completed: boolean, claimed: boolean): string {
   if (completed) return 'tasks-pin__dot--done'
@@ -351,6 +371,7 @@ function TaskAssigneePicker({
 export function TasksPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const {
     listTasksUseCase,
     createTaskUseCase,
@@ -360,6 +381,7 @@ export function TasksPage() {
     listAreasUseCase,
     getSupplyByRouteCodeUseCase,
     searchSuppliesUseCase,
+    upsertInstallationOrderUseCase,
   } = useDependencies()
 
   const isAdmin = Boolean(user && canManageUsers(user.role))
@@ -396,10 +418,16 @@ export function TasksPage() {
   const [vecinalDraft, setVecinalDraft] = useState('')
   const [vecinalSuggestions, setVecinalSuggestions] = useState<Supply[]>([])
   const [searchingVecinal, setSearchingVecinal] = useState(false)
+  const [otDraft, setOtDraft] = useState<InstallationOrderDraft>(
+    emptyInstallationOrderDraft(),
+  )
   const [draftVecinal, setDraftVecinal] = useState<DraftRoute | null>(null)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState(false)
 
   const selectedAreaName = areas.find((area) => area.id === areaId)?.name ?? ''
+  const creatingWorkOrder = Boolean(
+    areas.find((area) => area.id === areaId && isWorkOrderArea(area)),
+  )
 
   const filteredTasks = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase()
@@ -418,9 +446,59 @@ export function TasksPage() {
     })
   }, [tasks, deferredSearch, statusFilter, areaFilter])
 
-  const activityGroups = useMemo(
-    () => groupTasksByActivity(filteredTasks),
-    [filteredTasks],
+  const activityGroups = useMemo(() => {
+    const workOrderIds = new Set(
+      areas.filter((area) => isWorkOrderArea(area)).map((area) => area.id),
+    )
+    return groupTasksByActivity(
+      filteredTasks.filter((task) => !workOrderIds.has(task.areaId)),
+    )
+  }, [filteredTasks, areas])
+
+  const catalogAreas = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase()
+    const matchingRouteIds = new Set(
+      filteredTasks.map((task) => task.areaId).filter(Boolean),
+    )
+    return [...areas]
+      .filter((area) => !areaFilter || area.id === areaFilter)
+      .filter((area) => {
+        if (!query) return true
+        const nameHit = `${area.name} ${area.description}`
+          .toLowerCase()
+          .includes(query)
+        if (nameHit) return true
+        if (isWorkOrderArea(area)) return false
+        return matchingRouteIds.has(area.id)
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, 'es'))
+  }, [areas, areaFilter, deferredSearch, filteredTasks])
+
+  const orphanGroups = useMemo(() => {
+    const ids = new Set(areas.map((area) => area.id))
+    return activityGroups.filter((group) => !ids.has(group.areaId))
+  }, [areas, activityGroups])
+
+  const routeCatalog = useMemo(() => {
+    const byId = new Map(activityGroups.map((group) => [group.areaId, group]))
+    const fromAreas = catalogAreas
+      .filter((area) => !isWorkOrderArea(area))
+      .map(
+        (area) =>
+          byId.get(area.id) ?? {
+            areaId: area.id,
+            areaName: area.name,
+            tasks: [],
+            doneRoutes: 0,
+            totalRoutes: 0,
+          },
+      )
+    return [...fromAreas, ...orphanGroups]
+  }, [catalogAreas, activityGroups, orphanGroups])
+
+  const workOrderCatalog = useMemo(
+    () => catalogAreas.filter((area) => isWorkOrderArea(area)),
+    [catalogAreas],
   )
 
   const activityOptions = useMemo(() => {
@@ -486,6 +564,7 @@ export function TasksPage() {
     if (selectedTask?.areaName.trim()) return selectedTask.areaName.trim()
     if (!selectedAreaId) return ''
     return (
+      areas.find((area) => area.id === selectedAreaId)?.name ??
       activityGroups.find((group) => group.areaId === selectedAreaId)
         ?.areaName ??
       activityOptions.find((item) => item.id === selectedAreaId)?.name ??
@@ -556,6 +635,14 @@ export function TasksPage() {
       stop()
     }
   }, [user, listTasksUseCase, listAreasUseCase, listTechniciansUseCase])
+
+  useEffect(() => {
+    const focus = searchParams.get('actividad')?.trim()
+    if (!focus) return
+    setAreaFilter(focus)
+    setSelectedAreaId(focus)
+    setCollapsedAreas((current) => current.filter((id) => id !== focus))
+  }, [searchParams])
 
   useEffect(() => {
     if (!user || !modalOpen) {
@@ -731,14 +818,17 @@ export function TasksPage() {
     map.on('click', enableWheel)
     el.addEventListener('mouseleave', disableWheel)
 
-    const refresh = () => map.invalidateSize({ animate: false })
+    const refresh = () => safeInvalidateSize(map)
     const resizeObserver = new ResizeObserver(refresh)
     resizeObserver.observe(el)
     window.addEventListener('resize', refresh)
-    window.setTimeout(refresh, 80)
-    window.setTimeout(refresh, 320)
+    const sizeTimers = [
+      window.setTimeout(refresh, 80),
+      window.setTimeout(refresh, 320),
+    ]
 
     return () => {
+      sizeTimers.forEach((id) => window.clearTimeout(id))
       resizeObserver.disconnect()
       window.removeEventListener('resize', refresh)
       map.off('click', enableWheel)
@@ -752,15 +842,15 @@ export function TasksPage() {
   useEffect(() => {
     const map = mapRef.current
     const layer = markersLayerRef.current
-    if (!map || !layer) return
+    if (!mapIsAlive(map) || !layer) return
 
     layer.clearLayers()
 
     const bounds = L.latLngBounds([])
     if (filteredMapPoints.length === 0 && neighborhoodPoints.length === 0) {
       map.setView(DEFAULT_CENTER, 12)
-      window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
-      return
+      const sizeTimer = window.setTimeout(() => safeInvalidateSize(map), 50)
+      return () => window.clearTimeout(sizeTimer)
     }
 
     for (const point of filteredMapPoints) {
@@ -874,7 +964,8 @@ export function TasksPage() {
     } else if (bounds.isValid()) {
       map.fitBounds(bounds.pad(0.18), { maxZoom: 16 })
     }
-    window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
+    const sizeTimer = window.setTimeout(() => safeInvalidateSize(map), 50)
+    return () => window.clearTimeout(sizeTimer)
   }, [
     filteredMapPoints,
     neighborhoodPoints,
@@ -884,11 +975,11 @@ export function TasksPage() {
     navigate,
   ])
 
-  function openCreate() {
+  function openCreate(presetAreaId = '') {
     setEditing(null)
     setDescription('')
     setDueDate('')
-    setAreaId('')
+    setAreaId(presetAreaId.trim() || areaFilter || selectedAreaId || '')
     setRouteDraft('')
     setRouteSuggestions([])
     setDraftRoutes([])
@@ -897,6 +988,7 @@ export function TasksPage() {
     setVecinalDraft('')
     setVecinalSuggestions([])
     setDraftVecinal(null)
+    setOtDraft(emptyInstallationOrderDraft())
     setModalOpen(true)
   }
 
@@ -1075,6 +1167,27 @@ export function TasksPage() {
   async function handleSave(event: FormEvent) {
     event.preventDefault()
     if (!user || busy) return
+    if (creatingWorkOrder) {
+      if (editing) {
+        swalError('Las órdenes de instalación se editan en la lista de la actividad')
+        return
+      }
+      setBusy(true)
+      try {
+        await upsertInstallationOrderUseCase.execute(user, areaId, otDraft)
+        swalSuccess('Orden asignada. Ya se ve en esta actividad y en Actividades.')
+        setModalOpen(false)
+      } catch (err) {
+        swalError(
+          err instanceof DomainError
+            ? err.message
+            : 'No se pudo guardar la orden',
+        )
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     if (draftRoutes.length === 0) {
       swalError('Agrega al menos una ruta de suministro')
       return
@@ -1184,7 +1297,7 @@ export function TasksPage() {
           <h1>Tareas</h1>
           <p>
             {isAdmin
-              ? 'Las tareas se agrupan por actividad. El técnico completa cada punto en el aplicativo; aquí ves el avance, quién lo cerró y las fotos.'
+              ? 'Aquí el encargado asigna el trabajo. Elige la actividad, carga o crea las tareas, y cada una queda con su técnico. En Actividades solo se ve lo ya asignado.'
               : 'Tus tareas, agrupadas por actividad. El avance se marca desde el aplicativo.'}
           </p>
         </div>
@@ -1192,7 +1305,7 @@ export function TasksPage() {
           <button
             type="button"
             className="btn btn--soft-primary"
-            onClick={openCreate}
+            onClick={() => openCreate()}
             disabled={busy}
           >
             <IconPlus />
@@ -1277,7 +1390,12 @@ export function TasksPage() {
               {selectedActivityName || 'Suministros por actividad'}
             </h2>
             <p>
-              {filteredMapPoints.length === 0
+              {selectedAreaId &&
+              areas.some(
+                (area) => area.id === selectedAreaId && isWorkOrderArea(area),
+              )
+                ? 'Esta actividad se asigna por orden de trabajo, no por puntos de mapa. Usa la lista de abajo.'
+                : filteredMapPoints.length === 0
                 ? selectedTask
                   ? `«${taskHeading(selectedTask)}» aún no tiene puntos con GPS.`
                   : selectedActivityName
@@ -1308,20 +1426,71 @@ export function TasksPage() {
           <div className="tasks-empty__spinner" />
           <p>Cargando tareas…</p>
         </div>
-      ) : filteredTasks.length === 0 ? (
+      ) : catalogAreas.length === 0 && orphanGroups.length === 0 ? (
         <div className="tasks-empty panel">
-          <h2>{tasks.length === 0 ? 'Sin tareas' : 'Sin resultados'}</h2>
+          <h2>
+            {areas.length === 0 && tasks.length === 0
+              ? 'Sin actividades'
+              : 'Sin resultados'}
+          </h2>
           <p>
-            {tasks.length === 0
+            {areas.length === 0 && tasks.length === 0
               ? isAdmin
-                ? 'Crea la primera tarea y asígnala a uno o más técnicos.'
-                : 'Aún no te han asignado tareas.'
+                ? 'Primero crea la actividad en Actividades. Luego aparece aquí en Tareas para asignar.'
+                : 'Aún no hay actividades ni tareas asignadas.'
               : 'Prueba otro filtro o búsqueda.'}
           </p>
         </div>
       ) : (
         <div className="tasks-list">
-          {activityGroups.map((group) => {
+          {workOrderCatalog.map((area) => {
+            const collapsed = collapsedAreas.includes(area.id)
+            const activitySelected = selectedAreaId === area.id
+            return (
+              <section
+                key={area.id}
+                className={`tasks-activity${activitySelected ? ' is-selected' : ''}`}
+              >
+                <header className="tasks-activity__head">
+                  <div className="tasks-activity__lead">
+                    <button
+                      type="button"
+                      className="tasks-activity__chevron-btn"
+                      aria-expanded={!collapsed}
+                      onClick={() => toggleActivity(area.id)}
+                    >
+                      <span className="tasks-activity__chevron" aria-hidden="true">
+                        {collapsed ? '▸' : '▾'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tasks-activity__toggle"
+                      onClick={() => {
+                        selectActivity(area.id)
+                        setCollapsedAreas((current) =>
+                          current.filter((id) => id !== area.id),
+                        )
+                      }}
+                    >
+                      <strong>{area.name}</strong>
+                      <small>Cada OT se asigna a un técnico, con su fecha</small>
+                    </button>
+                  </div>
+                </header>
+                {collapsed ? null : (
+                  <div className="tasks-activity__tasks">
+                    <InstallationOrdersBoard
+                      areaId={area.id}
+                      mode="assign"
+                      embedded
+                    />
+                  </div>
+                )}
+              </section>
+            )
+          })}
+          {routeCatalog.map((group) => {
             const collapsed = collapsedAreas.includes(group.areaId)
             const activitySelected =
               selectedAreaId === group.areaId ||
@@ -1395,7 +1564,24 @@ export function TasksPage() {
                 </header>
                 {collapsed ? null : (
                   <div className="tasks-activity__tasks">
-                    {group.tasks.map((task) => {
+                    {group.tasks.length === 0 ? (
+                      <div className="tasks-activity__empty">
+                        <p>
+                          Todavía no hay tareas en esta actividad. Lo que
+                          asignes aquí queda alineado con Actividades.
+                        </p>
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            className="btn btn--soft-primary btn--small"
+                            onClick={() => openCreate(group.areaId)}
+                          >
+                            Crear tarea
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                    group.tasks.map((task) => {
                       const routes = normalizeTaskRoutes(task)
                       const taskPoints = pointsByTaskId.get(task.id) ?? []
                       const selected = selectedTaskId === task.id
@@ -1589,7 +1775,8 @@ export function TasksPage() {
                           ) : null}
                         </article>
                       )
-                    })}
+                    })
+                    )}
                   </div>
                 )}
               </section>
@@ -1601,7 +1788,11 @@ export function TasksPage() {
       <AppModal
         open={modalOpen}
         title={editing ? 'Editar tarea' : 'Nueva tarea'}
-        description="El título se toma de la actividad. Puedes asignar varias rutas; si una no existe se guarda sin ubicación para que el técnico marque el GPS."
+        description={
+          creatingWorkOrder
+            ? 'Elige la actividad y completa la OT. Cada orden queda con un técnico y una fecha. Luego se ve en Actividades.'
+            : 'Elige la actividad. El título se toma de ahí. Puedes asignar varias rutas a un técnico.'
+        }
         size="md"
         onClose={() => !busy && setModalOpen(false)}
         footer={
@@ -1639,19 +1830,176 @@ export function TasksPage() {
                   {areas.map((area) => (
                     <option key={area.id} value={area.id}>
                       {area.name}
+                      {isWorkOrderArea(area) ? ' · órdenes' : ''}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span>Fecha límite</span>
+                <span>{creatingWorkOrder ? 'Fecha programada' : 'Fecha límite'}</span>
                 <input
                   type="date"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
+                  value={creatingWorkOrder ? toDateInputValue(otDraft.scheduledDate) : dueDate}
+                  onChange={(event) => {
+                    if (creatingWorkOrder) {
+                      setOtDraft((current) => ({
+                        ...current,
+                        scheduledDate: fromDateInputValue(event.target.value),
+                      }))
+                      return
+                    }
+                    setDueDate(event.target.value)
+                  }}
                 />
               </label>
             </div>
+            {creatingWorkOrder ? (
+              <>
+                <label className="field">
+                  <span>Número de OT</span>
+                  <input
+                    value={otDraft.orderNumber}
+                    onChange={(event) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        orderNumber: event.target.value,
+                      }))
+                    }
+                    placeholder="2025200002000217590"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Solicitante</span>
+                  <input
+                    value={otDraft.applicantName}
+                    onChange={(event) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        applicantName: event.target.value,
+                      }))
+                    }
+                    placeholder="Nombre del solicitante"
+                  />
+                </label>
+                <label className="field">
+                  <span>Dirección</span>
+                  <input
+                    value={otDraft.applicantAddress}
+                    onChange={(event) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        applicantAddress: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <div className="tasks-form__row">
+                  <label className="field">
+                    <span>Sector CIJP</span>
+                    <input
+                      value={otDraft.sectorCijp}
+                      onChange={(event) => {
+                        const sectorCijp = event.target.value
+                        setOtDraft((current) => ({
+                          ...current,
+                          sectorCijp,
+                          sector: current.sector || sectorCijp,
+                          attentionCenter: current.attentionCenter || sectorCijp,
+                        }))
+                      }}
+                      placeholder="MALDONADO"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Sector</span>
+                    <input
+                      value={otDraft.sector}
+                      onChange={(event) =>
+                        setOtDraft((current) => ({
+                          ...current,
+                          sector: event.target.value,
+                        }))
+                      }
+                      placeholder="MALDONADO"
+                    />
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Centro de atención</span>
+                  <input
+                    value={otDraft.attentionCenter}
+                    onChange={(event) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        attentionCenter: event.target.value,
+                      }))
+                    }
+                    placeholder="MALDONADO"
+                  />
+                </label>
+                <div className="tasks-form__row">
+                  <label className="field">
+                    <span>Suministro</span>
+                    <input
+                      value={otDraft.supplyCode}
+                      onChange={(event) =>
+                        setOtDraft((current) => ({
+                          ...current,
+                          supplyCode: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="field">
+                    <span>Ruta vecino (búscala en rutas de suministro)</span>
+                    <SupplyCatalogSearch
+                      value={otDraft.neighborRouteCode}
+                      onChange={(code) =>
+                        setOtDraft((current) => ({
+                          ...current,
+                          neighborRouteCode: code,
+                        }))
+                      }
+                      placeholder="Buscar código de suministro vecino…"
+                      hint="Escribe 3 dígitos o más. Es el mismo catálogo de rutas de suministro."
+                    />
+                  </div>
+                </div>
+                <div className="field">
+                  <span>Estado SI / NO</span>
+                  <RegisteredFlagPicker
+                    value={otDraft.registeredFlag}
+                    onChange={(flag) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        registeredFlag: flag,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <span>Técnico</span>
+                  <TechnicianSearchSelect
+                    technicians={technicians}
+                    valueId={otDraft.technicianId}
+                    placeholder="Buscar técnico…"
+                    emptyLabel="Sin asignar"
+                    onChange={(technician) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        technicianId: technician?.id ?? '',
+                        technicianName: technician?.displayName ?? '',
+                        scheduledDate: technician
+                          ? current.scheduledDate ?? new Date()
+                          : null,
+                      }))
+                    }
+                  />
+                </div>
+              </>
+            ) : (
+              <>
             <p className="tasks-form__title-preview">
               Título de la tarea:{' '}
               <strong>
@@ -1879,6 +2227,8 @@ export function TasksPage() {
                 )
               }}
             />
+              </>
+            )}
           </div>
         </form>
       </AppModal>

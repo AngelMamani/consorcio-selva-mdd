@@ -537,7 +537,7 @@
 }
 
 .tasks-routes__suggest button:hover {
-  background: rgba(30, 136, 229, 0.08);
+  background: var(--brand-blue-soft);
 }
 
 .tasks-routes__suggest strong {
@@ -594,6 +594,23 @@
   gap: 0.4rem;
   padding: 2.4rem 1rem;
   text-align: center;
+}
+
+.tasks-activity__empty {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: start;
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.tasks-activity__empty p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .tasks-empty h2 {

@@ -1,4 +1,5 @@
 import type { Area } from '@/domain/entities/Area'
+import type { AreaAssignmentMode } from '@/domain/value-objects/AreaAssignmentMode'
 
 export interface AreaRepository {
   listAll(): Promise<Area[]>
@@ -7,12 +8,19 @@ export interface AreaRepository {
   create(input: {
     name: string
     description: string
+    assignmentMode: AreaAssignmentMode
+    reportCode: string
     createdById: string
     createdByName: string
   }): Promise<Area>
   update(
     id: string,
-    input: { name: string; description: string },
+    input: {
+      name: string
+      description: string
+      assignmentMode: AreaAssignmentMode
+      reportCode: string
+    },
   ): Promise<Area>
   delete(id: string): Promise<void>
 }

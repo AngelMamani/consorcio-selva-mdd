@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/composition_root.dart';
 import '../../domain/entities/field_task.dart';
+import '../../domain/entities/installation_order.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/usecases/rank_my_tasks_by_proximity_use_case.dart';
@@ -15,6 +16,7 @@ import '../services/image_picker_service.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import 'folder_date_detail_page.dart';
+import 'installation_order_detail_page.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key, this.onOpenTaskMap});
@@ -39,6 +41,8 @@ class _TasksPageState extends State<TasksPage> {
   String? _error;
   String _filter = 'all';
   StreamSubscription<List<FieldTask>>? _tasksSub;
+  StreamSubscription<List<InstallationOrder>>? _ordersSub;
+  List<InstallationOrder> _orders = [];
   int _tasksEpoch = 0;
   final DateTime _openedAt = DateTime.now();
   final Set<String> _seenNoticeKeys = {};
@@ -46,12 +50,16 @@ class _TasksPageState extends State<TasksPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _listenOrders();
+      _load();
+    });
   }
 
   @override
   void dispose() {
     _tasksSub?.cancel();
+    _ordersSub?.cancel();
     super.dispose();
   }
 
@@ -82,6 +90,24 @@ class _TasksPageState extends State<TasksPage> {
           content: Text(notice.message),
         ),
       );
+    }
+  }
+
+  void _listenOrders() {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null) return;
+    _ordersSub?.cancel();
+    try {
+      _ordersSub = deps.listInstallationOrdersUseCase.watchMine(user).listen(
+        (orders) {
+          if (!mounted) return;
+          setState(() => _orders = orders);
+        },
+      );
+    } catch (_) {
+      // Las OTs no bloquean las tareas de rutas.
     }
   }
 
@@ -503,6 +529,58 @@ class _TasksPageState extends State<TasksPage> {
               ),
             ),
             const SizedBox(height: 12),
+            if (_orders.isNotEmpty) ...[
+              const Text(
+                'Instalaciones nuevas',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              ..._orders.map(
+                (order) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: order.isProgrammed
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFECEFF3),
+                      child: Icon(
+                        order.isProgrammed
+                            ? Icons.play_arrow_rounded
+                            : Icons.close_rounded,
+                        color: order.isProgrammed
+                            ? const Color(0xFF2E7D32)
+                            : const Color(0xFF607080),
+                      ),
+                    ),
+                    title: Text(
+                      order.orderNumber,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    subtitle: Text(
+                      [
+                        'SI/NO: ${order.registeredFlagLabel}',
+                        order.applicantName,
+                        if (order.scheduledDateLabel.isNotEmpty)
+                          order.scheduledDateLabel,
+                      ].where((item) => item.trim().isNotEmpty).join(' · '),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              InstallationOrderDetailPage(order: order),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             if (!_gpsRequired && !_loading && _error == null)
               Wrap(
                 spacing: 8,

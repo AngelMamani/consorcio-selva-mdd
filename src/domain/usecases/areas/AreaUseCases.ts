@@ -1,6 +1,8 @@
 import type { User } from '@/domain/entities/User'
 import type { Area } from '@/domain/entities/Area'
 import type { AreaRepository } from '@/domain/repositories/AreaRepository'
+import type { TaskRepository } from '@/domain/repositories/TaskRepository'
+import type { InstallationOrderRepository } from '@/domain/repositories/InstallationOrderRepository'
 import type { ImageFolderRepository } from '@/domain/repositories/ImageFolderRepository'
 import type { FolderDateRepository } from '@/domain/repositories/FolderDateRepository'
 import type { FolderImageRepository } from '@/domain/repositories/FolderImageRepository'
@@ -9,6 +11,15 @@ import {
   ValidationError,
 } from '@/domain/errors/DomainError'
 import { assertUserCanManageUsers } from '@/domain/entities/User'
+import {
+  AreaAssignmentMode,
+  activityNameKey,
+  defaultReportCode,
+  inferAreaAssignmentMode,
+  isAreaAssignmentMode,
+  looksLikeInstallationActivity,
+  normalizeReportCode,
+} from '@/domain/value-objects/AreaAssignmentMode'
 
 const DEFAULT_AREA_NAME = 'Área de Notificaciones'
 const DEFAULT_AREA_DESCRIPTION =
@@ -25,12 +36,31 @@ function normalizeName(name: string): string {
   return trimmed
 }
 
+function findAreaByName(areas: Area[], name: string): Area | undefined {
+  const key = activityNameKey(name)
+  return areas.find((area) => activityNameKey(area.name) === key)
+}
+
 function normalizeDescription(description: string): string {
   const trimmed = description.trim()
   if (trimmed.length > 500) {
     throw new ValidationError('La descripción no debe superar 500 caracteres')
   }
   return trimmed
+}
+
+function resolveAssignment(
+  name: string,
+  assignmentMode?: string | null,
+  reportCode?: string | null,
+) {
+  const mode = isAreaAssignmentMode(assignmentMode)
+    ? assignmentMode
+    : inferAreaAssignmentMode(name, assignmentMode)
+  return {
+    assignmentMode: mode,
+    reportCode: normalizeReportCode(reportCode ?? '', defaultReportCode(mode, name)),
+  }
 }
 
 export class ListAreasUseCase {
@@ -76,7 +106,12 @@ export class CreateAreaUseCase {
 
   async execute(
     actor: User,
-    input: { name: string; description: string },
+    input: {
+      name: string
+      description: string
+      assignmentMode?: string
+      reportCode?: string
+    },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
       throw new UnauthorizedError(
@@ -85,14 +120,33 @@ export class CreateAreaUseCase {
     }
 
     const name = normalizeName(input.name)
-    const existing = await this.areaRepository.findByName(name)
+    const all = await this.areaRepository.listAll()
+    const existing = findAreaByName(all, name)
     if (existing) {
-      throw new ValidationError('Ya existe una actividad con ese nombre')
+      throw new ValidationError(
+        `Ya existe la actividad “${existing.name}”. Úsala en Tareas; no hace falta crear otra.`,
+      )
     }
+    if (looksLikeInstallationActivity(name)) {
+      const other = all.find((area) => looksLikeInstallationActivity(area.name))
+      if (other) {
+        throw new ValidationError(
+          `Ya existe “${other.name}” para instalaciones. No crees otra: asigna el trabajo en Tareas. Si ves dos, elimina la que sobre.`,
+        )
+      }
+    }
+
+    const assignment = resolveAssignment(
+      name,
+      input.assignmentMode,
+      input.reportCode,
+    )
 
     return this.areaRepository.create({
       name,
       description: normalizeDescription(input.description),
+      assignmentMode: assignment.assignmentMode,
+      reportCode: assignment.reportCode,
       createdById: actor.id,
       createdByName: actor.displayName,
     })
@@ -101,15 +155,28 @@ export class CreateAreaUseCase {
 
 export class UpdateAreaUseCase {
   private readonly areaRepository: AreaRepository
+  private readonly taskRepository: TaskRepository
+  private readonly installationOrderRepository: InstallationOrderRepository
 
-  constructor(areaRepository: AreaRepository) {
+  constructor(
+    areaRepository: AreaRepository,
+    taskRepository: TaskRepository,
+    installationOrderRepository: InstallationOrderRepository,
+  ) {
     this.areaRepository = areaRepository
+    this.taskRepository = taskRepository
+    this.installationOrderRepository = installationOrderRepository
   }
 
   async execute(
     actor: User,
     areaId: string,
-    input: { name: string; description: string },
+    input: {
+      name: string
+      description: string
+      assignmentMode?: string
+      reportCode?: string
+    },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
       throw new UnauthorizedError(
@@ -123,15 +190,34 @@ export class UpdateAreaUseCase {
     }
 
     const name = normalizeName(input.name)
-    const duplicate = await this.areaRepository.findByName(name)
+    const duplicate = findAreaByName(await this.areaRepository.listAll(), name)
     if (duplicate && duplicate.id !== areaId) {
-      throw new ValidationError('Ya existe una actividad con ese nombre')
+      throw new ValidationError(
+        `Ya existe la actividad “${duplicate.name}”. No dejes dos iguales.`,
+      )
     }
 
-    return this.areaRepository.update(areaId, {
+    const assignment = resolveAssignment(
+      name,
+      input.assignmentMode ?? area.assignmentMode,
+      input.reportCode ?? area.reportCode,
+    )
+
+    const updated = await this.areaRepository.update(areaId, {
       name,
       description: normalizeDescription(input.description),
+      assignmentMode: assignment.assignmentMode,
+      reportCode: assignment.reportCode,
     })
+
+    if (name !== area.name) {
+      await Promise.all([
+        this.taskRepository.renameAreaName(areaId, name),
+        this.installationOrderRepository.renameAreaName(areaId, name),
+      ])
+    }
+
+    return updated
   }
 }
 
@@ -224,6 +310,8 @@ export class EnsureDefaultNotificationsAreaUseCase {
         area = await this.areaRepository.create({
           name: DEFAULT_AREA_NAME,
           description: DEFAULT_AREA_DESCRIPTION,
+          assignmentMode: AreaAssignmentMode.Routes,
+          reportCode: 'NOT',
           createdById: actor.id,
           createdByName: actor.displayName,
         })

@@ -11,6 +11,7 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
   deleteField,
 } from 'firebase/firestore'
 import type { Task, TaskNotice, TaskRoute, TaskStatus } from '@/domain/entities/Task'
@@ -488,5 +489,27 @@ export class FirebaseTaskRepository implements TaskRepository {
 
   async delete(id: string): Promise<void> {
     await deleteDoc(doc(this.collectionRef, id))
+  }
+
+  async renameAreaName(areaId: string, areaName: string): Promise<void> {
+    const snapshot = await getDocs(
+      query(this.collectionRef, where('areaId', '==', areaId)),
+    )
+    if (snapshot.empty) return
+    const now = Timestamp.now()
+    let batch = writeBatch(firestoreDb)
+    let count = 0
+    for (const item of snapshot.docs) {
+      batch.update(item.ref, { areaName, updatedAt: now })
+      count += 1
+      if (count === 50) {
+        await batch.commit()
+        batch = writeBatch(firestoreDb)
+        count = 0
+      }
+    }
+    if (count > 0) {
+      await batch.commit()
+    }
   }
 }

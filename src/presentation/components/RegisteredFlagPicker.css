@@ -1,0 +1,54 @@
+.io-sino {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.28rem;
+  padding: 0.18rem;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 8.4rem;
+}
+
+.io-sino button {
+  margin: 0;
+  min-height: 2rem;
+  padding: 0.28rem 0.55rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.io-sino button:hover:not(:disabled) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand-blue-soft) 70%, transparent);
+}
+
+.io-sino button.is-active:first-child {
+  color: var(--success);
+  background: var(--brand-green-soft);
+}
+
+.io-sino button.is-active:last-child {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.io-sino button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.io-sino--compact {
+  min-width: 7.2rem;
+}
+
+.io-sino--compact button {
+  min-height: 1.7rem;
+  font-size: 0.72rem;
+}

@@ -13,10 +13,18 @@ import type { Area } from '@/domain/entities/Area'
 import type { AreaRepository } from '@/domain/repositories/AreaRepository'
 import { NotFoundError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
+import {
+  defaultReportCode,
+  inferAreaAssignmentMode,
+  activityNameKey,
+  type AreaAssignmentMode,
+} from '@/domain/value-objects/AreaAssignmentMode'
 
 interface AreaDoc {
   name: string
   description: string
+  assignmentMode?: string
+  reportCode?: string
   createdById: string
   createdByName: string
   createdAt: Timestamp
@@ -24,10 +32,15 @@ interface AreaDoc {
 }
 
 function mapArea(id: string, data: AreaDoc): Area {
+  const assignmentMode = inferAreaAssignmentMode(data.name, data.assignmentMode)
   return {
     id,
     name: data.name,
     description: data.description ?? '',
+    assignmentMode,
+    reportCode:
+      (data.reportCode ?? '').trim().toUpperCase() ||
+      defaultReportCode(assignmentMode, data.name),
     createdById: data.createdById,
     createdByName: data.createdByName,
     createdAt: data.createdAt.toDate(),
@@ -54,16 +67,16 @@ export class FirebaseAreaRepository implements AreaRepository {
   }
 
   async findByName(name: string): Promise<Area | null> {
-    const normalized = name.trim().toLowerCase()
+    const key = activityNameKey(name)
     const all = await this.listAll()
-    return (
-      all.find((area) => area.name.trim().toLowerCase() === normalized) ?? null
-    )
+    return all.find((area) => activityNameKey(area.name) === key) ?? null
   }
 
   async create(input: {
     name: string
     description: string
+    assignmentMode: AreaAssignmentMode
+    reportCode: string
     createdById: string
     createdByName: string
   }): Promise<Area> {
@@ -72,6 +85,8 @@ export class FirebaseAreaRepository implements AreaRepository {
     const payload: AreaDoc = {
       name: input.name,
       description: input.description,
+      assignmentMode: input.assignmentMode,
+      reportCode: input.reportCode,
       createdById: input.createdById,
       createdByName: input.createdByName,
       createdAt: now,
@@ -83,7 +98,12 @@ export class FirebaseAreaRepository implements AreaRepository {
 
   async update(
     id: string,
-    input: { name: string; description: string },
+    input: {
+      name: string
+      description: string
+      assignmentMode: AreaAssignmentMode
+      reportCode: string
+    },
   ): Promise<Area> {
     const refDoc = doc(this.collectionRef, id)
     const snapshot = await getDoc(refDoc)
@@ -95,6 +115,8 @@ export class FirebaseAreaRepository implements AreaRepository {
       ...current,
       name: input.name,
       description: input.description,
+      assignmentMode: input.assignmentMode,
+      reportCode: input.reportCode,
       updatedAt: Timestamp.now(),
     }
     await setDoc(refDoc, payload)

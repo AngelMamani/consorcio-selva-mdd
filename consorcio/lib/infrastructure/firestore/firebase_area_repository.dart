@@ -30,6 +30,8 @@ class FirebaseAreaRepository implements AreaRepository {
       id: id,
       name: data['name'] as String? ?? '',
       description: data['description'] as String? ?? '',
+      assignmentMode: data['assignmentMode'] as String? ?? '',
+      reportCode: data['reportCode'] as String? ?? '',
       createdById: data['createdById'] as String? ?? '',
       createdByName: data['createdByName'] as String? ?? '',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
