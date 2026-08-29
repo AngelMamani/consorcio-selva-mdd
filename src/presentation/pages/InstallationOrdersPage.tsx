@@ -10,7 +10,7 @@ import {
 import { Link, useParams } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import type { Area } from '@/domain/entities/Area'
-import { areaReportCode, isWorkOrderArea } from '@/domain/entities/Area'
+import { areaReportCode, isInstallationArea } from '@/domain/entities/Area'
 import type {
   InstallationOrder,
   InstallationOrderDraft,
@@ -448,14 +448,17 @@ export function InstallationOrdersBoard({
 
   if (!user) return null
 
-  if (!loading && area && !isWorkOrderArea(area)) {
+  if (!loading && area && !isInstallationArea(area)) {
     return (
       <section className="io-page">
         <div className="page-header">
           <div>
             <p className="io-page__eyebrow">Campo</p>
             <h1>{area.name}</h1>
-            <p>Esta actividad usa tareas de rutas, no órdenes de trabajo.</p>
+            <p>
+              Esta actividad no usa órdenes de instalación nuevas. Si es cambio
+              de medidor, ábrela desde Tareas.
+            </p>
           </div>
           <Link to="/tareas" className="btn btn--soft-primary">
             Ir a Tareas
@@ -711,7 +714,10 @@ export function InstallationOrdersBoard({
                           value={order.registeredFlag}
                           disabled={busy}
                           onChange={(flag) =>
-                            void handleRegisteredFlag(order, flag)
+                            void handleRegisteredFlag(
+                              order,
+                              flag === 'SI' ? 'SI' : 'NO',
+                            )
                           }
                         />
                       ) : (
@@ -991,7 +997,9 @@ export function InstallationOrdersBoard({
               <span>Estado SI / NO</span>
               <RegisteredFlagPicker
                 value={draft.registeredFlag}
-                onChange={(flag) => patchDraft({ registeredFlag: flag })}
+                onChange={(flag) =>
+                  patchDraft({ registeredFlag: flag === 'SI' ? 'SI' : 'NO' })
+                }
               />
             </div>
             <div className="io-form__row">

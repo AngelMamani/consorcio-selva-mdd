@@ -496,6 +496,67 @@ service cloud.firestore {
         && request.resource.data.updatedAt is timestamp;
     }
 
+    function validMeterChangeOrderWrite() {
+      return request.resource.data.keys().hasOnly([
+          'areaId', 'areaName', 'orderNumber', 'pedido', 'customerName',
+          'address', 'supplyCode', 'routeCode', 'meterSerial', 'typeCode',
+          'systemType', 'changeDoneFlag', 'observations', 'latitude',
+          'longitude', 'technicianId', 'technicianName', 'scheduledDate',
+          'status', 'createdById', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.areaId is string
+        && request.resource.data.areaId.size() > 0
+        && request.resource.data.areaId.size() <= 80
+        && request.resource.data.areaName is string
+        && request.resource.data.areaName.size() <= 120
+        && request.resource.data.orderNumber is string
+        && request.resource.data.orderNumber.matches('^[0-9]{8,20}$')
+        && request.resource.data.pedido is string
+        && request.resource.data.pedido.size() <= 160
+        && request.resource.data.customerName is string
+        && request.resource.data.customerName.size() <= 160
+        && request.resource.data.address is string
+        && request.resource.data.address.size() <= 220
+        && request.resource.data.supplyCode is string
+        && (request.resource.data.supplyCode == ''
+          || request.resource.data.supplyCode.matches('^[0-9]{7,15}$'))
+        && request.resource.data.routeCode is string
+        && (request.resource.data.routeCode == ''
+          || request.resource.data.routeCode.matches('^[0-9]{7,15}$'))
+        && request.resource.data.meterSerial is string
+        && request.resource.data.meterSerial.size() <= 40
+        && request.resource.data.typeCode is string
+        && request.resource.data.typeCode.size() <= 8
+        && request.resource.data.systemType is string
+        && request.resource.data.systemType.size() <= 8
+        && request.resource.data.changeDoneFlag is string
+        && request.resource.data.changeDoneFlag.size() <= 12
+        && request.resource.data.changeDoneFlag in ['PENDIENTE', 'PEN', 'SI', 'NO']
+        && request.resource.data.observations is string
+        && request.resource.data.observations.size() <= 500
+        && (request.resource.data.latitude == null
+          || request.resource.data.latitude is number)
+        && (request.resource.data.longitude == null
+          || request.resource.data.longitude is number)
+        && request.resource.data.technicianId is string
+        && request.resource.data.technicianId.size() <= 80
+        && request.resource.data.technicianName is string
+        && request.resource.data.technicianName.size() <= 120
+        && (
+          (request.resource.data.technicianId == ''
+            && request.resource.data.scheduledDate == null
+            && request.resource.data.status == 'NO_REGISTRADO')
+          || (request.resource.data.technicianId.size() > 0
+            && request.resource.data.technicianName.size() > 0
+            && request.resource.data.scheduledDate is timestamp
+            && request.resource.data.status == 'PROGRAMADO')
+        )
+        && request.resource.data.createdById is string
+        && request.resource.data.createdByName is string
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
     match /installationOrders/{orderId} {
       allow get: if isActiveUser()
         && (isAdmin() || resource.data.technicianId == request.auth.uid);
@@ -506,6 +567,20 @@ service cloud.firestore {
         && request.resource.data.createdById == request.auth.uid;
       allow update: if isAdmin()
         && validInstallationOrderWrite()
+        && unchangedKeys(['createdById', 'createdByName', 'createdAt', 'areaId', 'orderNumber']);
+      allow delete: if isAdmin();
+    }
+
+    match /meterChangeOrders/{orderId} {
+      allow get: if isActiveUser()
+        && (isAdmin() || resource.data.technicianId == request.auth.uid);
+      allow list: if isActiveUser()
+        && (isAdmin() || resource.data.technicianId == request.auth.uid);
+      allow create: if isAdmin()
+        && validMeterChangeOrderWrite()
+        && request.resource.data.createdById == request.auth.uid;
+      allow update: if isAdmin()
+        && validMeterChangeOrderWrite()
         && unchangedKeys(['createdById', 'createdByName', 'createdAt', 'areaId', 'orderNumber']);
       allow delete: if isAdmin();
     }

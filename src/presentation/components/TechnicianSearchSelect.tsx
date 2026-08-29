@@ -23,6 +23,7 @@ function IconPeople() {
 export function TechnicianSearchSelect({
   technicians,
   valueId,
+  valueLabel = '',
   disabled = false,
   compact = false,
   placeholder = 'Buscar técnico…',
@@ -31,6 +32,8 @@ export function TechnicianSearchSelect({
 }: {
   technicians: User[]
   valueId: string
+  /** Nombre a mostrar si el id no está en la lista (p. ej. import Excel). */
+  valueLabel?: string
   disabled?: boolean
   compact?: boolean
   placeholder?: string
@@ -45,6 +48,7 @@ export function TechnicianSearchSelect({
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 240 })
 
   const selected = technicians.find((item) => item.id === valueId) ?? null
+  const shownName = selected?.displayName || valueLabel.trim() || ''
   const filtered = useMemo(() => {
     const term = deferred.trim().toLowerCase()
     if (!term) return technicians
@@ -67,7 +71,7 @@ export function TechnicianSearchSelect({
   }, [open])
 
   useEffect(() => {
-    if (!open || !compact || !rootRef.current) return
+    if (!open || !rootRef.current) return
     const rect = rootRef.current.getBoundingClientRect()
     const width = Math.max(rect.width, 220)
     const left = Math.min(rect.left, window.innerWidth - width - 8)
@@ -77,7 +81,7 @@ export function TechnicianSearchSelect({
         ? Math.max(8, rect.top - 286)
         : below
     setMenuPos({ top, left: Math.max(8, left), width })
-  }, [open, compact, filtered.length])
+  }, [open, filtered.length, shownName])
 
   function pick(tech: User | null) {
     onChange(tech ? { id: tech.id, displayName: tech.displayName } : null)
@@ -88,22 +92,18 @@ export function TechnicianSearchSelect({
   const list = (
     <div
       ref={menuRef}
-      className={`tech-search__menu${compact ? ' tech-search__menu--floating' : ''}`}
+      className="tech-search__menu tech-search__menu--floating"
       role="listbox"
-      style={
-        compact
-          ? {
-              top: menuPos.top,
-              left: menuPos.left,
-              width: menuPos.width,
-            }
-          : undefined
-      }
+      style={{
+        top: menuPos.top,
+        left: menuPos.left,
+        width: menuPos.width,
+      }}
     >
       <button
         type="button"
         role="option"
-        className={`tech-search__option${!selected ? ' is-selected' : ''}`}
+        className={`tech-search__option${!valueId && !shownName ? ' is-selected' : ''}`}
         onClick={() => pick(null)}
       >
         {emptyLabel}
@@ -129,7 +129,9 @@ export function TechnicianSearchSelect({
   return (
     <div
       ref={rootRef}
-      className={`tech-search${compact ? ' tech-search--compact' : ''}`}
+      className={`tech-search${compact ? ' tech-search--compact' : ''}${
+        shownName ? ' tech-search--assigned' : ''
+      }`}
       onClick={(event) => event.stopPropagation()}
     >
       <label className="tech-search__field">
@@ -137,11 +139,9 @@ export function TechnicianSearchSelect({
         <IconPeople />
         <input
           type="search"
-          value={compact && !open ? selected?.displayName ?? '' : query}
+          value={open ? query : shownName}
           disabled={disabled}
-          placeholder={
-            compact && selected ? selected.displayName : placeholder
-          }
+          placeholder={shownName || placeholder}
           onFocus={() => {
             if (disabled) return
             setOpen(true)
@@ -153,11 +153,7 @@ export function TechnicianSearchSelect({
           }}
         />
       </label>
-      {compact
-        ? open && !disabled
-          ? createPortal(list, document.body)
-          : null
-        : list}
+      {open && !disabled ? createPortal(list, document.body) : null}
     </div>
   )
 }

@@ -14,6 +14,21 @@ export function looksLikeInstallationActivity(name: string): boolean {
   return /instalaci[oó]n/i.test(name.trim())
 }
 
+/** Detecta actividades de cambio de medidor (LISTA_CM / CM). */
+export function looksLikeMeterChangeActivity(name: string): boolean {
+  const key = activityNameKey(name)
+  return (
+    /cambio\s+de\s+medidor/.test(key) ||
+    /cambio\s+medidor/.test(key) ||
+    /^cm(\s|$)/.test(key) ||
+    /\bcm\b/.test(key)
+  )
+}
+
+export function looksLikeWorkOrderActivity(name: string): boolean {
+  return looksLikeInstallationActivity(name) || looksLikeMeterChangeActivity(name)
+}
+
 export function activityNameKey(name: string): string {
   return name
     .normalize('NFD')
@@ -28,7 +43,7 @@ export function inferAreaAssignmentMode(
   explicit?: string | null,
 ): AreaAssignmentMode {
   if (isAreaAssignmentMode(explicit)) return explicit
-  return looksLikeInstallationActivity(name)
+  return looksLikeWorkOrderActivity(name)
     ? AreaAssignmentMode.WorkOrders
     : AreaAssignmentMode.Routes
 }
@@ -46,7 +61,9 @@ export function defaultReportCode(
   mode: AreaAssignmentMode,
   name: string,
 ): string {
-  if (mode === AreaAssignmentMode.WorkOrders) return 'IN'
+  if (mode === AreaAssignmentMode.WorkOrders) {
+    return looksLikeMeterChangeActivity(name) ? 'CM' : 'IN'
+  }
   const letters = name
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

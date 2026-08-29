@@ -202,6 +202,38 @@ html[data-theme='dark'] .io-date input {
 .io-tech-select {
   display: block;
   min-width: 13.5rem;
+  max-width: 18rem;
+}
+
+.io-done {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.6rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.io-done--pendiente {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand-blue-soft) 88%, transparent);
+}
+
+.io-done--si {
+  color: var(--success);
+  background: var(--brand-green-soft);
+}
+
+.io-done--no {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.io-table td.io-estado-cell {
+  white-space: nowrap;
 }
 
 .io-tech svg,

@@ -1,33 +1,34 @@
 import type { User } from '@/domain/entities/User'
-import { assertUserCanManageUsers } from '@/domain/entities/User'
+import { assertUserCanManageUsers, uniqueUsersByAccessDni } from '@/domain/entities/User'
 import type { Area } from '@/domain/entities/Area'
-import { isInstallationArea } from '@/domain/entities/Area'
+import { isMeterChangeArea } from '@/domain/entities/Area'
 import type {
-  InstallationOrder,
-  InstallationOrderDraft,
-} from '@/domain/entities/InstallationOrder'
+  MeterChangeOrder,
+  MeterChangeOrderDraft,
+} from '@/domain/entities/MeterChangeOrder'
 import {
-  emptyInstallationOrderDraft,
-  installationRegisteredFlag,
-} from '@/domain/entities/InstallationOrder'
-import type { InstallationOrderRepository } from '@/domain/repositories/InstallationOrderRepository'
-import type {
-  InstallationOrderExcelExportService,
-  InstallationOrderExportFile,
-  InstallationOrderPdfExportService,
-} from '@/domain/repositories/InstallationOrderExportService'
+  draftFromMeterChangeOrder,
+  meterChangeDoneFlagStorage,
+  meterChangeSystemFromValue,
+  buildMeterChangePedido,
+} from '@/domain/entities/MeterChangeOrder'
+import type { MeterChangeOrderRepository } from '@/domain/repositories/MeterChangeOrderRepository'
 import type { AreaRepository } from '@/domain/repositories/AreaRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import {
   UnauthorizedError,
   ValidationError,
 } from '@/domain/errors/DomainError'
-import { uniqueUsersByAccessDni } from '@/domain/entities/User'
 import { hasAssignedRole, UserRole } from '@/domain/value-objects/UserRole'
+import type {
+  MeterChangeOrderExcelExportService,
+  MeterChangeOrderExportFile,
+  MeterChangeOrderPdfExportService,
+} from '@/domain/repositories/MeterChangeOrderExportService'
 
 const ORDER_NUMBER_PATTERN = /^\d{8,20}$/
 const SUPPLY_PATTERN = /^$|^\d{7,15}$/
-const NEIGHBOR_PATTERN = /^$|^\d{7,13}$/
+const ROUTE_PATTERN = /^$|^\d{7,15}$/
 
 function clip(value: string, max: number): string {
   return value.trim().replace(/\s+/g, ' ').slice(0, max)
@@ -37,9 +38,9 @@ function digits(value: string): string {
   return value.replace(/\D/g, '')
 }
 
-export function normalizeInstallationOrderDraft(
-  input: InstallationOrderDraft,
-): InstallationOrderDraft {
+export function normalizeMeterChangeOrderDraft(
+  input: MeterChangeOrderDraft,
+): MeterChangeOrderDraft {
   const orderNumber = digits(input.orderNumber)
   if (!ORDER_NUMBER_PATTERN.test(orderNumber)) {
     throw new ValidationError('El número de OT debe tener entre 8 y 20 dígitos')
@@ -50,11 +51,9 @@ export function normalizeInstallationOrderDraft(
     throw new ValidationError('El suministro debe tener entre 7 y 15 dígitos')
   }
 
-  const neighborRouteCode = digits(input.neighborRouteCode)
-  if (!NEIGHBOR_PATTERN.test(neighborRouteCode)) {
-    throw new ValidationError(
-      'El código de ruta vecino debe tener entre 7 y 13 dígitos',
-    )
+  const routeCode = digits(input.routeCode)
+  if (!ROUTE_PATTERN.test(routeCode)) {
+    throw new ValidationError('El código de ruta debe tener entre 7 y 15 dígitos')
   }
 
   const technicianId = clip(input.technicianId, 80)
@@ -64,25 +63,33 @@ export function normalizeInstallationOrderDraft(
     throw new ValidationError('La fecha programada es obligatoria al asignar')
   }
 
-  const registeredFlag = installationRegisteredFlag(input.registeredFlag)
+  const latitude =
+    typeof input.latitude === 'number' && Number.isFinite(input.latitude)
+      ? input.latitude
+      : null
+  const longitude =
+    typeof input.longitude === 'number' && Number.isFinite(input.longitude)
+      ? input.longitude
+      : null
 
   return {
     orderNumber,
-    subType: clip(input.subType, 80) || 'INSTALACION NUEVA C1',
-    applicantName: clip(input.applicantName, 160).toUpperCase(),
-    applicantAddress: clip(input.applicantAddress, 220).toUpperCase(),
-    sectorCijp: clip(input.sectorCijp, 80).toUpperCase(),
-    sector: clip(input.sector, 80).toUpperCase(),
+    pedido: buildMeterChangePedido({
+      technicianName,
+      typeCode: 'CM',
+      scheduledDate: technicianId ? scheduledDate : null,
+    }),
+    customerName: clip(input.customerName, 160).toUpperCase(),
+    address: clip(input.address, 220).toUpperCase(),
     supplyCode,
-    neighborRouteCode,
-    attentionCenter: clip(input.attentionCenter, 80).toUpperCase(),
-    executionNotes: clip(input.executionNotes, 500),
-    registeredFlag,
-    categoryCode: clip(input.categoryCode, 20),
-    referenceNumber: digits(input.referenceNumber).slice(0, 20),
-    recordedAt: input.recordedAt,
-    typeInitials: clip(input.typeInitials, 8).toUpperCase(),
-    classification: clip(input.classification, 4).toUpperCase() || 'F',
+    routeCode,
+    meterSerial: clip(input.meterSerial, 40),
+    typeCode: 'CM',
+    systemType: meterChangeSystemFromValue(input.systemType),
+    changeDoneFlag: meterChangeDoneFlagStorage(input.changeDoneFlag),
+    observations: clip(input.observations, 500),
+    latitude,
+    longitude,
     technicianId: technicianId && technicianName ? technicianId : '',
     technicianName: technicianId ? technicianName : '',
     scheduledDate: technicianId ? scheduledDate : null,
@@ -98,7 +105,7 @@ function assertCanRead(actor: User): void {
 function assertCanManage(actor: User): void {
   if (!assertUserCanManageUsers(actor)) {
     throw new UnauthorizedError(
-      'Solo administradores pueden gestionar órdenes de instalación',
+      'Solo administradores pueden gestionar cambios de medidor',
     )
   }
 }
@@ -112,63 +119,30 @@ function normalizeNameKey(value: string): string {
     .replace(/\s+/g, ' ')
 }
 
-export class ListInstallationOrdersUseCase {
-  private readonly repository: InstallationOrderRepository
+export class ListMeterChangeOrdersUseCase {
+  private readonly repository: MeterChangeOrderRepository
 
-  constructor(repository: InstallationOrderRepository) {
+  constructor(repository: MeterChangeOrderRepository) {
     this.repository = repository
-  }
-
-  execute(actor: User, areaId: string): Promise<InstallationOrder[]> {
-    assertCanRead(actor)
-    const trimmed = areaId.trim()
-    if (!trimmed) throw new ValidationError('Actividad no encontrada')
-    return this.repository.listByArea(trimmed)
   }
 
   watch(
     actor: User,
     areaId: string,
-    onChange: (orders: InstallationOrder[]) => void,
+    onChange: (orders: MeterChangeOrder[]) => void,
     onError?: (error: Error) => void,
   ): () => void {
     assertCanRead(actor)
-    const trimmed = areaId.trim()
-    if (!trimmed) throw new ValidationError('Actividad no encontrada')
-    if (assertUserCanManageUsers(actor)) {
-      return this.repository.watchByArea(trimmed, onChange, onError)
-    }
-    return this.repository.watchAssignedTo(
-      actor.id,
-      (orders) => onChange(orders.filter((item) => item.areaId === trimmed)),
-      onError,
-    )
+    return this.repository.watchByArea(areaId.trim(), onChange, onError)
   }
 }
 
-export class ListMyInstallationOrdersUseCase {
-  private readonly repository: InstallationOrderRepository
-
-  constructor(repository: InstallationOrderRepository) {
-    this.repository = repository
-  }
-
-  watch(
-    actor: User,
-    onChange: (orders: InstallationOrder[]) => void,
-    onError?: (error: Error) => void,
-  ): () => void {
-    assertCanRead(actor)
-    return this.repository.watchAssignedTo(actor.id, onChange, onError)
-  }
-}
-
-export class UpsertInstallationOrderUseCase {
-  private readonly repository: InstallationOrderRepository
+export class UpsertMeterChangeOrderUseCase {
+  private readonly repository: MeterChangeOrderRepository
   private readonly areaRepository: AreaRepository
 
   constructor(
-    repository: InstallationOrderRepository,
+    repository: MeterChangeOrderRepository,
     areaRepository: AreaRepository,
   ) {
     this.repository = repository
@@ -178,42 +152,35 @@ export class UpsertInstallationOrderUseCase {
   async execute(
     actor: User,
     areaId: string,
-    draft: InstallationOrderDraft,
-  ): Promise<InstallationOrder> {
+    input: MeterChangeOrderDraft,
+  ): Promise<MeterChangeOrder> {
     assertCanManage(actor)
-    const area = await this.requireWorkOrderArea(areaId)
-    const normalized = normalizeInstallationOrderDraft(draft)
-    const existing = await this.repository.findByOrderNumber(
-      area.id,
-      normalized.orderNumber,
-    )
-    if (existing) {
-      return this.repository.update(existing.id, area.name, normalized)
-    }
+    const area = await this.requireMeterChangeArea(areaId)
+    const normalized = normalizeMeterChangeOrderDraft(input)
     return this.repository.upsert(area.id, area.name, normalized, {
       id: actor.id,
       name: actor.displayName,
     })
   }
 
-  private async requireWorkOrderArea(areaId: string): Promise<Area> {
+  private async requireMeterChangeArea(areaId: string): Promise<Area> {
     const area = await this.areaRepository.getById(areaId.trim())
     if (!area) throw new ValidationError('Actividad no encontrada')
-    if (!isInstallationArea(area)) {
+    if (!isMeterChangeArea(area)) {
       throw new ValidationError(
-        'Esta actividad no es de instalaciones nuevas. Usa una actividad IN.',
+        'Esta actividad no es de cambio de medidor. Crea una actividad «Cambio de medidor».',
       )
     }
     return area
   }
 }
 
-export class UpdateInstallationOrderUseCase {
-  private readonly repository: InstallationOrderRepository
+export class UpdateMeterChangeOrderUseCase {
+  private readonly repository: MeterChangeOrderRepository
   private readonly areaRepository: AreaRepository
 
   constructor(
-    repository: InstallationOrderRepository,
+    repository: MeterChangeOrderRepository,
     areaRepository: AreaRepository,
   ) {
     this.repository = repository
@@ -223,26 +190,30 @@ export class UpdateInstallationOrderUseCase {
   async execute(
     actor: User,
     orderId: string,
-    draft: InstallationOrderDraft,
-  ): Promise<InstallationOrder> {
+    input: MeterChangeOrderDraft,
+  ): Promise<MeterChangeOrder> {
     assertCanManage(actor)
     const existing = await this.repository.getById(orderId.trim())
     if (!existing) throw new ValidationError('Orden no encontrada')
     const area = await this.areaRepository.getById(existing.areaId)
-    const normalized = normalizeInstallationOrderDraft({
-      ...draft,
+    const normalized = normalizeMeterChangeOrderDraft({
+      ...input,
       orderNumber: existing.orderNumber,
     })
-    return this.repository.update(existing.id, area?.name ?? existing.areaName, normalized)
+    return this.repository.update(
+      existing.id,
+      area?.name ?? existing.areaName,
+      normalized,
+    )
   }
 }
 
-export class AssignInstallationOrderUseCase {
-  private readonly repository: InstallationOrderRepository
+export class AssignMeterChangeOrderUseCase {
+  private readonly repository: MeterChangeOrderRepository
   private readonly areaRepository: AreaRepository
 
   constructor(
-    repository: InstallationOrderRepository,
+    repository: MeterChangeOrderRepository,
     areaRepository: AreaRepository,
   ) {
     this.repository = repository
@@ -252,28 +223,35 @@ export class AssignInstallationOrderUseCase {
   async execute(
     actor: User,
     orderId: string,
-    input: { technicianId: string; technicianName: string; scheduledDate: Date | null },
-  ): Promise<InstallationOrder> {
+    input: {
+      technicianId: string
+      technicianName: string
+      scheduledDate: Date | null
+    },
+  ): Promise<MeterChangeOrder> {
     assertCanManage(actor)
     const existing = await this.repository.getById(orderId.trim())
     if (!existing) throw new ValidationError('Orden no encontrada')
     const area = await this.areaRepository.getById(existing.areaId)
-    const draft: InstallationOrderDraft = {
-      ...emptyInstallationOrderDraft(),
-      ...existing,
+    const draft: MeterChangeOrderDraft = {
+      ...draftFromMeterChangeOrder(existing),
       technicianId: input.technicianId,
       technicianName: input.technicianName,
       scheduledDate: input.scheduledDate,
     }
-    const normalized = normalizeInstallationOrderDraft(draft)
-    return this.repository.update(existing.id, area?.name ?? existing.areaName, normalized)
+    const normalized = normalizeMeterChangeOrderDraft(draft)
+    return this.repository.update(
+      existing.id,
+      area?.name ?? existing.areaName,
+      normalized,
+    )
   }
 }
 
-export class DeleteInstallationOrderUseCase {
-  private readonly repository: InstallationOrderRepository
+export class DeleteMeterChangeOrderUseCase {
+  private readonly repository: MeterChangeOrderRepository
 
-  constructor(repository: InstallationOrderRepository) {
+  constructor(repository: MeterChangeOrderRepository) {
     this.repository = repository
   }
 
@@ -285,13 +263,13 @@ export class DeleteInstallationOrderUseCase {
   }
 }
 
-export class ImportInstallationOrdersUseCase {
-  private readonly repository: InstallationOrderRepository
+export class ImportMeterChangeOrdersUseCase {
+  private readonly repository: MeterChangeOrderRepository
   private readonly areaRepository: AreaRepository
   private readonly userRepository: UserRepository
 
   constructor(
-    repository: InstallationOrderRepository,
+    repository: MeterChangeOrderRepository,
     areaRepository: AreaRepository,
     userRepository: UserRepository,
   ) {
@@ -303,14 +281,14 @@ export class ImportInstallationOrdersUseCase {
   async execute(
     actor: User,
     areaId: string,
-    drafts: InstallationOrderDraft[],
+    drafts: MeterChangeOrderDraft[],
   ): Promise<{ created: number; updated: number }> {
     assertCanManage(actor)
     const area = await this.areaRepository.getById(areaId.trim())
     if (!area) throw new ValidationError('Actividad no encontrada')
-    if (!isInstallationArea(area)) {
+    if (!isMeterChangeArea(area)) {
       throw new ValidationError(
-        'Importa este Excel solo en una actividad de instalaciones nuevas',
+        'Importa este Excel solo en una actividad de cambio de medidor',
       )
     }
     if (drafts.length === 0) {
@@ -332,13 +310,12 @@ export class ImportInstallationOrdersUseCase {
       const match = draft.technicianId
         ? technicians.find((user) => user.id === draft.technicianId)
         : byName.get(normalizeNameKey(draft.technicianName))
-      const withTech: InstallationOrderDraft = match
+      const withTech: MeterChangeOrderDraft = match
         ? {
             ...draft,
             technicianId: match.id,
             technicianName: match.displayName.toUpperCase(),
-            scheduledDate:
-              draft.scheduledDate ?? draft.recordedAt ?? new Date(),
+            scheduledDate: draft.scheduledDate ?? new Date(),
           }
         : {
             ...draft,
@@ -346,7 +323,7 @@ export class ImportInstallationOrdersUseCase {
             technicianName: '',
             scheduledDate: null,
           }
-      return normalizeInstallationOrderDraft(withTech)
+      return normalizeMeterChangeOrderDraft(withTech)
     })
 
     return this.repository.upsertMany(area.id, area.name, normalized, {
@@ -356,10 +333,10 @@ export class ImportInstallationOrdersUseCase {
   }
 }
 
-export class ExportInstallationOrdersToPdfUseCase {
-  private readonly pdfService: InstallationOrderPdfExportService
+export class ExportMeterChangeOrdersToPdfUseCase {
+  private readonly pdfService: MeterChangeOrderPdfExportService
 
-  constructor(pdfService: InstallationOrderPdfExportService) {
+  constructor(pdfService: MeterChangeOrderPdfExportService) {
     this.pdfService = pdfService
   }
 
@@ -370,9 +347,9 @@ export class ExportInstallationOrdersToPdfUseCase {
       reportCode: string
       technicianName: string
       date: Date
-      orders: InstallationOrder[]
+      orders: MeterChangeOrder[]
     },
-  ): InstallationOrderExportFile {
+  ): MeterChangeOrderExportFile {
     assertCanRead(actor)
     if (report.orders.length === 0) {
       throw new ValidationError('No hay órdenes para exportar')
@@ -384,10 +361,10 @@ export class ExportInstallationOrdersToPdfUseCase {
   }
 }
 
-export class ExportInstallationOrdersToExcelUseCase {
-  private readonly excelService: InstallationOrderExcelExportService
+export class ExportMeterChangeOrdersToExcelUseCase {
+  private readonly excelService: MeterChangeOrderExcelExportService
 
-  constructor(excelService: InstallationOrderExcelExportService) {
+  constructor(excelService: MeterChangeOrderExcelExportService) {
     this.excelService = excelService
   }
 
@@ -398,22 +375,18 @@ export class ExportInstallationOrdersToExcelUseCase {
       reportCode: string
       technicianName: string
       date: Date
-      orders: InstallationOrder[]
+      orders: MeterChangeOrder[]
     },
-  ): InstallationOrderExportFile {
+  ): MeterChangeOrderExportFile {
     assertCanRead(actor)
     if (report.orders.length === 0) {
       throw new ValidationError('No hay órdenes para exportar')
     }
-    return this.excelService.createWorkbook({
-      ...report,
-      generatedByName: actor.displayName,
-    })
+    return this.excelService.createWorkbook(report)
   }
 
-  template(actor: User): InstallationOrderExportFile {
-    assertCanManage(actor)
+  template(actor: User) {
+    assertCanRead(actor)
     return this.excelService.createImportTemplate()
   }
 }
-

@@ -95,11 +95,17 @@
   font-size: 0.8rem;
 }
 
-.tech-search--compact .tech-search__field input {
+.tech-search--compact .tech-search__field input,
+.tech-search--assigned .tech-search__field input {
   min-height: 2rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--brand-blue);
   background: transparent;
   border-color: color-mix(in srgb, var(--brand-blue) 35%, var(--line));
+}
+
+.tech-search--compact .tech-search__field input {
+  min-height: 2rem;
+  font-size: 0.8rem;
 }

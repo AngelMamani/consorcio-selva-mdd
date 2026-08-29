@@ -127,6 +127,19 @@ import {
   UpdateInstallationOrderUseCase,
   UpsertInstallationOrderUseCase,
 } from '@/domain/usecases/installations/InstallationOrderUseCases'
+import { FirebaseMeterChangeOrderRepository } from '@/infrastructure/firestore/FirebaseMeterChangeOrderRepository'
+import { XlsxMeterChangeOrderExcelService } from '@/infrastructure/excel/XlsxMeterChangeOrderExcelService'
+import { JsPdfMeterChangeOrderExportService } from '@/infrastructure/pdf/JsPdfMeterChangeOrderExportService'
+import {
+  AssignMeterChangeOrderUseCase,
+  DeleteMeterChangeOrderUseCase,
+  ExportMeterChangeOrdersToExcelUseCase,
+  ExportMeterChangeOrdersToPdfUseCase,
+  ImportMeterChangeOrdersUseCase,
+  ListMeterChangeOrdersUseCase,
+  UpdateMeterChangeOrderUseCase,
+  UpsertMeterChangeOrderUseCase,
+} from '@/domain/usecases/meter-changes/MeterChangeOrderUseCases'
 
 export interface AppDependencies {
   loginUseCase: LoginUseCase
@@ -180,6 +193,14 @@ export interface AppDependencies {
   importInstallationOrdersUseCase: ImportInstallationOrdersUseCase
   exportInstallationOrdersToPdfUseCase: ExportInstallationOrdersToPdfUseCase
   exportInstallationOrdersToExcelUseCase: ExportInstallationOrdersToExcelUseCase
+  listMeterChangeOrdersUseCase: ListMeterChangeOrdersUseCase
+  upsertMeterChangeOrderUseCase: UpsertMeterChangeOrderUseCase
+  updateMeterChangeOrderUseCase: UpdateMeterChangeOrderUseCase
+  assignMeterChangeOrderUseCase: AssignMeterChangeOrderUseCase
+  deleteMeterChangeOrderUseCase: DeleteMeterChangeOrderUseCase
+  importMeterChangeOrdersUseCase: ImportMeterChangeOrdersUseCase
+  exportMeterChangeOrdersToPdfUseCase: ExportMeterChangeOrdersToPdfUseCase
+  exportMeterChangeOrdersToExcelUseCase: ExportMeterChangeOrdersToExcelUseCase
   listAttendanceDayUseCase: ListAttendanceDayUseCase
   getAttendanceSettingsUseCase: GetAttendanceSettingsUseCase
   saveAttendanceSettingsUseCase: SaveAttendanceSettingsUseCase
@@ -240,6 +261,9 @@ export function createAppDependencies(): AppDependencies {
   const installationOrderRepository = new FirebaseInstallationOrderRepository()
   const installationOrderExcelService = new XlsxInstallationOrderExcelService()
   const installationOrderPdfService = new JsPdfInstallationOrderExportService()
+  const meterChangeOrderRepository = new FirebaseMeterChangeOrderRepository()
+  const meterChangeOrderExcelService = new XlsxMeterChangeOrderExcelService()
+  const meterChangeOrderPdfService = new JsPdfMeterChangeOrderExportService()
   const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
   const supportTicketRepository = new FirebaseSupportTicketRepository()
   const supplyRepository = new FirebaseSupplyRepository()
@@ -432,6 +456,34 @@ export function createAppDependencies(): AppDependencies {
       new ExportInstallationOrdersToPdfUseCase(installationOrderPdfService),
     exportInstallationOrdersToExcelUseCase:
       new ExportInstallationOrdersToExcelUseCase(installationOrderExcelService),
+    listMeterChangeOrdersUseCase: new ListMeterChangeOrdersUseCase(
+      meterChangeOrderRepository,
+    ),
+    upsertMeterChangeOrderUseCase: new UpsertMeterChangeOrderUseCase(
+      meterChangeOrderRepository,
+      areaRepository,
+    ),
+    updateMeterChangeOrderUseCase: new UpdateMeterChangeOrderUseCase(
+      meterChangeOrderRepository,
+      areaRepository,
+    ),
+    assignMeterChangeOrderUseCase: new AssignMeterChangeOrderUseCase(
+      meterChangeOrderRepository,
+      areaRepository,
+    ),
+    deleteMeterChangeOrderUseCase: new DeleteMeterChangeOrderUseCase(
+      meterChangeOrderRepository,
+    ),
+    importMeterChangeOrdersUseCase: new ImportMeterChangeOrdersUseCase(
+      meterChangeOrderRepository,
+      areaRepository,
+      userRepository,
+    ),
+    exportMeterChangeOrdersToPdfUseCase: new ExportMeterChangeOrdersToPdfUseCase(
+      meterChangeOrderPdfService,
+    ),
+    exportMeterChangeOrdersToExcelUseCase:
+      new ExportMeterChangeOrdersToExcelUseCase(meterChangeOrderExcelService),
     listAttendanceDayUseCase,
     getAttendanceSettingsUseCase,
     saveAttendanceSettingsUseCase: new SaveAttendanceSettingsUseCase(

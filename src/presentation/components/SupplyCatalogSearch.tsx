@@ -9,16 +9,20 @@ import './SupplyCatalogSearch.css'
 export function SupplyCatalogSearch({
   value,
   onChange,
+  onPickSupply,
   placeholder = 'Buscar en rutas de suministro…',
   hint = 'Escribe al menos 3 dígitos. Sale el mismo catálogo de rutas de suministro.',
+  pickedCaption = 'Ruta del catálogo de suministros',
   minCodeLength = 7,
-  maxCodeLength = 13,
+  maxCodeLength = 15,
   disabled = false,
 }: {
   value: string
   onChange: (code: string) => void
+  onPickSupply?: (supply: Supply | null) => void
   placeholder?: string
   hint?: string
+  pickedCaption?: string
   minCodeLength?: number
   maxCodeLength?: number
   disabled?: boolean
@@ -29,8 +33,29 @@ export function SupplyCatalogSearch({
   const [draft, setDraft] = useState('')
   const [suggestions, setSuggestions] = useState<Supply[]>([])
   const [searching, setSearching] = useState(false)
+  const [pickedSupply, setPickedSupply] = useState<Supply | null>(null)
 
   const selected = normalizeRouteCode(value)
+
+  useEffect(() => {
+    if (!selected) {
+      setPickedSupply(null)
+      return
+    }
+    if (!user) return
+    let cancelled = false
+    void getSupplyByRouteCodeUseCase
+      .find(user, selected)
+      .then((supply) => {
+        if (!cancelled) setPickedSupply(supply)
+      })
+      .catch(() => {
+        if (!cancelled) setPickedSupply(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selected, user, getSupplyByRouteCodeUseCase])
 
   useEffect(() => {
     if (!user || disabled || selected) {
@@ -38,7 +63,7 @@ export function SupplyCatalogSearch({
       setSearching(false)
       return
     }
-    const digits = normalizeRouteCode(draft).slice(0, 12)
+    const digits = normalizeRouteCode(draft).slice(0, maxCodeLength)
     if (digits.length < 3) {
       setSuggestions([])
       setSearching(false)
@@ -65,10 +90,19 @@ export function SupplyCatalogSearch({
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [draft, user, disabled, selected, searchSuppliesUseCase])
+  }, [draft, user, disabled, selected, searchSuppliesUseCase, maxCodeLength])
 
-  function pick(code: string) {
-    onChange(normalizeRouteCode(code))
+  function pick(supplyOrCode: Supply | string) {
+    const supply =
+      typeof supplyOrCode === 'string'
+        ? null
+        : supplyOrCode
+    const code = normalizeRouteCode(
+      typeof supplyOrCode === 'string' ? supplyOrCode : supplyOrCode.routeCode,
+    )
+    onChange(code)
+    onPickSupply?.(supply)
+    setPickedSupply(supply)
     setDraft('')
     setSuggestions([])
   }
@@ -87,25 +121,42 @@ export function SupplyCatalogSearch({
     }
     try {
       const supply = await getSupplyByRouteCodeUseCase.find(user, code)
-      pick(supply?.routeCode ?? code)
+      if (supply) pick(supply)
+      else pick(code)
     } catch {
       pick(code)
     }
   }
 
+  function clear() {
+    onChange('')
+    onPickSupply?.(null)
+    setPickedSupply(null)
+  }
+
   if (selected) {
+    const hasGps = pickedSupply ? supplyHasLocation(pickedSupply) : false
+    const locationLabel =
+      hasGps && pickedSupply
+        ? `GPS: ${pickedSupply.latitude}, ${pickedSupply.longitude}`
+        : 'Sin GPS en el catálogo'
     return (
       <div className="supply-search">
         <div className="supply-search__picked">
           <div>
             <strong>{selected}</strong>
-            <small>Ruta del catálogo de suministros</small>
+            <small>
+              {pickedCaption}
+              <br />
+              {locationLabel}
+              {pickedSupply?.note ? ` · ${pickedSupply.note}` : ''}
+            </small>
           </div>
           <button
             type="button"
             className="btn btn--soft-rose btn--small"
             disabled={disabled}
-            onClick={() => onChange('')}
+            onClick={clear}
           >
             Quitar
           </button>
@@ -130,7 +181,7 @@ export function SupplyCatalogSearch({
             if (event.key === 'Enter') {
               event.preventDefault()
               if (suggestions.length === 1) {
-                pick(suggestions[0].routeCode)
+                pick(suggestions[0])
                 return
               }
               void useDraftCode()
@@ -153,7 +204,7 @@ export function SupplyCatalogSearch({
         <ul className="supply-search__suggest" role="listbox">
           {suggestions.map((supply) => (
             <li key={supply.id || supply.routeCode}>
-              <button type="button" onClick={() => pick(supply.routeCode)}>
+              <button type="button" onClick={() => pick(supply)}>
                 <strong>{supply.routeCode}</strong>
                 <small>
                   {supplyHasLocation(supply) ? 'Con GPS' : 'Sin GPS'}

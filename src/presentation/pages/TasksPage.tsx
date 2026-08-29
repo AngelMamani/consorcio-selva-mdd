@@ -10,7 +10,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Area } from '@/domain/entities/Area'
-import { isWorkOrderArea } from '@/domain/entities/Area'
+import { isInstallationArea, isMeterChangeArea, isWorkOrderArea } from '@/domain/entities/Area'
 import {
   emptyInstallationOrderDraft,
   installationMeterTypeFromSubType,
@@ -19,7 +19,18 @@ import {
   type InstallationMeterType,
   type InstallationOrderDraft,
 } from '@/domain/entities/InstallationOrder'
+import {
+  emptyMeterChangeOrderDraft,
+  formatMeterChangeLocation,
+  meterChangeDoneFlag,
+  meterChangeSystemFromValue,
+  METER_CHANGE_SYSTEM_OPTIONS,
+  parseMeterChangeLocation,
+  buildMeterChangePedido,
+  type MeterChangeOrderDraft,
+} from '@/domain/entities/MeterChangeOrder'
 import { InstallationOrdersBoard } from '@/presentation/pages/InstallationOrdersPage'
+import { MeterChangeOrdersBoard } from '@/presentation/pages/MeterChangeOrdersPage'
 import { RegisteredFlagPicker } from '@/presentation/components/RegisteredFlagPicker'
 import { SupplyCatalogSearch } from '@/presentation/components/SupplyCatalogSearch'
 import { TechnicianSearchSelect } from '@/presentation/components/TechnicianSearchSelect'
@@ -386,6 +397,7 @@ export function TasksPage() {
     getSupplyByRouteCodeUseCase,
     searchSuppliesUseCase,
     upsertInstallationOrderUseCase,
+    upsertMeterChangeOrderUseCase,
   } = useDependencies()
 
   const isAdmin = Boolean(user && canManageUsers(user.role))
@@ -425,12 +437,21 @@ export function TasksPage() {
   const [otDraft, setOtDraft] = useState<InstallationOrderDraft>(
     emptyInstallationOrderDraft(),
   )
+  const [cmDraft, setCmDraft] = useState<MeterChangeOrderDraft>(
+    emptyMeterChangeOrderDraft(),
+  )
   const [draftVecinal, setDraftVecinal] = useState<DraftRoute | null>(null)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState(false)
 
   const selectedAreaName = areas.find((area) => area.id === areaId)?.name ?? ''
   const creatingWorkOrder = Boolean(
     areas.find((area) => area.id === areaId && isWorkOrderArea(area)),
+  )
+  const creatingMeterChange = Boolean(
+    areas.find((area) => area.id === areaId && isMeterChangeArea(area)),
+  )
+  const creatingInstallation = Boolean(
+    areas.find((area) => area.id === areaId && isInstallationArea(area)),
   )
 
   const filteredTasks = useMemo(() => {
@@ -993,6 +1014,7 @@ export function TasksPage() {
     setVecinalSuggestions([])
     setDraftVecinal(null)
     setOtDraft(emptyInstallationOrderDraft())
+    setCmDraft(emptyMeterChangeOrderDraft())
     setModalOpen(true)
   }
 
@@ -1173,13 +1195,22 @@ export function TasksPage() {
     if (!user || busy) return
     if (creatingWorkOrder) {
       if (editing) {
-        swalError('Las órdenes de instalación se editan en la lista de la actividad')
+        swalError('Las órdenes se editan en la lista de la actividad')
         return
       }
       setBusy(true)
       try {
-        await upsertInstallationOrderUseCase.execute(user, areaId, otDraft)
-        swalSuccess('Orden asignada. Ya se ve en esta actividad y en Actividades.')
+        if (creatingMeterChange) {
+          await upsertMeterChangeOrderUseCase.execute(user, areaId, cmDraft)
+          swalSuccess(
+            'Cambio de medidor asignado. Ya se ve en esta actividad.',
+          )
+        } else {
+          await upsertInstallationOrderUseCase.execute(user, areaId, otDraft)
+          swalSuccess(
+            'Orden asignada. Ya se ve en esta actividad y en Actividades.',
+          )
+        }
         setModalOpen(false)
       } catch (err) {
         swalError(
@@ -1478,17 +1509,29 @@ export function TasksPage() {
                       }}
                     >
                       <strong>{area.name}</strong>
-                      <small>Cada OT se asigna a un técnico, con su fecha</small>
+                      <small>
+                        {isMeterChangeArea(area)
+                          ? 'Importa LISTA_CM o crea OTs de cambio de medidor'
+                          : 'Cada OT se asigna a un técnico, con su fecha'}
+                      </small>
                     </button>
                   </div>
                 </header>
                 {collapsed ? null : (
                   <div className="tasks-activity__tasks">
-                    <InstallationOrdersBoard
-                      areaId={area.id}
-                      mode="assign"
-                      embedded
-                    />
+                    {isMeterChangeArea(area) ? (
+                      <MeterChangeOrdersBoard
+                        areaId={area.id}
+                        mode="assign"
+                        embedded
+                      />
+                    ) : (
+                      <InstallationOrdersBoard
+                        areaId={area.id}
+                        mode="assign"
+                        embedded
+                      />
+                    )}
                   </div>
                 )}
               </section>
@@ -1793,9 +1836,11 @@ export function TasksPage() {
         open={modalOpen}
         title={editing ? 'Editar tarea' : 'Nueva tarea'}
         description={
-          creatingWorkOrder
-            ? 'Elige la actividad y completa la OT. Cada orden queda con un técnico y una fecha. Luego se ve en Actividades.'
-            : 'Elige la actividad. El título se toma de ahí. Puedes asignar varias rutas a un técnico.'
+          creatingMeterChange
+            ? 'Completa la OT como en LISTA_CM: cliente, suministro, serie, sistema C1/C2 y técnico.'
+            : creatingWorkOrder
+              ? 'Elige la actividad y completa la OT. Cada orden queda con un técnico y una fecha. Luego se ve en Actividades.'
+              : 'Elige la actividad. El título se toma de ahí. Puedes asignar varias rutas a un técnico.'
         }
         size="md"
         onClose={() => !busy && setModalOpen(false)}
@@ -1843,8 +1888,32 @@ export function TasksPage() {
                 <span>{creatingWorkOrder ? 'Fecha programada' : 'Fecha límite'}</span>
                 <input
                   type="date"
-                  value={creatingWorkOrder ? toDateInputValue(otDraft.scheduledDate) : dueDate}
+                  value={
+                    creatingMeterChange
+                      ? toDateInputValue(cmDraft.scheduledDate)
+                      : creatingWorkOrder
+                        ? toDateInputValue(otDraft.scheduledDate)
+                        : dueDate
+                  }
                   onChange={(event) => {
+                    if (creatingMeterChange) {
+                      setCmDraft((current) => {
+                        const scheduledDate = fromDateInputValue(
+                          event.target.value,
+                        )
+                        return {
+                          ...current,
+                          scheduledDate,
+                          typeCode: 'CM',
+                          pedido: buildMeterChangePedido({
+                            technicianName: current.technicianName,
+                            typeCode: 'CM',
+                            scheduledDate,
+                          }),
+                        }
+                      })
+                      return
+                    }
                     if (creatingWorkOrder) {
                       setOtDraft((current) => ({
                         ...current,
@@ -1857,7 +1926,237 @@ export function TasksPage() {
                 />
               </label>
             </div>
-            {creatingWorkOrder ? (
+            {creatingMeterChange ? (
+              <>
+                <label className="field">
+                  <span>Número de OT</span>
+                  <input
+                    value={cmDraft.orderNumber}
+                    onChange={(event) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        orderNumber: event.target.value,
+                      }))
+                    }
+                    placeholder="2025200002000258604"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Pedido (técnico + CM + fecha)</span>
+                  <input
+                    value={buildMeterChangePedido({
+                      technicianName: cmDraft.technicianName,
+                      typeCode: 'CM',
+                      scheduledDate: cmDraft.scheduledDate,
+                    })}
+                    readOnly
+                    placeholder="Se arma al elegir técnico y fecha"
+                    title="Concatenación automática: TECNICO_CM_DD-MM-AAAA"
+                  />
+                </label>
+                <label className="field">
+                  <span>Nombre</span>
+                  <input
+                    value={cmDraft.customerName}
+                    onChange={(event) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        customerName: event.target.value,
+                      }))
+                    }
+                    placeholder="Nombre del cliente"
+                  />
+                </label>
+                <label className="field">
+                  <span>Dirección</span>
+                  <input
+                    value={cmDraft.address}
+                    onChange={(event) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        address: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <div className="field">
+                  <span>Suministro (búscale en el catálogo)</span>
+                  <SupplyCatalogSearch
+                    value={cmDraft.supplyCode}
+                    onChange={(code) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        supplyCode: code,
+                        routeCode: current.routeCode || code,
+                        typeCode: 'CM',
+                        ...(code
+                          ? {}
+                          : { latitude: null, longitude: null }),
+                      }))
+                    }
+                    onPickSupply={(supply) => {
+                      if (!supply) {
+                        setCmDraft((current) => ({
+                          ...current,
+                          latitude: null,
+                          longitude: null,
+                        }))
+                        return
+                      }
+                      setCmDraft((current) => ({
+                        ...current,
+                        supplyCode: supply.routeCode,
+                        routeCode: current.routeCode || supply.routeCode,
+                        typeCode: 'CM',
+                        latitude: supplyHasLocation(supply)
+                          ? supply.latitude
+                          : current.latitude,
+                        longitude: supplyHasLocation(supply)
+                          ? supply.longitude
+                          : current.longitude,
+                      }))
+                    }}
+                    placeholder="Escribe 3+ dígitos del suministro…"
+                    hint="Busca en el catálogo de suministros. Si tiene GPS, se carga la ubicación."
+                    pickedCaption="Suministro del catálogo"
+                    minCodeLength={7}
+                    maxCodeLength={15}
+                  />
+                </div>
+                <label className="field">
+                  <span>Código de ruta</span>
+                  <input
+                    value={cmDraft.routeCode}
+                    onChange={(event) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        routeCode: event.target.value,
+                      }))
+                    }
+                    placeholder="Se completa al elegir suministro (o edítalo)"
+                  />
+                </label>
+                <div className="tasks-form__row">
+                  <label className="field">
+                    <span>Serie de medidor</span>
+                    <input
+                      value={cmDraft.meterSerial}
+                      onChange={(event) =>
+                        setCmDraft((current) => ({
+                          ...current,
+                          meterSerial: event.target.value,
+                        }))
+                      }
+                      placeholder="2015022309"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Tipo</span>
+                    <input
+                      value="CM — Cambio de medidor"
+                      readOnly
+                      title="Tipo fijo: CM"
+                    />
+                  </label>
+                </div>
+                <div className="tasks-form__row">
+                  <label className="field">
+                    <span>Sistema</span>
+                    <select
+                      value={meterChangeSystemFromValue(cmDraft.systemType)}
+                      onChange={(event) =>
+                        setCmDraft((current) => ({
+                          ...current,
+                          systemType: event.target.value,
+                          typeCode: 'CM',
+                        }))
+                      }
+                    >
+                      {METER_CHANGE_SYSTEM_OPTIONS.map((option) => (
+                        <option key={option.code} value={option.code}>
+                          {option.shortLabel} — {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Ubicación (GPS del suministro)</span>
+                    <input
+                      value={formatMeterChangeLocation(
+                        cmDraft.latitude,
+                        cmDraft.longitude,
+                      )}
+                      onChange={(event) => {
+                        const next = parseMeterChangeLocation(event.target.value)
+                        setCmDraft((current) => ({
+                          ...current,
+                          latitude: next.latitude,
+                          longitude: next.longitude,
+                        }))
+                      }}
+                      placeholder="Se completa al buscar el suministro"
+                    />
+                  </label>
+                </div>
+                <div className="field">
+                  <span>Estado (PENDIENTE / SI / NO)</span>
+                  <RegisteredFlagPicker
+                    withPending
+                    value={meterChangeDoneFlag(cmDraft.changeDoneFlag)}
+                    onChange={(flag) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        changeDoneFlag: flag,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <span>Técnico</span>
+                  <TechnicianSearchSelect
+                    technicians={technicians}
+                    valueId={cmDraft.technicianId}
+                    placeholder="Buscar técnico…"
+                    emptyLabel="Sin asignar"
+                    onChange={(technician) =>
+                      setCmDraft((current) => {
+                        const scheduledDate = technician
+                          ? current.scheduledDate ?? new Date()
+                          : null
+                        const technicianName = technician?.displayName ?? ''
+                        return {
+                          ...current,
+                          technicianId: technician?.id ?? '',
+                          technicianName,
+                          scheduledDate,
+                          typeCode: 'CM',
+                          pedido: buildMeterChangePedido({
+                            technicianName,
+                            typeCode: 'CM',
+                            scheduledDate,
+                          }),
+                        }
+                      })
+                    }
+                  />
+                </div>
+                <label className="field">
+                  <span>Observaciones</span>
+                  <textarea
+                    rows={2}
+                    value={cmDraft.observations}
+                    onChange={(event) =>
+                      setCmDraft((current) => ({
+                        ...current,
+                        observations: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+            {creatingInstallation ? (
               <>
                 <label className="field">
                   <span>Número de OT</span>
@@ -1996,7 +2295,7 @@ export function TasksPage() {
                     onChange={(flag) =>
                       setOtDraft((current) => ({
                         ...current,
-                        registeredFlag: flag,
+                        registeredFlag: flag === 'SI' ? 'SI' : 'NO',
                       }))
                     }
                   />
@@ -2021,7 +2320,7 @@ export function TasksPage() {
                   />
                 </div>
               </>
-            ) : (
+            ) : creatingMeterChange ? null : (
               <>
             <p className="tasks-form__title-preview">
               Título de la tarea:{' '}

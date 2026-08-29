@@ -691,7 +691,7 @@ export function AreasPage() {
                     setAssignmentMode(inferAreaAssignmentMode(next))
                   }
                 }}
-                placeholder="Ej. Instalaciones nuevas"
+                placeholder="Ej. Cambio de medidor"
                 required
                 maxLength={120}
               />
@@ -716,7 +716,8 @@ export function AreasPage() {
                     setAssignmentMode(AreaAssignmentMode.WorkOrders)
                   }
                 />
-                Órdenes de trabajo (una OT = un técnico). Ej. Instalaciones nuevas
+                Órdenes de trabajo (una OT = un técnico). Ej. Instalaciones
+                nuevas o Cambio de medidor
               </label>
               <label>
                 <input
@@ -734,9 +735,14 @@ export function AreasPage() {
                 <input
                   value={reportCode}
                   onChange={(event) => setReportCode(event.target.value)}
-                  placeholder="IN"
+                  placeholder={
+                    /medidor|cm/i.test(name) ? 'CM' : 'IN'
+                  }
                   maxLength={8}
                 />
+                <small style={{ display: 'block', marginTop: 6, opacity: 0.75 }}>
+                  IN = instalaciones · CM = cambio de medidor
+                </small>
               </label>
             ) : null}
           </div>

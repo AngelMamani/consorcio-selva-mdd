@@ -9,6 +9,11 @@
   min-width: 8.4rem;
 }
 
+.io-sino--pending {
+  grid-template-columns: 1.4fr 1fr 1fr;
+  min-width: 14.5rem;
+}
+
 .io-sino button {
   margin: 0;
   min-height: 2rem;
@@ -29,12 +34,19 @@
   background: color-mix(in srgb, var(--brand-blue-soft) 70%, transparent);
 }
 
-.io-sino button.is-active:first-child {
+.io-sino button.is-active[data-flag='PENDIENTE'] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand-blue-soft) 85%, transparent);
+}
+
+.io-sino button.is-active[data-flag='SI'],
+.io-sino:not(.io-sino--pending) button.is-active:first-child {
   color: var(--success);
   background: var(--brand-green-soft);
 }
 
-.io-sino button.is-active:last-child {
+.io-sino button.is-active[data-flag='NO'],
+.io-sino:not(.io-sino--pending) button.is-active:last-child {
   color: var(--danger);
   background: var(--danger-soft);
 }
@@ -48,7 +60,17 @@
   min-width: 7.2rem;
 }
 
+.io-sino--pending.io-sino--compact {
+  min-width: 12.5rem;
+}
+
 .io-sino--compact button {
   min-height: 1.7rem;
   font-size: 0.72rem;
+}
+
+.io-sino--pending.io-sino--compact button {
+  font-size: 0.62rem;
+  padding: 0.28rem 0.35rem;
+  letter-spacing: 0.02em;
 }
