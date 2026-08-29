@@ -20,8 +20,13 @@ import {
   emptyInstallationOrderDraft,
   formatInstallationDate,
   formatInstallationDateTime,
+  installationMeterTypeFromSubType,
+  installationMeterTypeLabel,
   installationOrderStatusLabel,
   installationRegisteredFlag,
+  installationSubTypeFromMeterType,
+  INSTALLATION_METER_TYPE_OPTIONS,
+  type InstallationMeterType,
 } from '@/domain/entities/InstallationOrder'
 import type { User } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
@@ -785,14 +790,16 @@ export function InstallationOrdersBoard({
                 ×
               </button>
             </header>
-            <DetailField label="SUB TIPO">{selected.subType || '—'}</DetailField>
+            <DetailField label="SUB TIPO">
+              {installationMeterTypeLabel(selected.subType)}
+            </DetailField>
             <DetailField label="SOLICITANTE">
               {selected.applicantName || '—'}
             </DetailField>
             <DetailField label="DIRECCION SOLICITANTE">
               {selected.applicantAddress || '—'}
             </DetailField>
-            <DetailField label="SECTOR CIJP" icon={<IconBuilding />}>
+            <DetailField label="SMDD" icon={<IconBuilding />}>
               <span className="io-detail__sector">
                 {selected.sectorCijp || '—'}
               </span>
@@ -891,11 +898,23 @@ export function InstallationOrdersBoard({
             </label>
             <div className="io-form__row">
               <label className="field">
-                <span>Sub tipo</span>
-                <input
-                  value={draft.subType}
-                  onChange={(event) => patchDraft({ subType: event.target.value })}
-                />
+                <span>Tipo de medidor</span>
+                <select
+                  value={installationMeterTypeFromSubType(draft.subType)}
+                  onChange={(event) =>
+                    patchDraft({
+                      subType: installationSubTypeFromMeterType(
+                        event.target.value as InstallationMeterType,
+                      ),
+                    })
+                  }
+                >
+                  {INSTALLATION_METER_TYPE_OPTIONS.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.shortLabel} — {option.description}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Suministro</span>
@@ -926,7 +945,7 @@ export function InstallationOrdersBoard({
             </label>
             <div className="io-form__row">
               <label className="field">
-                <span>Sector CIJP</span>
+                <span>SMDD</span>
                 <input
                   value={draft.sectorCijp}
                   onChange={(event) => {

@@ -82,10 +82,63 @@ export function installationRegisteredFlag(value: string | null | undefined): 'S
   return 'NO'
 }
 
+/** Tipo de medidor en instalaciones nuevas (abreviado). */
+export const InstallationMeterType = {
+  C1: 'C1',
+  C2: 'C2',
+} as const
+
+export type InstallationMeterType =
+  (typeof InstallationMeterType)[keyof typeof InstallationMeterType]
+
+export const INSTALLATION_METER_TYPE_OPTIONS = [
+  {
+    code: InstallationMeterType.C1,
+    shortLabel: 'C1',
+    description: 'Monofásico',
+    subType: 'INSTALACION NUEVA C1',
+  },
+  {
+    code: InstallationMeterType.C2,
+    shortLabel: 'C2',
+    description: 'Trifásico',
+    subType: 'INSTALACION NUEVA C2',
+  },
+] as const
+
+export function installationMeterTypeFromSubType(
+  subType: string | null | undefined,
+): InstallationMeterType {
+  const raw = (subType ?? '').trim().toUpperCase()
+  if (raw.includes('C2') || raw.includes('TRIFAS')) {
+    return InstallationMeterType.C2
+  }
+  return InstallationMeterType.C1
+}
+
+export function installationSubTypeFromMeterType(
+  meterType: InstallationMeterType,
+): string {
+  const option = INSTALLATION_METER_TYPE_OPTIONS.find(
+    (item) => item.code === meterType,
+  )
+  return option?.subType ?? 'INSTALACION NUEVA C1'
+}
+
+/** Etiqueta abreviada: "C1 — Monofásico" / "C2 — Trifásico". */
+export function installationMeterTypeLabel(
+  subTypeOrCode: string | null | undefined,
+): string {
+  const code = installationMeterTypeFromSubType(subTypeOrCode)
+  const option = INSTALLATION_METER_TYPE_OPTIONS.find((item) => item.code === code)
+  if (!option) return code
+  return `${option.shortLabel} — ${option.description}`
+}
+
 export function emptyInstallationOrderDraft(): InstallationOrderDraft {
   return {
     orderNumber: '',
-    subType: 'INSTALACION NUEVA C1',
+    subType: installationSubTypeFromMeterType(InstallationMeterType.C1),
     applicantName: '',
     applicantAddress: '',
     sectorCijp: '',

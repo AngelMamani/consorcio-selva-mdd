@@ -127,7 +127,7 @@ export function parseInstallationOrdersExcel(
         'DIRECCION',
         'DIRECCIÓN',
       ]),
-      sectorCijp: findColumn(headers, ['SECTOR CIJP']),
+      sectorCijp: findColumn(headers, ['SMDD', 'SECTOR CIJP', 'SECTOR SMDD']),
       sector: findColumn(headers, ['SECTOR']),
       supplyCode: findColumn(headers, ['SUMINISTRO']),
       neighborRouteCode: findColumn(headers, [
@@ -233,7 +233,7 @@ export const INSTALLATION_IMPORT_HEADERS = [
   'SUB TIPO',
   'SOLICITANTE',
   'DIRECCION SOLICITANTE',
-  'SECTOR CIJP',
+  'SMDD',
   'SECTOR',
   'SUMINISTRO',
   'COD RUTA VECINO CIJP',

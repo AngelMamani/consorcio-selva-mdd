@@ -13,6 +13,10 @@ import type { Area } from '@/domain/entities/Area'
 import { isWorkOrderArea } from '@/domain/entities/Area'
 import {
   emptyInstallationOrderDraft,
+  installationMeterTypeFromSubType,
+  installationSubTypeFromMeterType,
+  INSTALLATION_METER_TYPE_OPTIONS,
+  type InstallationMeterType,
   type InstallationOrderDraft,
 } from '@/domain/entities/InstallationOrder'
 import { InstallationOrdersBoard } from '@/presentation/pages/InstallationOrdersPage'
@@ -1896,7 +1900,26 @@ export function TasksPage() {
                 </label>
                 <div className="tasks-form__row">
                   <label className="field">
-                    <span>Sector CIJP</span>
+                    <span>Tipo de medidor</span>
+                    <select
+                      value={installationMeterTypeFromSubType(otDraft.subType)}
+                      onChange={(event) => {
+                        const meterType = event.target.value as InstallationMeterType
+                        setOtDraft((current) => ({
+                          ...current,
+                          subType: installationSubTypeFromMeterType(meterType),
+                        }))
+                      }}
+                    >
+                      {INSTALLATION_METER_TYPE_OPTIONS.map((option) => (
+                        <option key={option.code} value={option.code}>
+                          {option.shortLabel} — {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>SMDD</span>
                     <input
                       value={otDraft.sectorCijp}
                       onChange={(event) => {
@@ -1911,20 +1934,20 @@ export function TasksPage() {
                       placeholder="MALDONADO"
                     />
                   </label>
-                  <label className="field">
-                    <span>Sector</span>
-                    <input
-                      value={otDraft.sector}
-                      onChange={(event) =>
-                        setOtDraft((current) => ({
-                          ...current,
-                          sector: event.target.value,
-                        }))
-                      }
-                      placeholder="MALDONADO"
-                    />
-                  </label>
                 </div>
+                <label className="field">
+                  <span>Sector</span>
+                  <input
+                    value={otDraft.sector}
+                    onChange={(event) =>
+                      setOtDraft((current) => ({
+                        ...current,
+                        sector: event.target.value,
+                      }))
+                    }
+                    placeholder="MALDONADO"
+                  />
+                </label>
                 <label className="field">
                   <span>Centro de atención</span>
                   <input

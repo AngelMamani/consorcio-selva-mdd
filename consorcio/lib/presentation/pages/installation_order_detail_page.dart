@@ -7,6 +7,14 @@ class InstallationOrderDetailPage extends StatelessWidget {
 
   final InstallationOrder order;
 
+  String _meterTypeLabel(String subType) {
+    final raw = subType.trim().toUpperCase();
+    if (raw.contains('C2') || raw.contains('TRIFAS')) {
+      return 'C2 — Trifásico';
+    }
+    return 'C1 — Monofásico';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -23,14 +31,17 @@ class InstallationOrderDetailPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _Field(label: 'SUB TIPO', value: order.subType),
+          _Field(
+            label: 'SUB TIPO',
+            value: _meterTypeLabel(order.subType),
+          ),
           _Field(label: 'SOLICITANTE', value: order.applicantName),
           _Field(
             label: 'DIRECCION SOLICITANTE',
             value: order.applicantAddress,
           ),
           _Field(
-            label: 'SECTOR CIJP',
+            label: 'SMDD',
             value: order.sectorCijp,
             icon: Icons.warehouse_outlined,
             color: const Color(0xFFEF6C00),
