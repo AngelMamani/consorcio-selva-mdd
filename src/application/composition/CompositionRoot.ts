@@ -562,6 +562,7 @@ export function createAppDependencies(): AppDependencies {
       operationalRoleRepository,
       userRepository,
       deleteUserUseCase,
+      provisionElectricistaTechniciansUseCase,
     ),
     deletePersonalUseCase: new DeletePersonalUseCase(
       personalRepository,

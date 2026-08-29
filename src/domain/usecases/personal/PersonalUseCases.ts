@@ -18,6 +18,7 @@ import {
 } from '@/domain/value-objects/PersonalCondition'
 import { UserRole, canManageOperationalRoles, isUserRole } from '@/domain/value-objects/UserRole'
 import { DeleteUserUseCase } from '@/domain/usecases/users/DeleteUserUseCase'
+import type { ProvisionElectricistaTechniciansUseCase } from '@/domain/usecases/users/ProvisionElectricistaTechniciansUseCase'
 import {
   NotFoundError,
   UnauthorizedError,
@@ -263,17 +264,20 @@ export class AssignPersonalRoleUseCase {
   private readonly roleRepository: OperationalRoleRepository
   private readonly userRepository: UserRepository
   private readonly deleteUserUseCase: DeleteUserUseCase
+  private readonly provisionUseCase: ProvisionElectricistaTechniciansUseCase
 
   constructor(
     personalRepository: PersonalRepository,
     roleRepository: OperationalRoleRepository,
     userRepository: UserRepository,
     deleteUserUseCase: DeleteUserUseCase,
+    provisionUseCase: ProvisionElectricistaTechniciansUseCase,
   ) {
     this.personalRepository = personalRepository
     this.roleRepository = roleRepository
     this.userRepository = userRepository
     this.deleteUserUseCase = deleteUserUseCase
+    this.provisionUseCase = provisionUseCase
   }
 
   async execute(
@@ -336,7 +340,11 @@ export class AssignPersonalRoleUseCase {
           // La ficha ya quedó sin roles; la cuenta se puede quitar en Cuentas.
         }
       }
+      return updated
     }
+
+    // Sincroniza la cuenta de acceso (roles web/móvil) en el mismo flujo.
+    await this.provisionUseCase.ensureForPerson(actor, updated)
     return updated
   }
 

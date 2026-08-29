@@ -18,7 +18,10 @@ import {
   technicianEmailFromDni,
 } from '@/domain/value-objects/TechnicianLogin'
 import { isUserRole, UserRole } from '@/domain/value-objects/UserRole'
-import { UnauthorizedError } from '@/domain/errors/DomainError'
+import {
+  UnauthorizedError,
+  ValidationError,
+} from '@/domain/errors/DomainError'
 import type { UpdateUserUseCase } from '@/domain/usecases/users/UpdateUserUseCase'
 
 export interface ProvisionElectricistaFailure {
@@ -123,7 +126,12 @@ export class ProvisionElectricistaTechniciansUseCase {
         }
       }
     }
-    if (codes.length === 0) return
+    const name = personalFullName(person) || `USUARIO ${dni}`
+    if (codes.length === 0) {
+      throw new ValidationError(
+        `Los roles de ${name} no son de acceso (ADMINISTRADOR/TÉCNICO). Revisa Sistema → Roles.`,
+      )
+    }
 
     const targetRole =
       codes.includes(UserRole.SuperAdministrador)
@@ -131,7 +139,6 @@ export class ProvisionElectricistaTechniciansUseCase {
         : codes.includes(UserRole.Administrador)
           ? UserRole.Administrador
           : UserRole.Tecnico
-    const name = personalFullName(person) || `USUARIO ${dni}`
     const existing = await this.findAccountForDni(dni)
 
     if (existing) {

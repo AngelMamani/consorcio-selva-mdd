@@ -113,9 +113,7 @@ export class SyncHrAccountsUseCase {
     }
 
     for (const person of pending) {
-      await this.provisionUseCase
-        .ensureForPerson(actor, person)
-        .catch(() => undefined)
+      await this.provisionUseCase.ensureForPerson(actor, person)
     }
 
     const nextUsers =
