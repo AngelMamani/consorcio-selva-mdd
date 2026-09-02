@@ -13,6 +13,7 @@ import {
   stationHitFromSed,
   stationHitFromSupply,
   type StationHit,
+  type StationSearchScope,
 } from '@/domain/entities/StationHit'
 import type { ParsedSed } from '@/domain/entities/Sed'
 import type { SupplyRepository } from '@/domain/repositories/SupplyRepository'
@@ -31,6 +32,14 @@ import {
   scoreSupplyCode,
   supplyCodeMatchesQuery,
 } from '@/domain/services/SupplySearchService'
+import {
+  buildStationCatalogExportReport,
+  STATION_CATALOG_EXPORT_LIMIT,
+} from '@/domain/entities/StationCatalogExportReport'
+import type {
+  StationCatalogExcelExportService,
+  StationCatalogExportFile,
+} from '@/domain/repositories/StationCatalogExcelExportService'
 
 export class GetSupplyByRouteCodeUseCase {
   private readonly supplyRepository: SupplyRepository
@@ -148,28 +157,39 @@ export class GetStationByCodeUseCase {
     this.supplyRepository = supplyRepository
   }
 
-  async execute(actor: User, routeCode: string): Promise<StationHit> {
+  async execute(
+    actor: User,
+    routeCode: string,
+    scope: StationSearchScope = 'all',
+  ): Promise<StationHit> {
     if (!actor.active) {
       throw new UnauthorizedError('Usuario inactivo')
     }
 
     const { exactCodes } = expandSupplySearch(routeCode)
     const code = normalizeRouteCode(routeCode)
-    const sedCode = code.match(/20\d{5}/)?.[0] ?? ( /^20\d{5}$/.test(code) ? code : null)
+    const sedCode =
+      code.match(/20\d{5}/)?.[0] ?? (/^20\d{5}$/.test(code) ? code : null)
 
-    if (sedCode) {
+    if (scope !== 'supply' && sedCode) {
       const sed = await this.supplyRepository.getSedByCode(sedCode)
       if (sed) return stationHitFromSed(sed)
     }
 
-    const candidates = [...new Set([code, ...exactCodes])].filter(isRouteCode)
-    for (const candidate of candidates) {
-      const supply = await this.supplyRepository.getByRouteCode(candidate)
-      if (supply && supplyHasLocation(supply)) {
-        return stationHitFromSupply(supply)
+    if (scope !== 'sed') {
+      const candidates = [...new Set([code, ...exactCodes])].filter(isRouteCode)
+      for (const candidate of candidates) {
+        const supply = await this.supplyRepository.getByRouteCode(candidate)
+        if (supply) return stationHitFromSupply(supply)
       }
     }
 
+    if (scope === 'supply') {
+      throw new NotFoundError('No hay suministro con ese código')
+    }
+    if (scope === 'sed') {
+      throw new NotFoundError('No hay SED con ese código')
+    }
     throw new NotFoundError('No hay suministro ni SED con ese código')
   }
 }
@@ -181,10 +201,20 @@ export class SearchStationsUseCase {
     this.supplyRepository = supplyRepository
   }
 
-  async execute(actor: User, query: string): Promise<StationHit[]> {
+  async execute(
+    actor: User,
+    query: string,
+    options: { scope?: StationSearchScope; limit?: number } = {},
+  ): Promise<StationHit[]> {
     if (!actor.active) {
       throw new UnauthorizedError('Usuario inactivo')
     }
+
+    const scope = options.scope ?? 'all'
+    const perKindLimit = Math.min(
+      Math.max(options.limit ?? (scope === 'all' ? 16 : 40), 1),
+      80,
+    )
 
     const { digits, prefixes } = expandSupplySearch(query)
     if (digits.length > 12) {
@@ -194,32 +224,49 @@ export class SearchStationsUseCase {
       return []
     }
 
+    const wantSupplies = scope === 'all' || scope === 'supply'
+    const wantSeds = scope === 'all' || scope === 'sed'
+
     const [supplies, sedGroups] = await Promise.all([
-      searchSuppliesFlexible(this.supplyRepository, query, 12),
-      Promise.all(
-        prefixes.map((prefix) =>
-          this.supplyRepository.searchSedsByPrefix(prefix, 12),
-        ),
-      ),
+      wantSupplies
+        ? searchSuppliesFlexible(this.supplyRepository, query, perKindLimit)
+        : Promise.resolve([]),
+      wantSeds
+        ? Promise.all(
+            prefixes.map((prefix) =>
+              this.supplyRepository.searchSedsByPrefix(prefix, perKindLimit),
+            ),
+          )
+        : Promise.resolve([]),
     ])
 
     const seds = new Map(
       sedGroups.flat().map((sed) => [sed.code, sed] as const),
     )
-    const hits: StationHit[] = [
-      ...[...seds.values()].map(stationHitFromSed),
-      ...supplies.filter(supplyHasLocation).map(stationHitFromSupply),
-    ]
 
-    hits.sort((left, right) => {
+    const supplyHits = wantSupplies
+      ? rankSupplyCodes(supplies, digits, (supply) => supply.routeCode)
+          .map(stationHitFromSupply)
+      : []
+
+    const sedHits = wantSeds
+      ? rankSupplyCodes([...seds.values()], digits, (sed) => sed.code).map(
+          stationHitFromSed,
+        )
+      : []
+
+    if (scope === 'supply') return supplyHits.slice(0, perKindLimit)
+    if (scope === 'sed') return sedHits.slice(0, perKindLimit)
+
+    const mixed: StationHit[] = [...sedHits, ...supplyHits]
+    mixed.sort((left, right) => {
       const leftScore = scoreSupplyCode(left.code, digits)
       const rightScore = scoreSupplyCode(right.code, digits)
       if (leftScore !== rightScore) return leftScore - rightScore
       if (left.kind !== right.kind) return left.kind === 'sed' ? -1 : 1
       return left.code.localeCompare(right.code)
     })
-
-    return hits.slice(0, 20)
+    return mixed
   }
 }
 
@@ -349,5 +396,53 @@ export class ImportSedsUseCase {
       importedById: actor.id,
       importedByName: actor.displayName,
     } satisfies CatalogStatusPatch)
+  }
+}
+
+export class ExportStationCatalogToExcelUseCase {
+  private readonly supplyRepository: SupplyRepository
+  private readonly excelService: StationCatalogExcelExportService
+
+  constructor(
+    supplyRepository: SupplyRepository,
+    excelService: StationCatalogExcelExportService,
+  ) {
+    this.supplyRepository = supplyRepository
+    this.excelService = excelService
+  }
+
+  async execute(
+    actor: User,
+    limit = STATION_CATALOG_EXPORT_LIMIT,
+  ): Promise<StationCatalogExportFile> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError(
+        'Solo el administrador puede exportar el catálogo',
+      )
+    }
+
+    const safeLimit = Math.min(Math.max(Math.round(limit), 1), 500)
+
+    const [supplies, seds, catalog] = await Promise.all([
+      this.supplyRepository.listFirstSupplies(safeLimit),
+      this.supplyRepository.listFirstSeds(safeLimit),
+      this.supplyRepository.getCatalogStatus(),
+    ])
+
+    if (supplies.length === 0 && seds.length === 0) {
+      throw new ValidationError(
+        'No hay suministros ni SEDs para exportar. Importa los KML primero.',
+      )
+    }
+
+    return this.excelService.createWorkbook(
+      buildStationCatalogExportReport({
+        supplies,
+        seds,
+        catalog,
+        generatedByName: actor.displayName,
+        exportLimit: safeLimit,
+      }),
+    )
   }
 }

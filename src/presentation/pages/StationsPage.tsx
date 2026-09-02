@@ -1,17 +1,17 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { saveAs } from 'file-saver'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { STATION_CATALOG_EXPORT_LIMIT } from '@/domain/entities/StationCatalogExportReport'
 import type { NearbySupply, SupplyCatalogStatus } from '@/domain/entities/Supply'
 import { SED_FEEDER_RADIUS_METERS } from '@/domain/entities/Supply'
-import type { StationHit } from '@/domain/entities/StationHit'
+import type { StationHit, StationSearchScope } from '@/domain/entities/StationHit'
+import {
+  findCodeHighlight,
+  formatRouteCode,
+} from '@/domain/services/SupplySearchService'
 import { DomainError, NotFoundError } from '@/domain/errors/DomainError'
-import { UserRole } from '@/domain/value-objects/UserRole'
+import { canManageUsers } from '@/domain/value-objects/UserRole'
 import { normalizeRouteCode } from '@/domain/value-objects/RouteCode'
 import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
@@ -42,6 +42,19 @@ function formatMeters(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`
 }
 
+function googleMapsUrl(latitude: number, longitude: number): string {
+  return `https://maps.google.com/?q=${latitude},${longitude}`
+}
+
+async function copyText(value: string, okMessage: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+    swalSuccess(okMessage)
+  } catch {
+    swalError('No se pudo copiar. Intenta de nuevo.')
+  }
+}
+
 function IconSearch() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="stations-search__icon">
@@ -53,6 +66,24 @@ function IconSearch() {
   )
 }
 
+function highlightCode(code: string, query: string) {
+  const range = findCodeHighlight(code, query)
+  if (!range) return code
+  return (
+    <>
+      {code.slice(0, range.start)}
+      <mark>{code.slice(range.start, range.end)}</mark>
+      {code.slice(range.end)}
+    </>
+  )
+}
+
+const SEARCH_SCOPES: Array<{ id: StationSearchScope; label: string }> = [
+  { id: 'all', label: 'Todos' },
+  { id: 'supply', label: 'Suministros' },
+  { id: 'sed', label: 'SEDs' },
+]
+
 export function StationsPage() {
   const { user } = useAuth()
   const {
@@ -62,9 +93,10 @@ export function StationsPage() {
     getSupplyCatalogStatusUseCase,
     importSuppliesUseCase,
     importSedsUseCase,
+    exportStationCatalogToExcelUseCase,
   } = useDependencies()
 
-  const isAdmin = user?.role === UserRole.Administrador
+  const isAdmin = Boolean(user && canManageUsers(user.role))
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -74,6 +106,7 @@ export function StationsPage() {
   const nearbyMarkersRef = useRef<Map<string, L.Marker>>(new Map())
 
   const [query, setQuery] = useState('')
+  const [scope, setScope] = useState<StationSearchScope>('all')
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<StationHit | null>(null)
   const [nearbySupplies, setNearbySupplies] = useState<NearbySupply[]>([])
@@ -81,8 +114,18 @@ export function StationsPage() {
   const [suggestions, setSuggestions] = useState<StationHit[]>([])
   const [catalog, setCatalog] = useState<SupplyCatalogStatus | null>(null)
   const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [importKind, setImportKind] = useState<'supply' | 'sed' | null>(null)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
+
+  const supplySuggestions = useMemo(
+    () => suggestions.filter((item) => item.kind === 'supply'),
+    [suggestions],
+  )
+  const sedSuggestions = useMemo(
+    () => suggestions.filter((item) => item.kind === 'sed'),
+    [suggestions],
+  )
 
   useEffect(() => {
     if (!user) return
@@ -95,20 +138,20 @@ export function StationsPage() {
   useEffect(() => {
     if (!user) return
     const prefix = normalizeRouteCode(query)
-    if (prefix.length < 4) {
+    if (prefix.length < 3) {
       setSuggestions([])
       return
     }
 
     const handle = window.setTimeout(() => {
       void searchStationsUseCase
-        .execute(user, prefix)
+        .execute(user, prefix, { scope })
         .then(setSuggestions)
         .catch(() => setSuggestions([]))
     }, 250)
 
     return () => window.clearTimeout(handle)
-  }, [query, user, searchStationsUseCase])
+  }, [query, scope, user, searchStationsUseCase])
 
   useEffect(() => {
     const el = mapContainerRef.current
@@ -198,6 +241,12 @@ export function StationsPage() {
       return
     }
 
+    if (!selected.hasLocation) {
+      map.setView([-12.5933, -69.1891], 12)
+      window.setTimeout(() => map.invalidateSize({ animate: false }), 50)
+      return
+    }
+
     const marker = L.marker([selected.latitude, selected.longitude], {
       icon: L.divIcon({
         className: 'stations-pin',
@@ -208,7 +257,7 @@ export function StationsPage() {
       zIndexOffset: 800,
     })
     marker.bindPopup(
-      `<strong>${selected.kind === 'sed' ? 'SED' : 'Suministro'} ${selected.code}</strong><br/><small>${selected.detail}</small><br/><small>${formatCoords(selected.latitude, selected.longitude)}</small>`,
+      `<strong>${selected.kind === 'sed' ? 'SED' : 'Suministro'} ${selected.code}</strong><br/><small>${selected.detail}</small>`,
     )
     marker.addTo(map)
     markerRef.current = marker
@@ -266,6 +315,12 @@ export function StationsPage() {
     }, 80)
   }, [selected, nearbySupplies])
 
+  function pickStation(item: StationHit) {
+    setSelected(item)
+    setQuery(item.code)
+    setSuggestions([])
+  }
+
   async function handleSearch(event: FormEvent) {
     event.preventDefault()
     if (!user || searching) return
@@ -279,28 +334,33 @@ export function StationsPage() {
     try {
       if (code.length >= 7) {
         try {
-          const hit = await getStationByCodeUseCase.execute(user, code)
-          setSelected(hit)
-          setSuggestions([])
+          const hit = await getStationByCodeUseCase.execute(user, code, scope)
+          pickStation(hit)
           return
         } catch (err) {
           if (!(err instanceof NotFoundError)) throw err
         }
       }
 
-      const found = await searchStationsUseCase.execute(user, code)
+      const found = await searchStationsUseCase.execute(user, code, { scope })
       setSuggestions(found)
       if (found.length === 1) {
-        setSelected(found[0])
+        pickStation(found[0])
       } else {
         setSelected(null)
       }
       if (found.length === 0) {
-        swalError(
-          (catalog?.sedCount ?? 0) === 0 && /^20/.test(code)
-            ? 'Aún no hay SEDs en Firebase. Importa SEDs.kml y vuelve a buscar.'
-            : 'No hay suministro ni SED con ese código',
-        )
+        const emptyMessage =
+          scope === 'supply'
+            ? 'No hay suministro con ese código'
+            : scope === 'sed'
+              ? (catalog?.sedCount ?? 0) === 0
+                ? 'Aún no hay SEDs en Firebase. Importa SEDs.kml y vuelve a buscar.'
+                : 'No hay SED con ese código'
+              : (catalog?.sedCount ?? 0) === 0 && /^20/.test(code)
+                ? 'Aún no hay SEDs en Firebase. Importa SEDs.kml y vuelve a buscar.'
+                : 'No hay suministro ni SED con ese código'
+        swalError(emptyMessage)
       }
     } catch (err) {
       setSelected(null)
@@ -385,6 +445,26 @@ export function StationsPage() {
     }
   }
 
+  async function handleExportExcel() {
+    if (!user || exporting || importing) return
+    setExporting(true)
+    try {
+      const file = await exportStationCatalogToExcelUseCase.execute(user)
+      saveAs(file.blob, file.fileName)
+      swalSuccess(
+        `Excel descargado con los primeros ${STATION_CATALOG_EXPORT_LIMIT} suministros y ${STATION_CATALOG_EXPORT_LIMIT} SEDs`,
+      )
+    } catch (err) {
+      swalError(
+        err instanceof DomainError
+          ? err.message
+          : 'No se pudo exportar el catálogo',
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const progressLabel = useMemo(() => {
     if (!importing || progress.total === 0) return ''
     const pct = Math.round((progress.done / progress.total) * 100)
@@ -398,34 +478,44 @@ export function StationsPage() {
           <p className="stations-page__eyebrow">Campo</p>
           <h1>Estaciones</h1>
           <p>
-            Busca un suministro (código de ruta) o una SED (código 2000xxx).
-            Si eliges una SED, el mapa muestra los medidores a menos de{' '}
-            {SED_FEEDER_RADIUS_METERS} m.
+            Busca suministros y SEDs por separado o juntos. Si eliges una SED, el
+            mapa muestra los medidores a menos de {SED_FEEDER_RADIUS_METERS} m.
           </p>
         </div>
         {isAdmin ? (
           <div className="stations-page__import">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".kml,application/vnd.google-earth.kml+xml,text/xml"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void handleImport(file)
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn--soft-primary"
-              disabled={importing}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {importing ? 'Importando...' : 'Importar KML'}
-            </button>
+            <div className="stations-page__actions">
+              <button
+                type="button"
+                className="btn btn--soft-muted"
+                disabled={importing || exporting}
+                onClick={() => void handleExportExcel()}
+              >
+                {exporting ? 'Generando Excel...' : 'Exportar Excel'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".kml,application/vnd.google-earth.kml+xml,text/xml"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleImport(file)
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn--soft-primary"
+                disabled={importing || exporting}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {importing ? 'Importando...' : 'Importar KML'}
+              </button>
+            </div>
             {catalog ? (
               <span className="stations-page__meta">
-                Última carga · {formatWhen(catalog.importedAt)}
+                Última carga · {formatWhen(catalog.importedAt)} · Excel: primeros{' '}
+                {STATION_CATALOG_EXPORT_LIMIT} de cada catálogo
               </span>
             ) : (
               <span className="stations-page__meta">
@@ -466,13 +556,34 @@ export function StationsPage() {
       ) : null}
 
       <form className="stations-toolbar" onSubmit={(event) => void handleSearch(event)}>
+        <div className="stations-scope" role="group" aria-label="Tipo de búsqueda">
+          {SEARCH_SCOPES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={scope === item.id ? 'is-active' : undefined}
+              onClick={() => {
+                setScope(item.id)
+                setSelected(null)
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <label className="stations-search">
           <IconSearch />
           <input
             value={query}
             inputMode="numeric"
             autoComplete="off"
-            placeholder="Código, últimos dígitos, sin el 12 o SED 2000420"
+            placeholder={
+              scope === 'supply'
+                ? 'Código de suministro, últimos dígitos o sin el 12'
+                : scope === 'sed'
+                  ? 'Código SED, ej. 2000420 o 420'
+                  : 'Suministro o SED: código, últimos dígitos…'
+            }
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
@@ -485,26 +596,92 @@ export function StationsPage() {
         </button>
       </form>
 
-      {suggestions.length > 1 ? (
-        <ul className="stations-suggest">
-          {suggestions.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelected(item)
-                  setQuery(item.code)
-                  setSuggestions([])
-                }}
-              >
-                <strong>
-                  {item.kind === 'sed' ? 'SED' : 'Suministro'} {item.code}
-                </strong>
-                <span>{item.kind === 'sed' ? item.detail : formatCoords(item.latitude, item.longitude)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      {suggestions.length > 0 ? (
+        <div className="stations-results-board">
+          {scope !== 'sed' ? (
+            <section className="stations-results-group">
+              <header>
+                <strong>Suministros</strong>
+                <span>{supplySuggestions.length}</span>
+              </header>
+              {supplySuggestions.length === 0 ? (
+                <p className="stations-results-empty">
+                  Sin coincidencias de suministro
+                </p>
+              ) : (
+                <ul className="stations-suggest">
+                  {supplySuggestions.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={
+                          selected?.id === item.id ? 'is-selected' : undefined
+                        }
+                        onClick={() => pickStation(item)}
+                      >
+                        <span className="stations-suggest__main">
+                          <em className="stations-suggest__kind stations-suggest__kind--supply">
+                            Suministro
+                          </em>
+                          <strong>{highlightCode(item.code, query)}</strong>
+                          <span>{formatRouteCode(item.code)}</span>
+                        </span>
+                        <span className="stations-suggest__meta">
+                          <span>Prefijo {item.prefix ?? item.code.slice(0, 4)}</span>
+                          <span>
+                            {item.hasLocation
+                              ? formatCoords(item.latitude, item.longitude)
+                              : 'Sin GPS'}
+                          </span>
+                          {item.note ? <span>{item.note}</span> : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          {scope !== 'supply' ? (
+            <section className="stations-results-group">
+              <header>
+                <strong>SEDs</strong>
+                <span>{sedSuggestions.length}</span>
+              </header>
+              {sedSuggestions.length === 0 ? (
+                <p className="stations-results-empty">Sin coincidencias de SED</p>
+              ) : (
+                <ul className="stations-suggest">
+                  {sedSuggestions.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={
+                          selected?.id === item.id ? 'is-selected' : undefined
+                        }
+                        onClick={() => pickStation(item)}
+                      >
+                        <span className="stations-suggest__main">
+                          <em className="stations-suggest__kind stations-suggest__kind--sed">
+                            SED
+                          </em>
+                          <strong>{highlightCode(item.code, query)}</strong>
+                          <span>{item.name || item.detail}</span>
+                        </span>
+                        <span className="stations-suggest__meta">
+                          <span>
+                            {formatCoords(item.latitude, item.longitude)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+        </div>
       ) : null}
 
       <article className="stations-result">
@@ -514,33 +691,67 @@ export function StationsPage() {
               <p className="stations-page__eyebrow">
                 {selected.kind === 'sed' ? 'SED' : 'Suministro'}
               </p>
-              <h2>{selected.code}</h2>
+              <h2>{selected.title}</h2>
               <p>{selected.detail}</p>
               <dl>
                 <div>
-                  <dt>Coordenadas</dt>
-                  <dd>{formatCoords(selected.latitude, selected.longitude)}</dd>
+                  <dt>Código</dt>
+                  <dd>{selected.code}</dd>
                 </div>
                 {selected.kind === 'supply' ? (
-                  <div>
-                    <dt>Prefijo</dt>
-                    <dd>{selected.code.slice(0, 4)}</dd>
-                  </div>
+                  <>
+                    <div>
+                      <dt>Prefijo</dt>
+                      <dd>{selected.prefix ?? selected.code.slice(0, 4)}</dd>
+                    </div>
+                    <div>
+                      <dt>GPS</dt>
+                      <dd>
+                        {selected.hasLocation
+                          ? formatCoords(selected.latitude, selected.longitude)
+                          : 'Sin coordenadas'}
+                      </dd>
+                    </div>
+                    {selected.note ? (
+                      <div>
+                        <dt>Nota</dt>
+                        <dd>{selected.note}</dd>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
-                  <div>
-                    <dt>Suministros cercanos</dt>
-                    <dd>
-                      {loadingNearby
-                        ? 'Buscando medidores…'
-                        : `${nearbySupplies.length.toLocaleString('es-PE')} a menos de ${SED_FEEDER_RADIUS_METERS} m`}
-                    </dd>
-                  </div>
+                  <>
+                    <div>
+                      <dt>Nombre</dt>
+                      <dd>{selected.name || selected.detail}</dd>
+                    </div>
+                    <div>
+                      <dt>Coordenadas</dt>
+                      <dd>
+                        {formatCoords(selected.latitude, selected.longitude)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Suministros cercanos</dt>
+                      <dd>
+                        {loadingNearby
+                          ? 'Buscando medidores…'
+                          : `${nearbySupplies.length.toLocaleString('es-PE')} a menos de ${SED_FEEDER_RADIUS_METERS} m`}
+                      </dd>
+                    </div>
+                  </>
                 )}
               </dl>
               {selected.kind === 'sed' ? (
                 <p className="stations-nearby__hint">
                   El KML no dice qué medidor cuelga de qué transformador; se
                   infiere por distancia.
+                </p>
+              ) : null}
+              {selected.kind === 'supply' && !selected.hasLocation ? (
+                <p className="stations-nearby__hint">
+                  Este suministro está en el catálogo, pero aún no tiene punto
+                  GPS para mostrar en el mapa.
                 </p>
               ) : null}
               {selected.kind === 'sed' && nearbySupplies.length > 0 ? (
@@ -566,22 +777,56 @@ export function StationsPage() {
                   ))}
                 </ul>
               ) : null}
-              <a
-                className="btn btn--soft-muted"
-                href={`https://www.google.com/maps/search/?api=1&query=${selected.latitude},${selected.longitude}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Abrir en Google Maps
-              </a>
+              {selected.hasLocation ? (
+                <div className="stations-location-actions">
+                  <a
+                    className="btn btn--soft-muted"
+                    href={googleMapsUrl(selected.latitude, selected.longitude)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir en Google Maps
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn--soft-primary"
+                    onClick={() =>
+                      void copyText(
+                        googleMapsUrl(selected.latitude, selected.longitude),
+                        'Enlace de Google Maps copiado',
+                      )
+                    }
+                  >
+                    Copiar enlace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--soft-teal"
+                    onClick={() =>
+                      void copyText(
+                        formatCoords(selected.latitude, selected.longitude),
+                        'Ubicación copiada',
+                      )
+                    }
+                  >
+                    Copiar ubicación
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : (
             <div className="stations-empty">
-              <h3>Busca un suministro o una SED</h3>
+              <h3>
+                {scope === 'supply'
+                  ? 'Busca un suministro'
+                  : scope === 'sed'
+                    ? 'Busca una SED'
+                    : 'Busca un suministro o una SED'}
+              </h3>
               <p>
-                Código de ruta del medidor (11 dígitos) o código de SED (7
-                dígitos, ej. 2000420). En una SED el mapa pinta también los
-                suministros cercanos.
+                Elige el filtro arriba para buscar solo suministros, solo SEDs o
+                ambos. Puedes escribir el código completo, los últimos dígitos o
+                el código sin el 12. Los resultados salen separados por tipo.
               </p>
             </div>
           )}

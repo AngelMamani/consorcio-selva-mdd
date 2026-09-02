@@ -26,6 +26,8 @@ export interface SupplyRepository {
   ): Promise<Supply>
   getSedByCode(code: string): Promise<Sed | null>
   searchSedsByPrefix(prefix: string, limit: number): Promise<Sed[]>
+  listFirstSupplies(limit: number): Promise<Supply[]>
+  listFirstSeds(limit: number): Promise<Sed[]>
   upsertMany(
     supplies: ParsedSupply[],
     onProgress?: (done: number, total: number) => void,

@@ -5,9 +5,7 @@ import '../../application/composition_root.dart';
 import '../../domain/entities/attendance.dart';
 import '../../domain/entities/attendance_settings.dart';
 import '../../domain/errors/domain_exception.dart';
-import '../../domain/services/geo_distance_service.dart';
 import '../../domain/repositories/folder_image_repository.dart';
-import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
 import '../state/session_controller.dart';
@@ -95,10 +93,6 @@ class _AttendancePageState extends State<AttendancePage> {
     await _mark(AttendanceOrigin.zona);
   }
 
-  Future<void> _markPermiso() async {
-    await _mark(AttendanceOrigin.permiso);
-  }
-
   Future<void> _mark(AttendanceOrigin origin) async {
     final session = context.read<SessionController>();
     final deps = context.read<AppDependencies>();
@@ -107,68 +101,46 @@ class _AttendancePageState extends State<AttendancePage> {
 
     setState(() {
       _marking = true;
-      _markingLabel = origin == AttendanceOrigin.permiso
-          ? 'Registrando permiso...'
-          : 'Obteniendo GPS...';
+      _markingLabel = 'Obteniendo GPS...';
     });
     try {
-      GeoLocation? location;
-      if (origin != AttendanceOrigin.permiso) {
-        location = await _locationService.getCurrentLocation(
-          purpose: 'marcar asistencia',
-        );
+      final location = await _locationService.getCurrentLocation(
+        purpose: 'marcar asistencia',
+      );
 
-        if (origin == AttendanceOrigin.oficina) {
-          final settings = _settings ?? AttendanceSettings.defaults;
-          final distance = distanceMeters(
-            latitudeA: location.latitude,
-            longitudeA: location.longitude,
-            latitudeB: settings.officeLatitude,
-            longitudeB: settings.officeLongitude,
-          ).round();
-          if (distance > settings.officeRadiusMeters) {
-            throw DomainException(
-              'Estás a $distance m de ${settings.officeName}. '
-              'Acércate a menos de ${settings.officeRadiusMeters} m para marcar en oficina.',
-            );
-          }
+      if (origin == AttendanceOrigin.oficina) {
+        final settings = _settings ?? AttendanceSettings.defaults;
+        final match = settings.findMatchingOfficePoint(location);
+        if (match == null) {
+          throw DomainException(
+            'No estás dentro del radio de un punto de oficina autorizado.',
+          );
         }
       }
 
       if (!mounted) return;
 
       ImageFilePayload? photo;
-      var permissionNote = '';
-      if (origin == AttendanceOrigin.permiso) {
-        setState(() => _marking = false);
-        final note = await _askPermissionNote();
-        if (note == null || !mounted) return;
-        permissionNote = note;
-      } else {
-        setState(() => _marking = false);
-        final confirm = await _confirmMark(origin);
-        if (confirm == _MarkConfirm.cancel || !mounted) return;
-        if (origin == AttendanceOrigin.zona &&
-            confirm == _MarkConfirm.markWithPhoto) {
-          photo = await _photoService.takePhoto();
-          if (!mounted) return;
-        }
+      setState(() => _marking = false);
+      final confirm = await _confirmMark(origin);
+      if (confirm == _MarkConfirm.cancel || !mounted) return;
+      if (origin == AttendanceOrigin.zona &&
+          confirm == _MarkConfirm.markWithPhoto) {
+        photo = await _photoService.takePhoto();
+        if (!mounted) return;
       }
 
       setState(() {
         _marking = true;
-        _markingLabel = origin == AttendanceOrigin.permiso
-            ? 'Registrando permiso...'
-            : photo == null
-                ? 'Registrando asistencia...'
-                : 'Subiendo foto y asistencia...';
+        _markingLabel = photo == null
+            ? 'Registrando asistencia...'
+            : 'Subiendo foto y asistencia...';
       });
 
       final attendance = await deps.markAttendanceUseCase.execute(
         user,
         origin: origin,
         location: location,
-        permissionNote: permissionNote,
         environmentPhoto: photo,
       );
       if (!mounted) return;
@@ -176,18 +148,16 @@ class _AttendancePageState extends State<AttendancePage> {
         _today = attendance;
         _marking = false;
       });
-      final extra = origin == AttendanceOrigin.permiso
-          ? 'permiso del día'
-          : origin == AttendanceOrigin.oficina
-              ? 'confirmada en oficina'
-              : photo == null
-                  ? 'con GPS de campo'
-                  : 'con GPS y foto de evidencia';
+      final extra = origin == AttendanceOrigin.oficina
+          ? attendance.areaName.isNotEmpty
+              ? 'en ${attendance.areaName}'
+              : 'confirmada en oficina'
+          : photo == null
+              ? 'con GPS de campo'
+              : 'con GPS y foto de evidencia';
       await _showAlert(
         TechnicianAlertKind.success,
-        origin == AttendanceOrigin.permiso
-            ? 'Permiso registrado'
-            : 'Asistencia marcada',
+        'Asistencia marcada',
         'Quedó $extra a las ${_formatTime(attendance.createdAt)}. '
         'Ya no puedes volver a marcar hoy.',
       );
@@ -264,42 +234,6 @@ class _AttendancePageState extends State<AttendancePage> {
       },
     );
     return result ?? _MarkConfirm.cancel;
-  }
-
-  Future<String?> _askPermissionNote() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Registrar permiso'),
-          content: TextField(
-            controller: controller,
-            maxLength: 200,
-            maxLines: 3,
-            textCapitalization: TextCapitalization.sentences,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Motivo (opcional)',
-              hintText: 'Ej. Cita médica, comisión',
-              alignLabelWithHint: true,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Registrar'),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _showAlert(
@@ -382,7 +316,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${settings.officeName} · Oficina o campo con GPS. Permiso sin GPS.',
+                        '${settings.resolvedOfficePoints.map((point) => point.name).join(' · ')} · Oficina o campo con GPS. Permiso solo por administrador.',
                         style: const TextStyle(color: Colors.white70, height: 1.35),
                       ),
                     ],
@@ -423,16 +357,6 @@ class _AttendancePageState extends State<AttendancePage> {
                     title: 'Estoy en campo',
                     subtitle: 'Marca con GPS. La foto es opcional.',
                     onTap: _marking ? null : _markZone,
-                  ),
-                  const SizedBox(height: 12),
-                  _ActionCard(
-                    color: AppTheme.isDarkOf(context)
-                        ? const Color(0xFFE0B0FF)
-                        : const Color(0xFF6A1B9A),
-                    icon: Icons.event_busy_rounded,
-                    title: 'Registrar permiso',
-                    subtitle: 'Si no asistes hoy, deja el motivo opcional.',
-                    onTap: _marking ? null : _markPermiso,
                   ),
                 ],
               ],

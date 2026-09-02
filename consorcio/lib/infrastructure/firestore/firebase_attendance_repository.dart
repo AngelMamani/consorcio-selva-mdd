@@ -31,16 +31,55 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
       return AttendanceSettings.defaults;
     }
     final data = snapshot.data()!;
+    final rawPoints = data['officePoints'];
+    final officePoints = rawPoints is List
+        ? rawPoints
+            .whereType<Map<String, dynamic>>()
+            .map(
+              (point) => AttendanceOfficePoint(
+                id: point['id'] as String? ?? 'legacy',
+                name: point['name'] as String? ??
+                    AttendanceSettings.defaults.officeName,
+                latitude: (point['latitude'] as num?)?.toDouble() ??
+                    AttendanceSettings.defaults.officeLatitude,
+                longitude: (point['longitude'] as num?)?.toDouble() ??
+                    AttendanceSettings.defaults.officeLongitude,
+                radiusMeters: AttendanceSettings.normalizeRadius(
+                  (point['radiusMeters'] as num?)?.toInt() ??
+                      AttendanceSettings.defaults.officeRadiusMeters,
+                ),
+              ),
+            )
+            .toList()
+        : <AttendanceOfficePoint>[];
+
+    final officeName =
+        data['officeName'] as String? ?? AttendanceSettings.defaults.officeName;
+    final officeLatitude = (data['officeLatitude'] as num?)?.toDouble() ??
+        AttendanceSettings.defaults.officeLatitude;
+    final officeLongitude = (data['officeLongitude'] as num?)?.toDouble() ??
+        AttendanceSettings.defaults.officeLongitude;
+    final officeRadiusMeters = AttendanceSettings.normalizeRadius(
+      (data['officeRadiusMeters'] as num?)?.toInt() ??
+          AttendanceSettings.defaults.officeRadiusMeters,
+    );
+
     return AttendanceSettings(
-      officeName: data['officeName'] as String? ?? AttendanceSettings.defaults.officeName,
-      officeLatitude: (data['officeLatitude'] as num?)?.toDouble() ??
-          AttendanceSettings.defaults.officeLatitude,
-      officeLongitude: (data['officeLongitude'] as num?)?.toDouble() ??
-          AttendanceSettings.defaults.officeLongitude,
-      officeRadiusMeters: AttendanceSettings.normalizeRadius(
-        (data['officeRadiusMeters'] as num?)?.toInt() ??
-            AttendanceSettings.defaults.officeRadiusMeters,
-      ),
+      officePoints: officePoints.isNotEmpty
+          ? officePoints
+          : [
+              AttendanceOfficePoint(
+                id: 'legacy',
+                name: officeName,
+                latitude: officeLatitude,
+                longitude: officeLongitude,
+                radiusMeters: officeRadiusMeters,
+              ),
+            ],
+      officeName: officeName,
+      officeLatitude: officeLatitude,
+      officeLongitude: officeLongitude,
+      officeRadiusMeters: officeRadiusMeters,
     );
   }
 

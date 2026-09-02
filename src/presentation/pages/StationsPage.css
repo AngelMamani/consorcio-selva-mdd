@@ -38,6 +38,13 @@
   justify-items: end;
 }
 
+.stations-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
 .stations-page__meta {
   font-size: 0.75rem;
   color: var(--muted);
@@ -110,6 +117,32 @@
   flex-shrink: 0;
 }
 
+.stations-scope {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--line);
+}
+
+.stations-scope button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 0.42rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.stations-scope button.is-active {
+  background: var(--brand-blue);
+  color: #fff;
+}
+
 .stations-search {
   position: relative;
   flex: 1 1 240px;
@@ -144,22 +177,71 @@
   box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.18);
 }
 
+.stations-results-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.stations-results-group {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card-bg);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.stations-results-group header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.stations-results-group header strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stations-results-group header span {
+  min-width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(21, 101, 192, 0.1);
+  color: var(--brand-blue);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.stations-results-empty {
+  margin: 0;
+  padding: 0.9rem 0.85rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .stations-suggest {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0.45rem;
   display: grid;
   gap: 0.35rem;
-  max-height: 8.5rem;
+  max-height: 14rem;
   overflow: auto;
-  flex-shrink: 0;
 }
 
 .stations-suggest button {
   width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  display: grid;
+  gap: 0.35rem;
   text-align: left;
   border: 1px solid var(--line);
   background: var(--card-bg);
@@ -169,13 +251,56 @@
   cursor: pointer;
 }
 
-.stations-suggest button:hover {
+.stations-suggest button:hover,
+.stations-suggest button.is-selected {
   border-color: var(--brand-blue);
+  background: rgba(21, 101, 192, 0.06);
 }
 
-.stations-suggest span {
+.stations-suggest__main {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.stations-suggest__main strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.stations-suggest__main strong mark {
+  background: rgba(255, 193, 7, 0.35);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 0.1rem;
+}
+
+.stations-suggest__main > span {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+}
+
+.stations-suggest__kind {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stations-suggest__kind--supply {
+  color: #1565c0;
+}
+
+.stations-suggest__kind--sed {
+  color: #ef6c00;
+}
+
+.stations-suggest__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .stations-result {
@@ -281,9 +406,17 @@
 }
 
 .stations-nearby__hint {
-  margin: -0.35rem 0 0.75rem;
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.78rem;
   color: var(--muted);
-  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.stations-location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
 }
 
 .stations-nearby {
@@ -350,6 +483,10 @@
 }
 
 @media (max-width: 860px) {
+  .stations-results-board {
+    grid-template-columns: 1fr;
+  }
+
   .stations-result {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(16rem, 1fr);

@@ -33,17 +33,8 @@ class MarkAttendanceUseCase {
     }
 
     if (origin == AttendanceOrigin.permiso) {
-      final note = permissionNote.trim();
-      return _attendanceRepository.create(
-        userId: actor.id,
-        userName: actor.displayName,
-        dateKey: dateKey,
-        origin: origin,
-        areaId: '',
-        areaName: '',
-        location: const GeoLocation(latitude: 0, longitude: 0),
-        officeValidated: false,
-        permissionNote: note.length > 200 ? note.substring(0, 200) : note,
+      throw DomainException(
+        'Solo un administrador puede registrar permisos. Contacta a tu supervisor.',
       );
     }
 
@@ -53,22 +44,40 @@ class MarkAttendanceUseCase {
 
     var officeValidated = false;
     int? distanceToOffice;
+    var areaId = '';
+    var areaName = '';
 
     if (origin == AttendanceOrigin.oficina) {
       final settings = await _attendanceRepository.getSettings();
-      distanceToOffice = distanceMeters(
-        latitudeA: location.latitude,
-        longitudeA: location.longitude,
-        latitudeB: settings.officeLatitude,
-        longitudeB: settings.officeLongitude,
-      ).round();
-      if (distanceToOffice > settings.officeRadiusMeters) {
+      final match = settings.findMatchingOfficePoint(location);
+      if (match == null) {
+        final points = settings.resolvedOfficePoints;
+        final nearest = points
+            .map(
+              (point) => (
+                point: point,
+                distance: distanceMeters(
+                  latitudeA: location.latitude,
+                  longitudeA: location.longitude,
+                  latitudeB: point.latitude,
+                  longitudeB: point.longitude,
+                ).round(),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.distance.compareTo(b.distance));
+        final hint = nearest.isEmpty
+            ? 'No hay puntos de oficina configurados.'
+            : 'El más cercano es «${nearest.first.point.name}» '
+                '(${nearest.first.distance} m).';
         throw DomainException(
-          'Estás a $distanceToOffice m de ${settings.officeName}. '
-          'Acércate a menos de ${settings.officeRadiusMeters} m para marcar en oficina.',
+          'No estás dentro del radio de un punto de oficina autorizado. $hint',
         );
       }
       officeValidated = true;
+      distanceToOffice = match.distanceMeters;
+      areaId = match.point.id;
+      areaName = match.point.name;
     }
 
     return _attendanceRepository.create(
@@ -76,8 +85,8 @@ class MarkAttendanceUseCase {
       userName: actor.displayName,
       dateKey: dateKey,
       origin: origin,
-      areaId: '',
-      areaName: '',
+      areaId: areaId,
+      areaName: areaName,
       location: location,
       officeValidated: officeValidated,
       distanceToOfficeMeters: distanceToOffice,

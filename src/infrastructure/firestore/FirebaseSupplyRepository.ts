@@ -286,6 +286,22 @@ export class FirebaseSupplyRepository implements SupplyRepository {
     return snapshot.docs.map((item) => mapSed(item.id, item.data() as SedDoc))
   }
 
+  async listFirstSupplies(max: number): Promise<Supply[]> {
+    const snapshot = await getDocs(
+      query(this.collectionRef, orderBy('routeCode'), limit(max)),
+    )
+    return snapshot.docs.map((item) =>
+      mapSupply(item.id, item.data() as SupplyDoc),
+    )
+  }
+
+  async listFirstSeds(max: number): Promise<Sed[]> {
+    const snapshot = await getDocs(
+      query(this.sedsRef, orderBy('code'), limit(max)),
+    )
+    return snapshot.docs.map((item) => mapSed(item.id, item.data() as SedDoc))
+  }
+
   async upsertMany(
     supplies: ParsedSupply[],
     onProgress?: (done: number, total: number) => void,

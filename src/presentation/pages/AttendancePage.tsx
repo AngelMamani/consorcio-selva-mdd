@@ -12,6 +12,10 @@ import {
 import {
   MAX_OFFICE_RADIUS_METERS,
   MIN_OFFICE_RADIUS_METERS,
+  MAX_OFFICE_POINTS,
+  defaultOfficePoint,
+  resolveOfficePoints,
+  type AttendanceOfficePoint,
   type AttendanceSettings,
 } from '@/domain/entities/AttendanceSettings'
 import type { AttendanceDayRow } from '@/domain/usecases/attendance/AttendanceUseCases'
@@ -45,8 +49,18 @@ function attendanceLoadMessage(err: unknown): string {
   return 'No se pudo cargar la asistencia'
 }
 
-const OFFICE_COLOR = '#1565C0'
-const ZONE_COLOR = '#2E7D32'
+const OFFICE_POINT_COLORS = [
+  '#1565C0',
+  '#6A1B9A',
+  '#00897B',
+  '#EF6C00',
+  '#5D4037',
+  '#455A64',
+]
+
+function officePointColor(index: number): string {
+  return OFFICE_POINT_COLORS[index % OFFICE_POINT_COLORS.length]
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -143,12 +157,10 @@ export function AttendancePage() {
   const [marking, setMarking] = useState<'oficina' | 'zona' | 'permiso' | null>(
     null,
   )
-  const [officeForm, setOfficeForm] = useState({
-    officeName: '',
-    officeLatitude: 0,
-    officeLongitude: 0,
-    officeRadiusMeters: 30,
-  })
+  const [officePointsForm, setOfficePointsForm] = useState<AttendanceOfficePoint[]>(
+    [],
+  )
+  const [selectedPointId, setSelectedPointId] = useState('')
 
   const mapRef = useRef<L.Map | null>(null)
   const mapElRef = useRef<HTMLDivElement | null>(null)
@@ -161,7 +173,61 @@ export function AttendancePage() {
   const isAdmin = Boolean(user && canManageUsers(user.role))
   const isToday = dateKey === todayKey
   const ownRow = rows.find((row) => row.person.id === user?.id)
+  const officePoints = useMemo(
+    () => (settings ? resolveOfficePoints(settings) : []),
+    [settings],
+  )
+  const selectedPoint =
+    officePointsForm.find((point) => point.id === selectedPointId) ??
+    officePointsForm[0] ??
+    null
   const canSelfMark = isToday && Boolean(user) && !ownRow?.attendance && !loading
+
+  function syncOfficePointsForm(points: AttendanceOfficePoint[]) {
+    setOfficePointsForm(points)
+    setSelectedPointId((current) =>
+      points.some((point) => point.id === current)
+        ? current
+        : (points[0]?.id ?? ''),
+    )
+  }
+
+  function updateSelectedPoint(patch: Partial<AttendanceOfficePoint>) {
+    if (!selectedPointId) return
+    setOfficePointsForm((prev) =>
+      prev.map((point) =>
+        point.id === selectedPointId ? { ...point, ...patch } : point,
+      ),
+    )
+  }
+
+  function addOfficePoint() {
+    if (officePointsForm.length >= MAX_OFFICE_POINTS) return
+    const point = defaultOfficePoint({
+      name: `Punto ${officePointsForm.length + 1}`,
+      latitude:
+        selectedPoint?.latitude ??
+        officePointsForm[officePointsForm.length - 1]?.latitude ??
+        -12.59331,
+      longitude:
+        selectedPoint?.longitude ??
+        officePointsForm[officePointsForm.length - 1]?.longitude ??
+        -69.18915,
+    })
+    setOfficePointsForm((prev) => [...prev, point])
+    setSelectedPointId(point.id)
+  }
+
+  function removeOfficePoint(pointId: string) {
+    if (officePointsForm.length <= 1) return
+    setOfficePointsForm((prev) => {
+      const next = prev.filter((point) => point.id !== pointId)
+      setSelectedPointId((current) =>
+        current === pointId ? (next[0]?.id ?? '') : current,
+      )
+      return next
+    })
+  }
 
   async function loadDay(nextDate = dateKey) {
     if (!user) return
@@ -173,12 +239,7 @@ export function AttendancePage() {
       ])
       setRows(dayRows)
       setSettings(nextSettings)
-      setOfficeForm({
-        officeName: nextSettings.officeName,
-        officeLatitude: nextSettings.officeLatitude,
-        officeLongitude: nextSettings.officeLongitude,
-        officeRadiusMeters: nextSettings.officeRadiusMeters,
-      })
+      syncOfficePointsForm(resolveOfficePoints(nextSettings))
     } catch (err) {
       swalError(attendanceLoadMessage(err))
     } finally {
@@ -270,34 +331,43 @@ export function AttendancePage() {
   useEffect(() => {
     const map = mapRef.current
     const layer = layerRef.current
-    if (!map || !layer || !settings) return
+    if (!map || !layer || officePoints.length === 0) return
     layer.clearLayers()
 
-    L.circle([settings.officeLatitude, settings.officeLongitude], {
-      radius: settings.officeRadiusMeters,
-      color: OFFICE_COLOR,
-      fillColor: OFFICE_COLOR,
-      fillOpacity: 0.18,
-      weight: 2,
-    }).addTo(layer)
+    const bounds: L.LatLngExpression[] = []
 
-    L.marker([settings.officeLatitude, settings.officeLongitude], {
-      icon: pinIcon(OFFICE_COLOR),
-      title: settings.officeName,
+    officePoints.forEach((point, index) => {
+      const color = officePointColor(index)
+      const latLng: L.LatLngExpression = [point.latitude, point.longitude]
+      bounds.push(latLng)
+      L.circle(latLng, {
+        radius: point.radiusMeters,
+        color,
+        fillColor: color,
+        fillOpacity: 0.16,
+        weight: 2,
+      }).addTo(layer)
+      L.marker(latLng, {
+        icon: pinIcon(color),
+        title: point.name,
+      })
+        .bindPopup(
+          `<strong>${escapeHtml(point.name)}</strong><br/>Radio ${point.radiusMeters} m`,
+        )
+        .addTo(layer)
     })
-      .bindPopup(
-        `<strong>${escapeHtml(settings.officeName)}</strong><br/>Radio ${settings.officeRadiusMeters} m`,
-      )
-      .addTo(layer)
-
-    const bounds: L.LatLngExpression[] = [
-      [settings.officeLatitude, settings.officeLongitude],
-    ]
 
     for (const { person, attendance } of filteredRows) {
       if (!attendance || !attendanceHasGpsPin(attendance)) continue
       const color =
-        attendance.origin === AttendanceOrigin.Oficina ? OFFICE_COLOR : ZONE_COLOR
+        attendance.origin === AttendanceOrigin.Oficina
+          ? officePointColor(
+              Math.max(
+                0,
+                officePoints.findIndex((point) => point.id === attendance.areaId),
+              ),
+            )
+          : '#2E7D32'
       const latLng: L.LatLngExpression = [
         attendance.latitude,
         attendance.longitude,
@@ -306,11 +376,16 @@ export function AttendancePage() {
       const photo = attendance.environmentPhotoUrl
         ? `<br/><img src="${escapeHtml(attendance.environmentPhotoUrl)}" alt="" style="width:160px;height:110px;object-fit:cover;border-radius:8px;margin-top:6px" />`
         : ''
+      const officeLabel =
+        attendance.origin === AttendanceOrigin.Oficina && attendance.areaName
+          ? `<br/>${escapeHtml(attendance.areaName)}`
+          : ''
       L.marker(latLng, { icon: pinIcon(color), title: person.displayName })
         .bindPopup(
           `<strong>${escapeHtml(person.displayName)}</strong><br/>` +
             `${escapeHtml(attendanceOriginLabel(attendance.origin))}` +
             ` · ${formatAttendanceTime(attendance.createdAt)}` +
+            officeLabel +
             photo,
         )
         .addTo(layer)
@@ -318,16 +393,16 @@ export function AttendancePage() {
 
     if (bounds.length === 1) {
       map.setView(bounds[0], 18)
-    } else {
+    } else if (bounds.length > 1) {
       map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40], maxZoom: 17 })
     }
     window.setTimeout(() => map.invalidateSize({ animate: false }), 80)
-  }, [filteredRows, settings, view])
+  }, [filteredRows, officePoints, view])
 
   useEffect(() => {
-    if (!showSettings || !settingsMapElRef.current) return
+    if (!showSettings || !settingsMapElRef.current || !selectedPoint) return
     const map = L.map(settingsMapElRef.current, {
-      center: [officeForm.officeLatitude, officeForm.officeLongitude],
+      center: [selectedPoint.latitude, selectedPoint.longitude],
       zoom: 19,
     })
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -335,25 +410,24 @@ export function AttendancePage() {
       maxZoom: 19,
     }).addTo(map)
     settingsMarkerRef.current = L.marker(
-      [officeForm.officeLatitude, officeForm.officeLongitude],
-      { icon: pinIcon(OFFICE_COLOR), draggable: true },
+      [selectedPoint.latitude, selectedPoint.longitude],
+      { icon: pinIcon('#1565C0'), draggable: true },
     ).addTo(map)
     settingsCircleRef.current = L.circle(
-      [officeForm.officeLatitude, officeForm.officeLongitude],
+      [selectedPoint.latitude, selectedPoint.longitude],
       {
-        radius: officeForm.officeRadiusMeters,
-        color: OFFICE_COLOR,
+        radius: selectedPoint.radiusMeters,
+        color: '#1565C0',
         fillOpacity: 0.1,
       },
     ).addTo(map)
     settingsMapRef.current = map
 
     function applyPoint(lat: number, lng: number) {
-      setOfficeForm((prev) => ({
-        ...prev,
-        officeLatitude: Number(lat.toFixed(6)),
-        officeLongitude: Number(lng.toFixed(6)),
-      }))
+      updateSelectedPoint({
+        latitude: Number(lat.toFixed(6)),
+        longitude: Number(lng.toFixed(6)),
+      })
     }
 
     map.on('click', (event: L.LeafletMouseEvent) => {
@@ -373,24 +447,25 @@ export function AttendancePage() {
       settingsCircleRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSettings])
+  }, [showSettings, selectedPointId])
 
   useEffect(() => {
     const marker = settingsMarkerRef.current
     const circle = settingsCircleRef.current
     const map = settingsMapRef.current
-    if (!marker || !circle || !map) return
+    if (!marker || !circle || !map || !selectedPoint) return
     const latLng: L.LatLngExpression = [
-      officeForm.officeLatitude,
-      officeForm.officeLongitude,
+      selectedPoint.latitude,
+      selectedPoint.longitude,
     ]
     marker.setLatLng(latLng)
     circle.setLatLng(latLng)
-    circle.setRadius(officeForm.officeRadiusMeters)
+    circle.setRadius(selectedPoint.radiusMeters)
+    map.panTo(latLng, { animate: false })
   }, [
-    officeForm.officeLatitude,
-    officeForm.officeLongitude,
-    officeForm.officeRadiusMeters,
+    selectedPoint?.latitude,
+    selectedPoint?.longitude,
+    selectedPoint?.radiusMeters,
   ])
 
   async function handleSaveSettings(event: FormEvent) {
@@ -398,10 +473,13 @@ export function AttendancePage() {
     if (!user || savingSettings) return
     setSavingSettings(true)
     try {
-      const saved = await saveAttendanceSettingsUseCase.execute(user, officeForm)
+      const saved = await saveAttendanceSettingsUseCase.execute(user, {
+        officePoints: officePointsForm,
+      })
       setSettings(saved)
+      syncOfficePointsForm(resolveOfficePoints(saved))
       setShowSettings(false)
-      swalSuccess('Oficina actualizada')
+      swalSuccess('Puntos de oficina actualizados')
     } catch (err) {
       swalError(err instanceof DomainError ? err.message : 'No se pudo guardar')
     } finally {
@@ -447,7 +525,7 @@ export function AttendancePage() {
       title: origin === 'oficina' ? '¿Marcar en oficina?' : '¿Marcar en campo?',
       text:
         origin === 'oficina'
-          ? 'Se usará tu GPS. Debes estar dentro del radio de la oficina.'
+          ? 'Se usará tu GPS. Debes estar dentro del radio de un punto de oficina autorizado.'
           : 'Se usará tu GPS para registrar que estás en campo.',
       confirmButtonText: 'Marcar ahora',
     })
@@ -468,31 +546,6 @@ export function AttendancePage() {
       swalError(
         err instanceof DomainError ? err.message : 'No se pudo marcar la asistencia',
       )
-    } finally {
-      setMarking(null)
-    }
-  }
-
-  async function handleSelfPermiso() {
-    if (!user || marking) return
-    const note = await swalPrompt({
-      title: 'Registrar mi permiso',
-      text: 'El permiso cubre el día. No necesitas GPS.',
-      inputLabel: 'Motivo (opcional)',
-      inputPlaceholder: 'Ej. Cita médica, comisión',
-      confirmButtonText: 'Registrar permiso',
-    })
-    if (note == null) return
-    setMarking('permiso')
-    try {
-      await markAttendanceUseCase.execute(user, {
-        origin: AttendanceOrigin.Permiso,
-        permissionNote: note,
-      })
-      swalSuccess('Permiso registrado')
-      await loadDay(dateKey)
-    } catch (err) {
-      swalError(err instanceof DomainError ? err.message : 'No se pudo registrar')
     } finally {
       setMarking(null)
     }
@@ -531,8 +584,8 @@ export function AttendancePage() {
           <p className="attendance-page__eyebrow">Control diario</p>
           <h2>Asistencias</h2>
           <p>
-            Oficina con GPS en la sede. Campo con GPS. Permiso sin GPS. Para
-            todo el personal.
+            Oficina con GPS en puntos autorizados. Campo con GPS. Los permisos
+            solo los registra un administrador.
           </p>
         </div>
         <div className="attendance-page__toolbar">
@@ -565,9 +618,14 @@ export function AttendancePage() {
             <button
               type="button"
               className="btn btn--soft-primary"
-              onClick={() => setShowSettings(true)}
+              onClick={() => {
+                if (settings) {
+                  syncOfficePointsForm(resolveOfficePoints(settings))
+                }
+                setShowSettings(true)
+              }}
             >
-              Configurar oficina
+              Configurar puntos de oficina
             </button>
           ) : null}
         </div>
@@ -600,7 +658,7 @@ export function AttendancePage() {
         <div className="attendance-self">
           <div>
             <strong>Tu marca de hoy</strong>
-            <p>Elige oficina, campo o permiso. Una sola vez al día.</p>
+            <p>Elige oficina o campo. Una sola vez al día. Para permiso, contacta a un administrador.</p>
           </div>
           <div className="attendance-self__actions">
             <button
@@ -618,14 +676,6 @@ export function AttendancePage() {
               onClick={() => void handleSelfMark('zona')}
             >
               {marking === 'zona' ? 'Leyendo GPS...' : 'Estoy en campo'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--soft-muted"
-              disabled={marking !== null}
-              onClick={() => void handleSelfPermiso()}
-            >
-              Registrar permiso
             </button>
           </div>
         </div>
@@ -718,6 +768,10 @@ export function AttendancePage() {
                                 : 'Marcó'}{' '}
                               a las {formatAttendanceTime(attendance.createdAt)}
                             </span>
+                            {attendance.origin === AttendanceOrigin.Oficina &&
+                            attendance.areaName ? (
+                              <span>{attendance.areaName}</span>
+                            ) : null}
                             {attendance.permissionNote ? (
                               <span>{attendance.permissionNote}</span>
                             ) : null}
@@ -756,7 +810,7 @@ export function AttendancePage() {
           className={`attendance-map-panel${view === 'map' ? ' is-visible' : ''}`}
         >
           <p className="attendance-map-caption">
-            Azul: oficina. Verde: campo. El círculo es el radio de la sede.
+            Círculos: puntos de oficina autorizados. Verde: marcas en campo.
           </p>
           <div ref={mapElRef} className="attendance-map" />
         </div>
@@ -764,8 +818,8 @@ export function AttendancePage() {
 
       <AppModal
         open={showSettings}
-        title="Oficina para asistencia"
-        description="Toca el mapa o arrastra el pin. Quien marque “Oficina” debe estar dentro del radio (GPS)."
+        title="Puntos de oficina"
+        description="Agrega sedes personalizadas (ej. Oficina de Cobranza). Toca el mapa o arrastra el pin del punto seleccionado."
         onClose={() => {
           if (!savingSettings) setShowSettings(false)
         }}
@@ -785,76 +839,119 @@ export function AttendancePage() {
               className="btn btn--soft-primary"
               disabled={savingSettings}
             >
-              {savingSettings ? 'Guardando...' : 'Guardar oficina'}
+              {savingSettings ? 'Guardando...' : 'Guardar puntos'}
             </button>
           </>
         }
       >
         <form
           id="office-settings-form"
-          className="login-form"
+          className="login-form attendance-office-form"
           onSubmit={handleSaveSettings}
         >
-          <label className="field">
-            <span>Nombre</span>
-            <input
-              value={officeForm.officeName}
-              onChange={(event) =>
-                setOfficeForm((prev) => ({ ...prev, officeName: event.target.value }))
-              }
-              required
-              maxLength={120}
-            />
-          </label>
-          <div ref={settingsMapElRef} className="attendance-settings-map" />
-          <div className="attendance-settings-grid">
-            <label className="field">
-              <span>Latitud</span>
-              <input
-                type="number"
-                step="0.000001"
-                value={officeForm.officeLatitude}
-                onChange={(event) =>
-                  setOfficeForm((prev) => ({
-                    ...prev,
-                    officeLatitude: Number(event.target.value),
-                  }))
-                }
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Longitud</span>
-              <input
-                type="number"
-                step="0.000001"
-                value={officeForm.officeLongitude}
-                onChange={(event) =>
-                  setOfficeForm((prev) => ({
-                    ...prev,
-                    officeLongitude: Number(event.target.value),
-                  }))
-                }
-                required
-              />
-            </label>
+          <div className="attendance-office-list">
+            <div className="attendance-office-list__head">
+              <strong>Puntos configurados</strong>
+              <button
+                type="button"
+                className="btn btn--soft-primary"
+                disabled={officePointsForm.length >= MAX_OFFICE_POINTS}
+                onClick={addOfficePoint}
+              >
+                Agregar punto
+              </button>
+            </div>
+            <ul>
+              {officePointsForm.map((point, index) => (
+                <li key={point.id}>
+                  <button
+                    type="button"
+                    className={
+                      point.id === selectedPointId ? 'is-active' : undefined
+                    }
+                    onClick={() => setSelectedPointId(point.id)}
+                  >
+                    <span
+                      className="attendance-office-list__dot"
+                      style={{ background: officePointColor(index) }}
+                    />
+                    {point.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="attendance-office-list__remove"
+                    disabled={officePointsForm.length <= 1}
+                    onClick={() => removeOfficePoint(point.id)}
+                    aria-label={`Quitar ${point.name}`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
-          <label className="field">
-            <span>Radio permitido: {officeForm.officeRadiusMeters} m</span>
-            <input
-              type="range"
-              min={MIN_OFFICE_RADIUS_METERS}
-              max={MAX_OFFICE_RADIUS_METERS}
-              step={1}
-              value={officeForm.officeRadiusMeters}
-              onChange={(event) =>
-                setOfficeForm((prev) => ({
-                  ...prev,
-                  officeRadiusMeters: Number(event.target.value),
-                }))
-              }
-            />
-          </label>
+          {selectedPoint ? (
+            <>
+              <label className="field">
+                <span>Nombre del punto</span>
+                <input
+                  value={selectedPoint.name}
+                  onChange={(event) =>
+                    updateSelectedPoint({ name: event.target.value })
+                  }
+                  required
+                  maxLength={120}
+                  placeholder="Ej. Oficina de Cobranza"
+                />
+              </label>
+              <div ref={settingsMapElRef} className="attendance-settings-map" />
+              <div className="attendance-settings-grid">
+                <label className="field">
+                  <span>Latitud</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={selectedPoint.latitude}
+                    onChange={(event) =>
+                      updateSelectedPoint({
+                        latitude: Number(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Longitud</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={selectedPoint.longitude}
+                    onChange={(event) =>
+                      updateSelectedPoint({
+                        longitude: Number(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span>Radio permitido: {selectedPoint.radiusMeters} m</span>
+                <input
+                  type="range"
+                  min={MIN_OFFICE_RADIUS_METERS}
+                  max={MAX_OFFICE_RADIUS_METERS}
+                  step={1}
+                  value={selectedPoint.radiusMeters}
+                  onChange={(event) =>
+                    updateSelectedPoint({
+                      radiusMeters: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
         </form>
       </AppModal>
     </section>

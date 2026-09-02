@@ -22,10 +22,13 @@ export interface CreateAttendanceInput {
 }
 
 export interface SaveAttendanceSettingsInput {
-  officeName: string
-  officeLatitude: number
-  officeLongitude: number
-  officeRadiusMeters: number
+  officePoints: Array<{
+    id: string
+    name: string
+    latitude: number
+    longitude: number
+    radiusMeters: number
+  }>
   updatedById: string
   updatedByName: string
 }

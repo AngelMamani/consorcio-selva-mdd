@@ -7,9 +7,14 @@ import {
 import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
 import {
   defaultAttendanceSettings,
+  findMatchingOfficePoint,
+  MAX_OFFICE_POINTS,
   MAX_OFFICE_RADIUS_METERS,
   MIN_OFFICE_RADIUS_METERS,
+  normalizeAttendanceSettings,
+  normalizeOfficePoint,
   normalizeOfficeRadiusMeters,
+  resolveOfficePoints,
 } from '@/domain/entities/AttendanceSettings'
 import type { User } from '@/domain/entities/User'
 import {
@@ -51,11 +56,8 @@ export class GetAttendanceSettingsUseCase {
       throw new UnauthorizedError('Cuenta inactiva')
     }
     const settings = await this.attendanceRepository.getSettings()
-    const resolved = settings ?? defaultAttendanceSettings()
-    return {
-      ...resolved,
-      officeRadiusMeters: normalizeOfficeRadiusMeters(resolved.officeRadiusMeters),
-    }
+    const resolved = normalizeAttendanceSettings(settings ?? defaultAttendanceSettings())
+    return resolved
   }
 }
 
@@ -69,43 +71,61 @@ export class SaveAttendanceSettingsUseCase {
   async execute(
     actor: User,
     input: {
-      officeName: string
-      officeLatitude: number
-      officeLongitude: number
-      officeRadiusMeters: number
+      officePoints: Array<{
+        id: string
+        name: string
+        latitude: number
+        longitude: number
+        radiusMeters: number
+      }>
     },
   ): Promise<AttendanceSettings> {
     if (!assertUserCanManageUsers(actor)) {
       throw new UnauthorizedError(
-        'Solo el administrador puede configurar la oficina',
+        'Solo el administrador puede configurar los puntos de oficina',
       )
     }
 
-    const officeName = input.officeName.trim()
-    if (!officeName) {
-      throw new ValidationError('El nombre de la oficina es obligatorio')
+    if (!Array.isArray(input.officePoints) || input.officePoints.length === 0) {
+      throw new ValidationError('Agrega al menos un punto de oficina')
     }
-    if (officeName.length > 120) {
-      throw new ValidationError('El nombre no debe superar 120 caracteres')
-    }
-    if (!isValidGeoLocation(input.officeLatitude, input.officeLongitude)) {
-      throw new ValidationError('La ubicación de la oficina no es válida')
-    }
-    const radius = normalizeOfficeRadiusMeters(input.officeRadiusMeters)
-    if (
-      Math.round(input.officeRadiusMeters) < MIN_OFFICE_RADIUS_METERS ||
-      Math.round(input.officeRadiusMeters) > MAX_OFFICE_RADIUS_METERS
-    ) {
+    if (input.officePoints.length > MAX_OFFICE_POINTS) {
       throw new ValidationError(
-        `El radio debe estar entre ${MIN_OFFICE_RADIUS_METERS} y ${MAX_OFFICE_RADIUS_METERS} metros`,
+        `Puedes configurar hasta ${MAX_OFFICE_POINTS} puntos de oficina`,
       )
     }
+
+    const officePoints = input.officePoints.map((point) => {
+      const name = point.name.trim()
+      if (!name) {
+        throw new ValidationError('Cada punto debe tener un nombre')
+      }
+      if (name.length > 120) {
+        throw new ValidationError('El nombre no debe superar 120 caracteres')
+      }
+      if (!isValidGeoLocation(point.latitude, point.longitude)) {
+        throw new ValidationError(`La ubicación de «${name}» no es válida`)
+      }
+      const radius = normalizeOfficeRadiusMeters(point.radiusMeters)
+      if (
+        Math.round(point.radiusMeters) < MIN_OFFICE_RADIUS_METERS ||
+        Math.round(point.radiusMeters) > MAX_OFFICE_RADIUS_METERS
+      ) {
+        throw new ValidationError(
+          `El radio de «${name}» debe estar entre ${MIN_OFFICE_RADIUS_METERS} y ${MAX_OFFICE_RADIUS_METERS} metros`,
+        )
+      }
+      return normalizeOfficePoint({
+        id: point.id,
+        name,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        radiusMeters: radius,
+      })
+    })
 
     return this.attendanceRepository.saveSettings({
-      officeName,
-      officeLatitude: input.officeLatitude,
-      officeLongitude: input.officeLongitude,
-      officeRadiusMeters: radius,
+      officePoints,
       updatedById: actor.id,
       updatedByName: actor.displayName,
     })
@@ -217,24 +237,13 @@ export class MarkAttendanceUseCase {
       dateKey,
     )
     if (existing) {
-      throw new ValidationError('Ya tienes asistencia o permiso registrado hoy')
+      throw new ValidationError('Ya tienes asistencia registrada hoy')
     }
 
     if (request.origin === AttendanceOrigin.Permiso) {
-      const note = trimPermissionNote(request.permissionNote)
-      return this.attendanceRepository.create({
-        userId: actor.id,
-        userName: actor.displayName,
-        dateKey,
-        origin: AttendanceOrigin.Permiso,
-        areaId: '',
-        areaName: '',
-        location: PERMISO_LOCATION,
-        officeValidated: false,
-        permissionNote: note || undefined,
-        markedById: actor.id,
-        markedByName: actor.displayName,
-      })
+      throw new ValidationError(
+        'Solo un administrador puede registrar permisos. Contacta a tu supervisor.',
+      )
     }
 
     const location = request.location
@@ -247,25 +256,45 @@ export class MarkAttendanceUseCase {
 
     let distanceToOfficeMeters: number | undefined
     let officeValidated = false
+    let areaId = ''
+    let areaName = ''
 
     if (request.origin === AttendanceOrigin.Oficina) {
-      const settings =
+      const settings = normalizeAttendanceSettings(
         (await this.attendanceRepository.getSettings()) ??
-        defaultAttendanceSettings()
-      distanceToOfficeMeters = Math.round(
-        distanceMeters(
-          location.latitude,
-          location.longitude,
-          settings.officeLatitude,
-          settings.officeLongitude,
-        ),
+          defaultAttendanceSettings(),
       )
-      if (distanceToOfficeMeters > settings.officeRadiusMeters) {
+      const match = findMatchingOfficePoint(
+        location.latitude,
+        location.longitude,
+        settings,
+      )
+      if (!match) {
+        const points = resolveOfficePoints(settings)
+        const nearest = points
+          .map((point) => ({
+            point,
+            distance: Math.round(
+              distanceMeters(
+                location.latitude,
+                location.longitude,
+                point.latitude,
+                point.longitude,
+              ),
+            ),
+          }))
+          .sort((a, b) => a.distance - b.distance)[0]
+        const hint = nearest
+          ? ` Estás a ${nearest.distance} m de «${nearest.point.name}» (máx. ${nearest.point.radiusMeters} m).`
+          : ''
         throw new ValidationError(
-          `Estás a ${distanceToOfficeMeters} m de ${settings.officeName}. Acércate a menos de ${settings.officeRadiusMeters} m para marcar en oficina.`,
+          `No estás dentro de ningún punto de oficina autorizado.${hint}`,
         )
       }
+      distanceToOfficeMeters = match.distanceMeters
       officeValidated = true
+      areaId = match.point.id
+      areaName = match.point.name
     }
 
     return this.attendanceRepository.create({
@@ -273,8 +302,8 @@ export class MarkAttendanceUseCase {
       userName: actor.displayName,
       dateKey,
       origin: request.origin,
-      areaId: '',
-      areaName: '',
+      areaId,
+      areaName,
       location,
       distanceToOfficeMeters,
       officeValidated,

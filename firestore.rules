@@ -914,18 +914,32 @@ service cloud.firestore {
     }
 
     function validAttendanceSettings() {
-      return request.resource.data.officeName is string
-        && request.resource.data.officeName.size() > 0
-        && request.resource.data.officeName.size() <= 120
-        && request.resource.data.officeLatitude is number
-        && request.resource.data.officeLatitude >= -90
-        && request.resource.data.officeLatitude <= 90
-        && request.resource.data.officeLongitude is number
-        && request.resource.data.officeLongitude >= -180
-        && request.resource.data.officeLongitude <= 180
-        && request.resource.data.officeRadiusMeters is number
-        && request.resource.data.officeRadiusMeters >= 10
-        && request.resource.data.officeRadiusMeters <= 80;
+      return (
+        (
+          request.resource.data.keys().hasAll([
+            'officeName', 'officeLatitude', 'officeLongitude', 'officeRadiusMeters',
+            'updatedAt', 'updatedById', 'updatedByName'
+          ])
+          && request.resource.data.officeName is string
+          && request.resource.data.officeName.size() > 0
+          && request.resource.data.officeName.size() <= 120
+          && request.resource.data.officeLatitude is number
+          && request.resource.data.officeLatitude >= -90
+          && request.resource.data.officeLatitude <= 90
+          && request.resource.data.officeLongitude is number
+          && request.resource.data.officeLongitude >= -180
+          && request.resource.data.officeLongitude <= 180
+          && request.resource.data.officeRadiusMeters is number
+          && request.resource.data.officeRadiusMeters >= 10
+          && request.resource.data.officeRadiusMeters <= 80
+        )
+        || (
+          request.resource.data.keys().hasAll(['officePoints'])
+          && request.resource.data.officePoints is list
+          && request.resource.data.officePoints.size() > 0
+          && request.resource.data.officePoints.size() <= 12
+        )
+      );
     }
 
     function validSuppliesCatalog() {
@@ -1020,7 +1034,7 @@ service cloud.firestore {
           (
             request.resource.data.userId == request.auth.uid
             && isOwnAttendanceId(attendanceId)
-            && (validOfficeGpsCreate() || validZoneCreate() || validPermisoCreate())
+            && (validOfficeGpsCreate() || validZoneCreate())
           )
           || (
             isAdmin()

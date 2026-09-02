@@ -66,6 +66,7 @@ import {
   PublishMobileAppReleaseUseCase,
 } from '@/domain/usecases/mobile-app/MobileAppReleaseUseCases'
 import {
+  ExportStationCatalogToExcelUseCase,
   GetStationByCodeUseCase,
   GetSupplyByRouteCodeUseCase,
   GetSupplyCatalogStatusUseCase,
@@ -112,6 +113,7 @@ import { FirebaseSupportTicketRepository } from '@/infrastructure/firestore/Fire
 import { FirebaseTechnicianLocationRepository } from '@/infrastructure/firestore/FirebaseTechnicianLocationRepository'
 import { WatchTechnicianLocationsUseCase } from '@/domain/usecases/tracking/WatchTechnicianLocationsUseCase'
 import { WatchTechnicianRouteUseCase } from '@/domain/usecases/tracking/WatchTechnicianRouteUseCase'
+import { XlsxStationCatalogExcelService } from '@/infrastructure/excel/XlsxStationCatalogExcelService'
 import { XlsxAttendanceExcelService } from '@/infrastructure/excel/XlsxAttendanceExcelService'
 import { XlsxPersonalExcelService } from '@/infrastructure/excel/XlsxPersonalExcelService'
 import { JsPdfAttendanceExportService } from '@/infrastructure/pdf/JsPdfAttendanceExportService'
@@ -227,6 +229,7 @@ export interface AppDependencies {
   getSupplyCatalogStatusUseCase: GetSupplyCatalogStatusUseCase
   importSuppliesUseCase: ImportSuppliesUseCase
   importSedsUseCase: ImportSedsUseCase
+  exportStationCatalogToExcelUseCase: ExportStationCatalogToExcelUseCase
   catalogCargosUseCase: CatalogCrudUseCases
   catalogLocalidadesUseCase: CatalogCrudUseCases
   listPersonalUseCase: ListPersonalUseCase
@@ -260,6 +263,7 @@ export function createAppDependencies(): AppDependencies {
   const operationalRoleRepository = new FirebaseOperationalRoleRepository()
   const pdfExportService = new JsPdfExportService()
   const attendanceExcelService = new XlsxAttendanceExcelService()
+  const stationCatalogExcelExportService = new XlsxStationCatalogExcelService()
   const attendancePdfService = new JsPdfAttendanceExportService()
   const personalExcelService = new XlsxPersonalExcelService()
   const personalPdfService = new JsPdfPersonalExportService()
@@ -544,6 +548,10 @@ export function createAppDependencies(): AppDependencies {
     ),
     importSuppliesUseCase: new ImportSuppliesUseCase(supplyRepository),
     importSedsUseCase: new ImportSedsUseCase(supplyRepository),
+    exportStationCatalogToExcelUseCase: new ExportStationCatalogToExcelUseCase(
+      supplyRepository,
+      stationCatalogExcelExportService,
+    ),
     catalogCargosUseCase: new CatalogCrudUseCases(
       cargoRepository,
       personalRepository,

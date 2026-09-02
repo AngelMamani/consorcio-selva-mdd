@@ -21,14 +21,19 @@ const LIST_HEADERS = [
   'DNI',
   'Rol',
   'Asistió',
+  'Estado',
   'Tipo',
+  'Punto oficina',
   'Hora',
   'Motivo permiso',
-  'Distancia oficina (m)',
+  'Distancia (m)',
+  'Validado oficina',
   'Latitud',
   'Longitud',
   'Mapa GPS',
-]
+] as const
+
+const COLUMN_WIDTHS = [5, 30, 11, 16, 9, 14, 12, 24, 9, 26, 12, 14, 13, 13, 14]
 
 function lineToRow(
   line: AttendanceExportLine,
@@ -40,13 +45,16 @@ function lineToRow(
     line.personDni,
     line.personRole,
     line.attendedLabel,
+    line.status,
     line.originLabel,
+    line.officePointName,
     line.timeLabel,
     line.permissionNote,
     formatExportMeters(line.distanceToOfficeMeters),
+    line.officeValidatedLabel,
     formatExportCoord(line.latitude),
     formatExportCoord(line.longitude),
-    line.mapUrl,
+    line.mapUrl ? 'Abrir mapa' : '',
   ]
 }
 
@@ -54,23 +62,21 @@ function setColumnWidths(sheet: XLSX.WorkSheet, widths: number[]): void {
   sheet['!cols'] = widths.map((width) => ({ wch: width }))
 }
 
-function freezeHeader(sheet: XLSX.WorkSheet, headerRowIndex: number): void {
-  sheet['!views'] = [{ state: 'frozen', ySplit: headerRowIndex }]
-}
-
-function applyListLayout(
+function applyTableLayout(
   sheet: XLSX.WorkSheet,
   headerRowIndex: number,
   rowCount: number,
+  colCount: number,
 ): void {
   const lastRow = headerRowIndex + Math.max(rowCount, 1)
-  const range = XLSX.utils.encode_range({
-    s: { r: headerRowIndex - 1, c: 0 },
-    e: { r: lastRow - 1, c: LIST_HEADERS.length - 1 },
-  })
-  sheet['!autofilter'] = { ref: range }
-  freezeHeader(sheet, headerRowIndex)
-  setColumnWidths(sheet, [6, 32, 12, 18, 10, 14, 10, 28, 20, 14, 14, 36])
+  sheet['!autofilter'] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: headerRowIndex - 1, c: 0 },
+      e: { r: lastRow - 1, c: colCount - 1 },
+    }),
+  }
+  sheet['!views'] = [{ state: 'frozen', ySplit: headerRowIndex }]
+  setColumnWidths(sheet, COLUMN_WIDTHS)
 }
 
 function addMapLinks(
@@ -99,20 +105,35 @@ function createListSheet(
   report: AttendanceExportReport,
   lines: AttendanceExportLine[],
 ): XLSX.WorkSheet {
+  const headerRowIndex = 6
   const matrix: (string | number)[][] = [
+    ['Consorcio Selva MDD'],
     [title],
     [purpose],
-    [`Fecha: ${report.dateLabel}`],
-    LIST_HEADERS,
+    [`Fecha: ${report.dateLabel} · Generado: ${report.generatedAtLabel}`],
+    [`Puntos de oficina: ${report.officeSummary}`],
+    [],
+    [...LIST_HEADERS],
     ...lines.map((line, index) => lineToRow(line, index)),
   ]
   const sheet = XLSX.utils.aoa_to_sheet(matrix)
-  applyListLayout(sheet, 4, lines.length)
-  addMapLinks(sheet, 4, lines)
+  applyTableLayout(sheet, headerRowIndex, lines.length, LIST_HEADERS.length)
+  addMapLinks(sheet, headerRowIndex, lines)
+  if (!sheet['!merges']) sheet['!merges'] = []
+  sheet['!merges'].push(
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+  )
   return sheet
 }
 
 function createSummarySheet(report: AttendanceExportReport): XLSX.WorkSheet {
+  const officeRows = report.officePoints.flatMap((point, index) => [
+    [
+      `Punto ${index + 1}`,
+      `${point.name} · ${point.latitude.toFixed(6)}, ${point.longitude.toFixed(6)} · ${point.radiusMeters} m`,
+    ],
+  ])
   const matrix: (string | number)[][] = [
     ['Consorcio Selva MDD'],
     ['Asistencia del día'],
@@ -120,27 +141,28 @@ function createSummarySheet(report: AttendanceExportReport): XLSX.WorkSheet {
     ['Fecha', report.dateLabel],
     ['Generado', report.generatedAtLabel],
     ['Generado por', report.generatedByName],
-    ['Oficina', report.officeName],
-    ['Radio oficina (m)', report.officeRadiusMeters],
     [],
-    ['Resumen'],
-    ['Personas', report.totals.people],
+    ['Puntos de oficina autorizados'],
+    ...officeRows,
+    [],
+    ['Resumen del día'],
+    ['Personas en nómina', report.totals.people],
     ['Asistieron', report.totals.present],
     ['En oficina', report.totals.office],
     ['En campo', report.totals.zone],
-    ['Con permiso', report.totals.permiso],
+    ['Con permiso (admin)', report.totals.permiso],
     ['No asistieron', report.totals.missing],
     [],
-    ['Hojas'],
-    ['01 Resumen', 'Indicadores del día'],
-    ['02 Lista', 'Todas las personas, asistió sí o no'],
-    ['03 Oficina', 'Marcas con GPS en oficina'],
-    ['04 Campo', 'Marcas con GPS en campo'],
-    ['05 Permiso', 'Personas con permiso'],
-    ['06 No asistió', 'Sin marca y sin permiso'],
+    ['Hojas del archivo'],
+    ['01 Resumen', 'Indicadores y puntos de oficina'],
+    ['02 Lista', 'Todas las personas del día'],
+    ['03 Oficina', 'Marcas en puntos de oficina'],
+    ['04 Campo', 'Marcas en campo con GPS'],
+    ['05 Permiso', 'Permisos registrados por administrador'],
+    ['06 No asistió', 'Sin marca ni permiso'],
   ]
   const sheet = XLSX.utils.aoa_to_sheet(matrix)
-  setColumnWidths(sheet, [28, 56])
+  setColumnWidths(sheet, [30, 58])
   return sheet
 }
 
@@ -158,7 +180,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Lista del día',
-        'Ordenada por nombre. Asistió: Sí / No. Tipo: Oficina, Campo o Permiso.',
+        'Orden alfabético. Permisos solo los registra un administrador.',
         report,
         report.all,
       ),
@@ -168,7 +190,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Oficina',
-        'Personas que marcaron en la oficina con GPS.',
+        'Marcas dentro del radio de un punto de oficina autorizado.',
         report,
         report.office,
       ),
@@ -178,7 +200,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Campo',
-        'Personas que marcaron en campo con GPS.',
+        'Marcas en campo con evidencia GPS.',
         report,
         report.zone,
       ),
@@ -188,7 +210,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'Permiso',
-        'Personas con permiso registrado ese día.',
+        'Permisos otorgados por administrador.',
         report,
         report.permiso,
       ),
@@ -198,7 +220,7 @@ export class XlsxAttendanceExcelService implements AttendanceExcelExportService 
       book,
       createListSheet(
         'No asistió',
-        'Personas sin marca y sin permiso.',
+        'Personas sin marca ni permiso ese día.',
         report,
         report.missing,
       ),

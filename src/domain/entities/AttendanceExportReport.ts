@@ -6,7 +6,8 @@ import {
   formatAttendanceTime,
   type Attendance,
 } from '@/domain/entities/Attendance'
-import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
+import type { AttendanceSettings, AttendanceOfficePoint } from '@/domain/entities/AttendanceSettings'
+import { officePointsSummary, resolveOfficePoints } from '@/domain/entities/AttendanceSettings'
 import { formatDateKey } from '@/domain/entities/FolderDate'
 
 export interface AttendanceExportSourceRow {
@@ -25,6 +26,7 @@ export interface AttendanceExportLine {
   attendedLabel: 'Sí' | 'No'
   status: string
   originLabel: string
+  officePointName: string
   timeLabel: string
   permissionNote: string
   latitude: number | null
@@ -42,6 +44,8 @@ export interface AttendanceExportReport {
   dateLabel: string
   generatedAtLabel: string
   generatedByName: string
+  officePoints: AttendanceOfficePoint[]
+  officeSummary: string
   officeName: string
   officeLatitude: number
   officeLongitude: number
@@ -82,6 +86,7 @@ function toLine(row: AttendanceExportSourceRow): AttendanceExportLine {
       attendedLabel: 'No',
       status: 'No asistió',
       originLabel: '—',
+      officePointName: '—',
       timeLabel: '—',
       permissionNote: '—',
       latitude: null,
@@ -104,6 +109,7 @@ function toLine(row: AttendanceExportSourceRow): AttendanceExportLine {
     attendedLabel: attendanceAttendedLabel(attendance),
     status: attendanceStatusLabel(attendance),
     originLabel: attendanceOriginLabel(attendance.origin),
+    officePointName: dash(attendance.areaName),
     timeLabel:
       attendance.origin === AttendanceOrigin.Permiso
         ? dash(formatAttendanceTime(attendance.createdAt))
@@ -139,6 +145,8 @@ export function buildAttendanceExportReport(input: {
   const missing = all.filter((line) => line.status === 'No asistió')
   const present = all.filter((line) => line.status === 'Asistió')
 
+  const officePoints = resolveOfficePoints(input.settings)
+
   return {
     dateKey: input.dateKey,
     dateLabel: formatDateKey(input.dateKey),
@@ -148,6 +156,8 @@ export function buildAttendanceExportReport(input: {
       timeStyle: 'short',
     }),
     generatedByName: input.generatedByName.trim() || '—',
+    officePoints,
+    officeSummary: officePointsSummary(input.settings),
     officeName: input.settings.officeName,
     officeLatitude: input.settings.officeLatitude,
     officeLongitude: input.settings.officeLongitude,

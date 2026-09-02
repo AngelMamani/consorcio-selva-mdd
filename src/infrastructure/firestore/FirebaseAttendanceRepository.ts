@@ -17,7 +17,10 @@ import {
 } from '@/domain/entities/Attendance'
 import type { AttendanceOfficeQr } from '@/domain/entities/AttendanceOfficeQr'
 import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
-import { normalizeOfficeRadiusMeters } from '@/domain/entities/AttendanceSettings'
+import {
+  normalizeAttendanceSettings,
+  normalizeOfficeRadiusMeters,
+} from '@/domain/entities/AttendanceSettings'
 import type {
   AttendanceRepository,
   CreateAttendanceInput,
@@ -53,6 +56,13 @@ interface SettingsDoc {
   officeLatitude: number
   officeLongitude: number
   officeRadiusMeters: number
+  officePoints?: Array<{
+    id: string
+    name: string
+    latitude: number
+    longitude: number
+    radiusMeters: number
+  }>
   updatedAt: Timestamp
   updatedById: string
   updatedByName: string
@@ -133,7 +143,8 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
     const snapshot = await getDoc(this.settingsRef)
     if (!snapshot.exists()) return null
     const data = snapshot.data() as SettingsDoc
-    return {
+    return normalizeAttendanceSettings({
+      officePoints: data.officePoints,
       officeName: data.officeName,
       officeLatitude: data.officeLatitude,
       officeLongitude: data.officeLongitude,
@@ -141,27 +152,37 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
       updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
       updatedById: data.updatedById ?? '',
       updatedByName: data.updatedByName ?? '',
-    }
+    })
   }
 
   async saveSettings(
     input: SaveAttendanceSettingsInput,
   ): Promise<AttendanceSettings> {
     const now = Timestamp.now()
+    const normalized = normalizeAttendanceSettings({
+      officePoints: input.officePoints,
+      updatedAt: now.toDate(),
+      updatedById: input.updatedById,
+      updatedByName: input.updatedByName,
+    })
     const payload: SettingsDoc = {
-      officeName: input.officeName,
-      officeLatitude: input.officeLatitude,
-      officeLongitude: input.officeLongitude,
-      officeRadiusMeters: input.officeRadiusMeters,
+      officeName: normalized.officeName,
+      officeLatitude: normalized.officeLatitude,
+      officeLongitude: normalized.officeLongitude,
+      officeRadiusMeters: normalized.officeRadiusMeters,
+      officePoints: normalized.officePoints.map((point) => ({
+        id: point.id,
+        name: point.name,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        radiusMeters: point.radiusMeters,
+      })),
       updatedAt: now,
       updatedById: input.updatedById,
       updatedByName: input.updatedByName,
     }
     await setDoc(this.settingsRef, payload)
-    return {
-      ...input,
-      updatedAt: now.toDate(),
-    }
+    return normalized
   }
 
   async getOfficeQr(dateKey: string): Promise<AttendanceOfficeQr | null> {
