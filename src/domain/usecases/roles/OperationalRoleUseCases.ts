@@ -6,7 +6,10 @@ import {
 } from '@/domain/entities/OperationalRole'
 import type { OperationalRoleRepository } from '@/domain/repositories/OperationalRoleRepository'
 import type { AppMenuKey } from '@/domain/value-objects/AppMenuPermission'
-import { ALL_APP_MENU_KEYS, isAppMenuKey } from '@/domain/value-objects/AppMenuPermission'
+import {
+  ALL_APP_MENU_KEYS,
+  isAppMenuKey,
+} from '@/domain/value-objects/AppMenuPermission'
 import {
   UnauthorizedError,
   ValidationError,

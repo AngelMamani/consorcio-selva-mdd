@@ -78,6 +78,7 @@ export function HomePage() {
 
   const todayKey = toLimaDateKey()
   const showAttendance = canAccessMenu(AppMenuKey.Asistencias)
+  const showTracking = canAccessMenu(AppMenuKey.Seguimiento)
   const showTasks = canAccessMenu(AppMenuKey.Tareas)
   const showPersonal = canAccessMenu(AppMenuKey.Personal)
   const showSupport = canAccessMenu(AppMenuKey.Soporte)
@@ -243,6 +244,19 @@ export function HomePage() {
       ) : (
         <>
           <div className="home-page__grid">
+            {showTracking ? (
+              <article className="home-card">
+                <header className="home-card__head">
+                  <div>
+                    <h2>Seguimiento</h2>
+                    <p>Ubicación en vivo del aplicativo. Si apagan el GPS, ves la última posición.</p>
+                  </div>
+                  <Link to="/seguimiento" className="home-card__link">
+                    Ver mapa
+                  </Link>
+                </header>
+              </article>
+            ) : null}
             {showAttendance ? (
               <article className="home-card">
                 <header className="home-card__head">

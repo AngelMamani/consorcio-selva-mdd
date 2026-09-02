@@ -19,6 +19,8 @@ import '../domain/usecases/search_supplies_use_case.dart';
 import '../domain/usecases/task_use_cases.dart';
 import '../domain/usecases/rank_my_tasks_by_proximity_use_case.dart';
 import '../domain/usecases/support_ticket_use_cases.dart';
+import '../domain/usecases/publish_own_location_use_case.dart';
+import '../infrastructure/firestore/firebase_technician_location_repository.dart';
 import '../infrastructure/firestore/firebase_supply_repository.dart';
 import '../infrastructure/firestore/firebase_support_ticket_repository.dart';
 import '../infrastructure/firestore/firebase_task_repository.dart';
@@ -85,6 +87,7 @@ class AppDependencies {
     required this.createSupportTicketUseCase,
     required this.listSupportTicketsUseCase,
     required this.resolveSupportTicketUseCase,
+    required this.publishOwnLocationUseCase,
   });
 
   final LoginUseCase loginUseCase;
@@ -132,6 +135,7 @@ class AppDependencies {
   final CreateSupportTicketUseCase createSupportTicketUseCase;
   final ListSupportTicketsUseCase listSupportTicketsUseCase;
   final ResolveSupportTicketUseCase resolveSupportTicketUseCase;
+  final PublishOwnLocationUseCase publishOwnLocationUseCase;
 }
 
 AppDependencies createAppDependencies() {
@@ -147,6 +151,7 @@ AppDependencies createAppDependencies() {
   final taskRepository = FirebaseTaskRepository();
   final installationOrderRepository = FirebaseInstallationOrderRepository();
   final supportTicketRepository = FirebaseSupportTicketRepository();
+  final technicianLocationRepository = FirebaseTechnicianLocationRepository();
 
   final ensureSupplyFolderUseCase = EnsureSupplyFolderUseCase(
     folderRepository,
@@ -250,5 +255,7 @@ AppDependencies createAppDependencies() {
         ListSupportTicketsUseCase(supportTicketRepository),
     resolveSupportTicketUseCase:
         ResolveSupportTicketUseCase(supportTicketRepository),
+    publishOwnLocationUseCase:
+        PublishOwnLocationUseCase(technicianLocationRepository),
   );
 }

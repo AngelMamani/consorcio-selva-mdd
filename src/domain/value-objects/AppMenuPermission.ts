@@ -7,6 +7,7 @@ export const AppMenuKey = {
   Localidades: 'localidades',
   Areas: 'areas',
   Tareas: 'tareas',
+  Seguimiento: 'seguimiento',
   Asistencias: 'asistencias',
   Mapa: 'mapa',
   Usuarios: 'usuarios',
@@ -56,6 +57,7 @@ export const APP_MENU_MODULES: AppMenuModule[] = [
       AppMenuKey.Estaciones,
       AppMenuKey.Areas,
       AppMenuKey.Tareas,
+      AppMenuKey.Seguimiento,
       AppMenuKey.Asistencias,
       AppMenuKey.Mapa,
     ],
@@ -134,6 +136,12 @@ export const APP_MENU_DEFINITIONS: AppMenuDefinition[] = [
     module: AppMenuModuleId.Campo,
   },
   {
+    key: AppMenuKey.Seguimiento,
+    label: 'Seguimiento',
+    path: '/seguimiento',
+    module: AppMenuModuleId.Campo,
+  },
+  {
     key: AppMenuKey.Usuarios,
     label: 'Cuentas',
     path: '/usuarios',
@@ -179,6 +187,7 @@ export function pathToMenuKey(pathname: string): AppMenuKey | null {
     return AppMenuKey.Areas
   }
   if (pathname.startsWith('/tareas')) return AppMenuKey.Tareas
+  if (pathname.startsWith('/seguimiento')) return AppMenuKey.Seguimiento
   if (pathname.startsWith('/asistencias')) return AppMenuKey.Asistencias
   if (pathname.startsWith('/mapa')) return AppMenuKey.Mapa
   if (pathname.startsWith('/usuarios')) return AppMenuKey.Usuarios

@@ -1,0 +1,224 @@
+.track-page {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.track-page__eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-blue);
+}
+
+.track-page .page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.track-page__kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(5.5rem, 1fr));
+  gap: 0.45rem;
+}
+
+.track-page__kpis div {
+  display: grid;
+  gap: 0.05rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+}
+
+.track-page__kpis strong {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.track-page__kpis span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.track-page__layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 0.75rem;
+  min-height: calc(100dvh - 14rem);
+}
+
+.track-page__list {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  padding: 0.75rem;
+}
+
+.track-page__search {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.track-page__search span:not(.sr-only) {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.track-page__search input {
+  width: 100%;
+  min-height: 2.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  color: var(--ink);
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+}
+
+.track-page__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.track-page__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+  max-height: calc(100dvh - 20rem);
+  overflow: auto;
+}
+
+.track-page__list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.track-page__list button:hover,
+.track-page__list button.is-selected {
+  border-color: color-mix(in srgb, var(--brand-blue) 45%, var(--line));
+  background: var(--brand-blue-soft);
+}
+
+.track-page__list strong {
+  display: block;
+  font-size: 0.88rem;
+}
+
+.track-page__list small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.track-page__dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.track-page__dot.is-live {
+  background: var(--success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 28%, transparent);
+}
+
+.track-page__dot.is-stale {
+  background: var(--brand-gold);
+}
+
+.track-page__dot.is-off {
+  background: var(--danger);
+}
+
+.track-page__empty {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.track-page__map {
+  min-height: 28rem;
+  padding: 0;
+  overflow: hidden;
+}
+
+.track-page__canvas {
+  min-height: 28rem;
+  height: 100%;
+}
+
+.track-pin {
+  background: transparent;
+  border: 0;
+}
+
+.track-pin__dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.track-pin__dot--live {
+  background: #2e7d32;
+}
+
+.track-pin__dot--stale {
+  background: #f0a202;
+}
+
+.track-pin__dot--off {
+  background: #c62828;
+}
+
+.track-pin__dot.is-selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-blue) 70%, transparent);
+}
+
+.track-pin__name {
+  margin-left: 0.3rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .track-page__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .track-page__list ul {
+    max-height: 16rem;
+  }
+}

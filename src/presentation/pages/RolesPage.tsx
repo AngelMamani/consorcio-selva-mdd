@@ -66,7 +66,10 @@ export function RolesPage() {
   const groupedMenus = useMemo(() => {
     return APP_MENU_MODULES.map((mod) => {
       const items = APP_MENU_DEFINITIONS.filter(
-        (item) => item.module === mod.id && item.key !== AppMenuKey.Inicio,
+        (item) =>
+          item.module === mod.id &&
+          item.key !== AppMenuKey.Inicio &&
+          item.key !== AppMenuKey.Seguimiento,
       )
       return [mod.label, items] as const
     }).filter(([, items]) => items.length > 0)

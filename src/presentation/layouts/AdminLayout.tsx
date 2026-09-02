@@ -162,6 +162,34 @@ function StationIcon() {
   )
 }
 
+function TrackingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M12 4.5a7.5 7.5 0 0 1 0 15M12 4.5a7.5 7.5 0 0 0 0 15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M4.5 12h15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function MapIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
@@ -413,6 +441,8 @@ function navIcon(key: AppMenuKey) {
       return <AreasIcon />
     case AppMenuKey.Tareas:
       return <TasksIcon />
+    case AppMenuKey.Seguimiento:
+      return <TrackingIcon />
     case AppMenuKey.Asistencias:
       return <AttendanceIcon />
     case AppMenuKey.Mapa:

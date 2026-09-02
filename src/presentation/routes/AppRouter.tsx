@@ -17,6 +17,7 @@ import { AttendancePage } from '@/presentation/pages/AttendancePage'
 import { MapPage } from '@/presentation/pages/MapPage'
 import { StationsPage } from '@/presentation/pages/StationsPage'
 import { TasksPage } from '@/presentation/pages/TasksPage'
+import { TrackingPage } from '@/presentation/pages/TrackingPage'
 import { PersonalPage } from '@/presentation/pages/PersonalPage'
 import { RolesPage } from '@/presentation/pages/RolesPage'
 import { CargosPage } from '@/presentation/pages/CargosPage'
@@ -58,6 +59,7 @@ export function AppRouter() {
             />
             <Route path="/areas/:areaId/carpetas" element={<FoldersPage />} />
             <Route path="/tareas" element={<TasksPage />} />
+            <Route path="/seguimiento" element={<TrackingPage />} />
             <Route path="/carpetas/:folderId" element={<FolderDetailPage />} />
             <Route
               path="/carpetas/:folderId/fechas/:dateId"

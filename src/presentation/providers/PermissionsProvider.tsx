@@ -66,6 +66,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       loading,
       canAccessMenu: (key: AppMenuKeyType) => {
         if (key === AppMenuKey.Inicio) return true
+        if (key === AppMenuKey.Seguimiento) {
+          return user?.role === UserRole.SuperAdministrador
+        }
         if (user?.role === UserRole.SuperAdministrador) return true
         if (key === AppMenuKey.Roles) {
           return Boolean(user && canManageOperationalRoles(user.role))

@@ -1032,6 +1032,52 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /technicianLocations/{userId} {
+      allow get: if isActiveUser() && (isSuperAdmin() || request.auth.uid == userId);
+      allow list: if isSuperAdmin();
+      allow create, update: if isActiveUser()
+        && request.auth.uid == userId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.gpsActive is bool
+        && request.resource.data.updatedAt is timestamp
+        && (
+          request.resource.data.gpsActive == false
+          || (
+            request.resource.data.latitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude is number
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180
+          )
+        )
+        && (!('accuracyMeters' in request.resource.data)
+          || request.resource.data.accuracyMeters == null
+          || request.resource.data.accuracyMeters is number);
+      allow delete: if false;
+
+      match /routePoints/{pointId} {
+        allow get, list: if isSuperAdmin();
+        allow create: if isActiveUser()
+          && request.auth.uid == userId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.latitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude is number
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180
+          && request.resource.data.capturedAt is timestamp
+          && (!('accuracyMeters' in request.resource.data)
+            || request.resource.data.accuracyMeters == null
+            || request.resource.data.accuracyMeters is number);
+        allow update, delete: if false;
+      }
+    }
+
     match /supportTickets/{ticketId} {
       allow get: if isActiveUser() && (
         isAdmin() || resource.data.createdById == request.auth.uid

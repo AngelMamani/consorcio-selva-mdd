@@ -109,6 +109,9 @@ import {
   ResolveSupportTicketUseCase,
 } from '@/domain/usecases/support/SupportTicketUseCases'
 import { FirebaseSupportTicketRepository } from '@/infrastructure/firestore/FirebaseSupportTicketRepository'
+import { FirebaseTechnicianLocationRepository } from '@/infrastructure/firestore/FirebaseTechnicianLocationRepository'
+import { WatchTechnicianLocationsUseCase } from '@/domain/usecases/tracking/WatchTechnicianLocationsUseCase'
+import { WatchTechnicianRouteUseCase } from '@/domain/usecases/tracking/WatchTechnicianRouteUseCase'
 import { XlsxAttendanceExcelService } from '@/infrastructure/excel/XlsxAttendanceExcelService'
 import { XlsxPersonalExcelService } from '@/infrastructure/excel/XlsxPersonalExcelService'
 import { JsPdfAttendanceExportService } from '@/infrastructure/pdf/JsPdfAttendanceExportService'
@@ -213,6 +216,8 @@ export interface AppDependencies {
   publishMobileAppReleaseUseCase: PublishMobileAppReleaseUseCase
   listSupportTicketsUseCase: ListSupportTicketsUseCase
   resolveSupportTicketUseCase: ResolveSupportTicketUseCase
+  watchTechnicianLocationsUseCase: WatchTechnicianLocationsUseCase
+  watchTechnicianRouteUseCase: WatchTechnicianRouteUseCase
   getSupplyByRouteCodeUseCase: GetSupplyByRouteCodeUseCase
   searchSuppliesUseCase: SearchSuppliesUseCase
   listSupplyCatalogUseCase: ListSupplyCatalogUseCase
@@ -266,6 +271,7 @@ export function createAppDependencies(): AppDependencies {
   const meterChangeOrderPdfService = new JsPdfMeterChangeOrderExportService()
   const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
   const supportTicketRepository = new FirebaseSupportTicketRepository()
+  const technicianLocationRepository = new FirebaseTechnicianLocationRepository()
   const supplyRepository = new FirebaseSupplyRepository()
   const listAttendanceDayUseCase = new ListAttendanceDayUseCase(
     attendanceRepository,
@@ -518,6 +524,12 @@ export function createAppDependencies(): AppDependencies {
     ),
     resolveSupportTicketUseCase: new ResolveSupportTicketUseCase(
       supportTicketRepository,
+    ),
+    watchTechnicianLocationsUseCase: new WatchTechnicianLocationsUseCase(
+      technicianLocationRepository,
+    ),
+    watchTechnicianRouteUseCase: new WatchTechnicianRouteUseCase(
+      technicianLocationRepository,
     ),
     getSupplyByRouteCodeUseCase: new GetSupplyByRouteCodeUseCase(
       supplyRepository,

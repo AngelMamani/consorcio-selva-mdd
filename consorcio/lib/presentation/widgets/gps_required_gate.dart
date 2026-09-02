@@ -2,8 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:provider/provider.dart';
 
+import '../../application/composition_root.dart';
 import '../services/device_location_service.dart';
+import '../services/location_share_controller.dart';
+import '../state/session_controller.dart';
 
 class GpsRequiredGate extends StatefulWidget {
   const GpsRequiredGate({super.key, required this.child});
@@ -19,6 +23,7 @@ class _GpsRequiredGateState extends State<GpsRequiredGate>
   final _locationService = DeviceLocationService();
   StreamSubscription<ServiceStatus>? _serviceSub;
   Timer? _poll;
+  LocationShareController? _share;
 
   bool _ready = false;
   bool _checking = true;
@@ -35,6 +40,13 @@ class _GpsRequiredGateState extends State<GpsRequiredGate>
       unawaited(_refresh());
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final session = context.read<SessionController>();
+      final deps = context.read<AppDependencies>();
+      final user = session.user;
+      if (user != null) {
+        _share = LocationShareController(deps.publishOwnLocationUseCase)
+          ..attach(user);
+      }
       unawaited(_refresh(requestPermission: true));
     });
   }
@@ -44,6 +56,7 @@ class _GpsRequiredGateState extends State<GpsRequiredGate>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_serviceSub?.cancel());
     _poll?.cancel();
+    unawaited(_share?.dispose());
     super.dispose();
   }
 
@@ -78,13 +91,15 @@ class _GpsRequiredGateState extends State<GpsRequiredGate>
     final nextPermission = await Geolocator.checkPermission();
     final allowed = nextPermission == LocationPermission.always ||
         nextPermission == LocationPermission.whileInUse;
+    final ready = nextEnabled && allowed;
     if (!mounted) return;
     setState(() {
-      _ready = nextEnabled && allowed;
+      _ready = ready;
       _checking = false;
       _permissionBlocked = nextPermission == LocationPermission.deniedForever ||
           nextPermission == LocationPermission.denied;
     });
+    unawaited(_share?.setGpsReady(ready));
   }
 
   @override
@@ -143,7 +158,7 @@ class _GpsLockScreen extends StatelessWidget {
               Text(
                 permissionBlocked
                     ? 'Activa el permiso de ubicación en Ajustes. Sin GPS no puedes usar el aplicativo.'
-                    : 'El GPS debe estar activado todo el tiempo. Si lo apagas, el aplicativo se bloquea.',
+                    : 'El GPS debe estar activado. Si lo apagas, el aplicativo se bloquea.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   height: 1.4,
