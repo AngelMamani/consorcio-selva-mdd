@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'application/composition_root.dart';
 import 'firebase_options.dart';
+import 'infrastructure/firestore/firestore_client.dart';
 import 'presentation/state/session_controller.dart';
 
 Future<void> main() async {
@@ -16,6 +17,7 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  configureFirestoreForSlowNetworks();
 
   final dependencies = createAppDependencies();
 

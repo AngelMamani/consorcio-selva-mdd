@@ -10,6 +10,11 @@ class LoginUseCase {
   final AuthRepository _authRepository;
   final UserRepository _userRepository;
 
+  static bool _isCredentialError(String message) {
+    return message.contains('incorrectos') ||
+        message.contains('incorrecto');
+  }
+
   Future<AppUser> execute({
     required String identifier,
     required String password,
@@ -19,15 +24,53 @@ class LoginUseCase {
       throw DomainException('Código y contraseña son obligatorios');
     }
 
+    final dni = raw.contains('@')
+        ? null
+        : raw.replaceAll(RegExp(r'\D'), '');
+    if (dni != null && !RegExp(r'^\d{8}$').hasMatch(dni)) {
+      throw DomainException('Ingresa tu código (DNI de 8 dígitos)');
+    }
+
     final email = raw.contains('@')
         ? raw.toLowerCase()
-        : await _resolveDniEmail(raw);
+        : await _authRepository.resolveEmailByDni(dni!);
 
-    final userId = await _authRepository.login(
-      email: email,
-      password: password,
-    );
-    final user = await _userRepository.getById(userId);
+    String userId;
+    try {
+      userId = await _authRepository.login(email: email, password: password);
+    } on DomainException catch (error) {
+      // Caché DNI desactualizada tras remapear email en consola.
+      if (dni != null && _isCredentialError(error.message)) {
+        await _authRepository.clearDniEmailCache(dni);
+        final freshEmail = await _authRepository.resolveEmailByDni(
+          dni,
+          forceRefresh: true,
+        );
+        if (freshEmail != email) {
+          userId = await _authRepository.login(
+            email: freshEmail,
+            password: password,
+          );
+        } else {
+          rethrow;
+        }
+      } else {
+        rethrow;
+      }
+    }
+
+    late final AppUser? user;
+    try {
+      user = await _userRepository.getById(userId);
+    } on DomainException catch (error) {
+      await _authRepository.logout();
+      throw DomainException(error.message);
+    } catch (_) {
+      await _authRepository.logout();
+      throw DomainException(
+        'Red lenta al leer tu perfil. Intenta de nuevo.',
+      );
+    }
 
     if (user == null) {
       await _authRepository.logout();
@@ -53,15 +96,5 @@ class LoginUseCase {
     }
 
     return user;
-  }
-
-  Future<String> _resolveDniEmail(String identifier) async {
-    final dni = identifier.replaceAll(RegExp(r'\D'), '');
-    if (!RegExp(r'^\d{8}$').hasMatch(dni)) {
-      throw DomainException(
-        'Ingresa tu código (DNI de 8 dígitos)',
-      );
-    }
-    return _authRepository.resolveEmailByDni(dni);
   }
 }

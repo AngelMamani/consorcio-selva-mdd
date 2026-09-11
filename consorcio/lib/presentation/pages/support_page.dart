@@ -38,7 +38,14 @@ class _SupportPageState extends State<SupportPage> {
     final session = context.read<SessionController>();
     final deps = context.read<AppDependencies>();
     final user = session.user;
-    if (user == null) return;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Sesión no lista. Toca actualizar.';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;

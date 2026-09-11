@@ -222,12 +222,18 @@ class FirebaseTaskRepository implements TaskRepository {
 
   @override
   Future<List<FieldTask>> listAll() async {
-    final snapshot = await _tasks.get();
-    final list = snapshot.docs
-        .map((doc) => _map(doc.id, doc.data()))
-        .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return list;
+    try {
+      final snapshot = await _tasks.get().timeout(const Duration(seconds: 15));
+      final list = snapshot.docs
+          .map((doc) => _map(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      return list;
+    } on TimeoutException {
+      throw DomainException(
+        'La red está lenta al cargar tareas. Intenta de nuevo.',
+      );
+    }
   }
 
   @override

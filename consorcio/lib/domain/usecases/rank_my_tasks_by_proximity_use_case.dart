@@ -75,26 +75,28 @@ class RankMyTasksByProximityUseCase {
   RankMyTasksByProximityUseCase(this._supplyRepository);
 
   final SupplyRepository _supplyRepository;
+  final Map<String, ({double lat, double lng})> _coordsCache = {};
 
   Future<List<RankedFieldTask>> execute({
     required List<FieldTask> tasks,
-    required GeoLocation location,
+    GeoLocation? location,
   }) async {
     final missingCodes = <String>{};
     for (final task in tasks) {
       for (final route in task.normalizedRoutes) {
-        if (!route.hasMapPoint && route.routeCode.isNotEmpty) {
+        if (!route.hasMapPoint &&
+            route.routeCode.isNotEmpty &&
+            !_coordsCache.containsKey(route.routeCode)) {
           missingCodes.add(route.routeCode);
         }
       }
     }
 
-    final catalogCoords = <String, ({double lat, double lng})>{};
     await Future.wait(
       missingCodes.map((code) async {
         final supply = await _supplyRepository.getByRouteCode(code);
         if (supply == null || !supply.hasLocation) return;
-        catalogCoords[code] = (lat: supply.latitude!, lng: supply.longitude!);
+        _coordsCache[code] = (lat: supply.latitude!, lng: supply.longitude!);
       }),
     );
 
@@ -103,8 +105,8 @@ class RankMyTasksByProximityUseCase {
       for (final route in task.normalizedRoutes) {
         final point = route.hasMapPoint
             ? (lat: route.latitude!, lng: route.longitude!)
-            : catalogCoords[route.routeCode];
-        final distance = point == null
+            : _coordsCache[route.routeCode];
+        final distance = point == null || location == null
             ? null
             : distanceMeters(
                 latitudeA: location.latitude,
@@ -158,7 +160,8 @@ class RankMyTasksByProximityUseCase {
           routeCompleted: item.routeCompleted,
           distanceMeters: item.distanceMeters,
           hasSupplyLocation: item.hasSupplyLocation,
-          isRecommended: entry.key == 0 && item.hasSupplyLocation,
+          isRecommended:
+              entry.key == 0 && item.hasSupplyLocation && location != null,
           latitude: item.latitude,
           longitude: item.longitude,
         );

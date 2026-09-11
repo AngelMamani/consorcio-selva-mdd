@@ -23,6 +23,7 @@ class _AdminHomePageState extends State<AdminHomePage>
   int _index = 0;
   bool _checkingUpdate = false;
   bool _updateDialogOpen = false;
+  final Set<int> _visited = {0};
 
   @override
   void initState() {
@@ -84,17 +85,32 @@ class _AdminHomePageState extends State<AdminHomePage>
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: const [
-          AdminTasksPage(),
-          AreasPage(),
-          AttendancePage(),
-          StationsPage(),
-          SupportPage(),
+        children: [
+          _visited.contains(0)
+              ? const AdminTasksPage(key: ValueKey('admin-tab-tasks'))
+              : const SizedBox.shrink(),
+          _visited.contains(1)
+              ? const AreasPage(key: ValueKey('admin-tab-areas'))
+              : const SizedBox.shrink(),
+          _visited.contains(2)
+              ? const AttendancePage(key: ValueKey('admin-tab-attendance'))
+              : const SizedBox.shrink(),
+          _visited.contains(3)
+              ? const StationsPage(key: ValueKey('admin-tab-stations'))
+              : const SizedBox.shrink(),
+          _visited.contains(4)
+              ? const SupportPage(key: ValueKey('admin-tab-support'))
+              : const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            _visited.add(value);
+            _index = value;
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.checklist_outlined),

@@ -6,9 +6,7 @@ import '../entities/image_folder.dart';
 import '../errors/domain_exception.dart';
 import '../repositories/folder_image_repository.dart';
 import '../value_objects/geo_location.dart';
-import 'ensure_folder_date_use_case.dart';
-import 'ensure_supply_folder_use_case.dart';
-import 'upload_folder_images_use_case.dart';
+import 'upload_supply_photos_use_case.dart';
 
 class UploadTaskPhotosResult {
   const UploadTaskPhotosResult({
@@ -20,18 +18,20 @@ class UploadTaskPhotosResult {
   final ImageFolder folder;
   final FolderDate folderDate;
   final List<FolderImage> images;
+
+  factory UploadTaskPhotosResult.fromSupply(UploadSupplyPhotosResult result) {
+    return UploadTaskPhotosResult(
+      folder: result.folder,
+      folderDate: result.folderDate,
+      images: result.images,
+    );
+  }
 }
 
 class UploadTaskPhotosUseCase {
-  UploadTaskPhotosUseCase(
-    this._ensureSupplyFolderUseCase,
-    this._ensureFolderDateUseCase,
-    this._uploadFolderImagesUseCase,
-  );
+  UploadTaskPhotosUseCase(this._uploadSupplyPhotosUseCase);
 
-  final EnsureSupplyFolderUseCase _ensureSupplyFolderUseCase;
-  final EnsureFolderDateUseCase _ensureFolderDateUseCase;
-  final UploadFolderImagesUseCase _uploadFolderImagesUseCase;
+  final UploadSupplyPhotosUseCase _uploadSupplyPhotosUseCase;
 
   Future<UploadTaskPhotosResult> execute(
     AppUser actor, {
@@ -57,44 +57,21 @@ class UploadTaskPhotosUseCase {
       throw DomainException('Esta tarea no tiene código de suministro');
     }
 
-    if (files.isEmpty) {
-      throw DomainException('Selecciona al menos una imagen');
-    }
-
-    onStatus?.call('Preparando carpeta del suministro...');
-    final folder = await _ensureSupplyFolderUseCase.execute(
+    final trimmedNote = note.trim();
+    final result = await _uploadSupplyPhotosUseCase.execute(
       actor,
       areaId: areaId,
-      routeCode: selectedRoute,
       areaName: task.areaName,
-    );
-
-    onStatus?.call('Creando carpeta de hoy...');
-    final trimmedNote = note.trim();
-    final rawNote = trimmedNote.isEmpty
-        ? 'Fotos de tarea: ${task.title}'
-        : trimmedNote;
-    final folderDate = await _ensureFolderDateUseCase.execute(
-      actor,
-      folderId: folder.id,
-      dateKey: FolderDate.toDateKey(DateTime.now()),
-      note: rawNote.length > 200 ? rawNote.substring(0, 200) : rawNote,
-    );
-
-    onStatus?.call('Subiendo fotos...');
-    final images = await _uploadFolderImagesUseCase.execute(
-      actor,
-      folderId: folder.id,
-      dateId: folderDate.id,
+      routeCode: selectedRoute,
       files: files,
+      note: trimmedNote.isEmpty
+          ? 'Fotos de tarea: ${task.title}'
+          : trimmedNote,
       location: location,
+      onStatus: onStatus,
       onProgress: onProgress,
     );
 
-    return UploadTaskPhotosResult(
-      folder: folder,
-      folderDate: folderDate,
-      images: images,
-    );
+    return UploadTaskPhotosResult.fromSupply(result);
   }
 }

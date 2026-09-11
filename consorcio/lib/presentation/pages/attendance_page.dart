@@ -1,18 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/composition_root.dart';
 import '../../domain/entities/attendance.dart';
+import '../../domain/entities/attendance_permission_request.dart';
 import '../../domain/entities/attendance_settings.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/folder_image_repository.dart';
+import '../../domain/usecases/attendance_permission_request_use_cases.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
+import '../services/location_share_controller.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/technician_alert.dart';
-
-enum _MarkConfirm { cancel, markOnly, markWithPhoto }
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -26,8 +29,10 @@ class _AttendancePageState extends State<AttendancePage> {
   final _photoService = ImagePickerService();
   Attendance? _today;
   AttendanceSettings? _settings;
+  List<AttendancePermissionRequest> _myRequests = const [];
   bool _loading = true;
   bool _marking = false;
+  bool _requesting = false;
   String _markingLabel = 'Obteniendo GPS...';
   String? _error;
 
@@ -41,7 +46,14 @@ class _AttendancePageState extends State<AttendancePage> {
     final session = context.read<SessionController>();
     final deps = context.read<AppDependencies>();
     final user = session.user;
-    if (user == null) return;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Sesión no lista. Toca actualizar.';
+      });
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -49,14 +61,25 @@ class _AttendancePageState extends State<AttendancePage> {
     });
 
     try {
-      final today = await deps.getMyTodayAttendanceUseCase.execute(user);
-      final settings = await deps.getAttendanceSettingsUseCase.execute(user);
+      final results = await Future.wait([
+        deps.getMyTodayAttendanceUseCase.execute(user),
+        deps.getAttendanceSettingsUseCase.execute(user),
+      ]);
       if (!mounted) return;
       setState(() {
-        _today = today;
-        _settings = settings;
+        _today = results[0] as Attendance?;
+        _settings = results[1] as AttendanceSettings;
         _loading = false;
       });
+
+      try {
+        final requests =
+            await deps.listMyAttendancePermissionRequestsUseCase.execute(user);
+        if (!mounted) return;
+        setState(() {
+          _myRequests = requests.take(6).toList();
+        });
+      } catch (_) {}
     } on DomainException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -104,9 +127,15 @@ class _AttendancePageState extends State<AttendancePage> {
       _markingLabel = 'Obteniendo GPS...';
     });
     try {
-      final location = await _locationService.getCurrentLocation(
-        purpose: 'marcar asistencia',
-      );
+      LocationShareController? share;
+      try {
+        share = context.read<LocationShareController>();
+      } catch (_) {}
+
+      final location = share?.lastGeoLocation ??
+          await _locationService.getCurrentLocation(
+            purpose: 'marcar asistencia',
+          );
 
       if (origin == AttendanceOrigin.oficina) {
         final settings = _settings ?? AttendanceSettings.defaults;
@@ -120,21 +149,28 @@ class _AttendancePageState extends State<AttendancePage> {
 
       if (!mounted) return;
 
-      ImageFilePayload? photo;
       setState(() => _marking = false);
-      final confirm = await _confirmMark(origin);
-      if (confirm == _MarkConfirm.cancel || !mounted) return;
-      if (origin == AttendanceOrigin.zona &&
-          confirm == _MarkConfirm.markWithPhoto) {
-        photo = await _photoService.takePhoto();
-        if (!mounted) return;
-      }
+      final confirmed = await _confirmMark(origin);
+      if (!confirmed || !mounted) return;
 
       setState(() {
         _marking = true;
-        _markingLabel = photo == null
-            ? 'Registrando asistencia...'
-            : 'Subiendo foto y asistencia...';
+        _markingLabel = 'Tomando foto de uniforme...';
+      });
+      final photo = await _photoService.takeAttendancePhoto();
+      if (!mounted) return;
+      if (photo == null) {
+        setState(() => _marking = false);
+        await _showAlert(
+          TechnicianAlertKind.error,
+          'Foto requerida',
+          'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto.',
+        );
+        return;
+      }
+
+      setState(() {
+        _markingLabel = 'Subiendo foto y asistencia...';
       });
 
       final attendance = await deps.markAttendanceUseCase.execute(
@@ -148,17 +184,15 @@ class _AttendancePageState extends State<AttendancePage> {
         _today = attendance;
         _marking = false;
       });
-      final extra = origin == AttendanceOrigin.oficina
-          ? attendance.areaName.isNotEmpty
+      final place = origin == AttendanceOrigin.oficina
+          ? (attendance.areaName.isNotEmpty
               ? 'en ${attendance.areaName}'
-              : 'confirmada en oficina'
-          : photo == null
-              ? 'con GPS de campo'
-              : 'con GPS y foto de evidencia';
+              : 'en oficina')
+          : 'en campo';
       await _showAlert(
         TechnicianAlertKind.success,
         'Asistencia marcada',
-        'Quedó $extra a las ${_formatTime(attendance.createdAt)}. '
+        'Quedó $place a las ${_formatTime(attendance.createdAt)} con foto de uniforme. '
         'Ya no puedes volver a marcar hoy.',
       );
     } on DomainException catch (error) {
@@ -180,9 +214,9 @@ class _AttendancePageState extends State<AttendancePage> {
     }
   }
 
-  Future<_MarkConfirm> _confirmMark(AttendanceOrigin origin) async {
+  Future<bool> _confirmMark(AttendanceOrigin origin) async {
     final isField = origin == AttendanceOrigin.zona;
-    final result = await showModalBottomSheet<_MarkConfirm>(
+    final result = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
       builder: (context) {
@@ -202,29 +236,20 @@ class _AttendancePageState extends State<AttendancePage> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Debes tomar una foto de cuerpo completo para verificar '
+                  'uniforme completo y correcto.',
+                ),
                 const SizedBox(height: 16),
-                if (isField) ...[
-                  FilledButton.icon(
-                    onPressed: () =>
-                        Navigator.pop(context, _MarkConfirm.markWithPhoto),
-                    icon: const Icon(Icons.photo_camera_rounded),
-                    label: const Text('Adjuntar foto y marcar'),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: () =>
-                        Navigator.pop(context, _MarkConfirm.markOnly),
-                    child: const Text('Marcar solo con GPS'),
-                  ),
-                ] else
-                  FilledButton(
-                    onPressed: () =>
-                        Navigator.pop(context, _MarkConfirm.markOnly),
-                    child: const Text('Confirmar asistencia'),
-                  ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(context, true),
+                  icon: const Icon(Icons.photo_camera_rounded),
+                  label: const Text('Tomar foto y marcar'),
+                ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () => Navigator.pop(context, _MarkConfirm.cancel),
+                  onPressed: () => Navigator.pop(context, false),
                   child: const Text('Cancelar'),
                 ),
               ],
@@ -233,7 +258,150 @@ class _AttendancePageState extends State<AttendancePage> {
         );
       },
     );
-    return result ?? _MarkConfirm.cancel;
+    return result == true;
+  }
+
+  Future<void> _requestPermission() async {
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null || _requesting) return;
+
+    final descriptionController = TextEditingController();
+    ImageFilePayload? photo;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+          ),
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Solicitar permiso',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Describe el motivo. El administrador revisará y asignará '
+                    'los días. La foto es opcional.',
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descriptionController,
+                    maxLength: maxPermissionDescription,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Descripción',
+                      hintText: 'Ej. Cita médica el jueves y viernes...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final taken = await _photoService.takePhoto();
+                      if (taken == null) return;
+                      setModalState(() => photo = taken);
+                    },
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: Text(
+                      photo == null
+                          ? 'Agregar foto (opcional)'
+                          : 'Foto lista · cambiar',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () {
+                      final text = descriptionController.text.trim();
+                      if (text.length < minPermissionDescription) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Describe el motivo con al menos 8 caracteres',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.pop(context, true);
+                    },
+                    child: const Text('Enviar solicitud'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancelar'),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    final description = descriptionController.text;
+    if (confirmed != true || !mounted) {
+      // Después del frame: el TextField del sheet ya se desmontó.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        descriptionController.dispose();
+      });
+      return;
+    }
+
+    setState(() => _requesting = true);
+    try {
+      await deps.requestAttendancePermissionUseCase
+          .execute(
+            user,
+            description: description,
+            evidencePhoto: photo,
+          )
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      setState(() => _requesting = false);
+      await _showAlert(
+        TechnicianAlertKind.success,
+        'Solicitud enviada',
+        'El administrador revisará tu solicitud y asignará los días de permiso.',
+      );
+      if (mounted) await _load();
+    } on DomainException catch (error) {
+      if (!mounted) return;
+      setState(() => _requesting = false);
+      await _showAlert(
+        TechnicianAlertKind.error,
+        'No se pudo enviar',
+        error.message,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _requesting = false);
+      await _showAlert(
+        TechnicianAlertKind.error,
+        'No se pudo enviar',
+        'Revisa tu conexión e intenta de nuevo.',
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        descriptionController.dispose();
+      });
+      if (mounted && _requesting) setState(() => _requesting = false);
+    }
   }
 
   Future<void> _showAlert(
@@ -274,7 +442,7 @@ class _AttendancePageState extends State<AttendancePage> {
         actions: [
           IconButton(
             tooltip: 'Actualizar',
-            onPressed: _loading || _marking ? null : _load,
+            onPressed: _loading || _marking || _requesting ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -316,7 +484,8 @@ class _AttendancePageState extends State<AttendancePage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${settings.resolvedOfficePoints.map((point) => point.name).join(' · ')} · Oficina o campo con GPS. Permiso solo por administrador.',
+                        '${settings.resolvedOfficePoints.map((point) => point.name).join(' · ')} · '
+                        'Oficina o campo con GPS y foto de uniforme. Puedes solicitar permiso.',
                         style: const TextStyle(color: Colors.white70, height: 1.35),
                       ),
                     ],
@@ -333,36 +502,84 @@ class _AttendancePageState extends State<AttendancePage> {
                     padding: const EdgeInsets.only(top: 24),
                     child: Text(_error!, textAlign: TextAlign.center),
                   )
-                else if (_today != null)
-                  _MarkedCard(
-                    attendance: _today!,
-                    timeLabel: _formatTime(_today!.createdAt),
-                  )
                 else ...[
-                  _ActionCard(
-                    color: AppTheme.isDarkOf(context)
-                        ? const Color(0xFF7EC8FF)
-                        : const Color(0xFF1565C0),
-                    icon: Icons.apartment_rounded,
-                    title: 'Estoy en oficina',
-                    subtitle: 'Marca con GPS dentro de la sede.',
-                    onTap: _marking ? null : _markOffice,
-                  ),
+                  if (_today != null)
+                    _MarkedCard(
+                      attendance: _today!,
+                      timeLabel: _formatTime(_today!.createdAt),
+                    )
+                  else ...[
+                    _ActionCard(
+                      color: AppTheme.isDarkOf(context)
+                          ? const Color(0xFF7EC8FF)
+                          : const Color(0xFF1565C0),
+                      icon: Icons.apartment_rounded,
+                      title: 'Estoy en oficina',
+                      subtitle:
+                          'GPS + foto de cuerpo completo con uniforme.',
+                      onTap: _marking || _requesting ? null : _markOffice,
+                    ),
+                    const SizedBox(height: 12),
+                    _ActionCard(
+                      color: AppTheme.isDarkOf(context)
+                          ? const Color(0xFF8BE09A)
+                          : const Color(0xFF2E7D32),
+                      icon: Icons.terrain_rounded,
+                      title: 'Estoy en campo',
+                      subtitle:
+                          'GPS + foto de cuerpo completo con uniforme.',
+                      onTap: _marking || _requesting ? null : _markZone,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _ActionCard(
                     color: AppTheme.isDarkOf(context)
-                        ? const Color(0xFF8BE09A)
-                        : const Color(0xFF2E7D32),
-                    icon: Icons.terrain_rounded,
-                    title: 'Estoy en campo',
-                    subtitle: 'Marca con GPS. La foto es opcional.',
-                    onTap: _marking ? null : _markZone,
+                        ? const Color(0xFFE0B0FF)
+                        : const Color(0xFF6A1B9A),
+                    icon: Icons.event_busy_rounded,
+                    title: 'Solicitar permiso',
+                    subtitle:
+                        'Describe el motivo. Foto opcional. El admin asigna los días.',
+                    onTap: _marking || _requesting ? null : _requestPermission,
                   ),
+                  if (_myRequests.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Mis solicitudes',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._myRequests.map(
+                      (item) => Card(
+                        child: ListTile(
+                          title: Text(
+                            AttendancePermissionRequestStatus.label(
+                              item.status,
+                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            [
+                              item.description,
+                              if (item.leaveDays != null)
+                                '${item.leaveDays} día(s)'
+                                    '${item.startDateKey != null ? ' · ${item.startDateKey}' : ''}'
+                                    '${item.endDateKey != null && item.endDateKey != item.startDateKey ? ' → ${item.endDateKey}' : ''}',
+                            ].join('\n'),
+                          ),
+                          isThreeLine: true,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),
           ),
-          if (_marking)
+          if (_marking || _requesting)
             ColoredBox(
               color: const Color(0x66000000),
               child: Center(
@@ -375,7 +592,7 @@ class _AttendancePageState extends State<AttendancePage> {
                         const CircularProgressIndicator(),
                         const SizedBox(height: 12),
                         Text(
-                          _markingLabel,
+                          _requesting ? 'Enviando solicitud...' : _markingLabel,
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ],

@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase-admin/app'
+import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import {
   FieldValue,
@@ -6,9 +6,13 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { onInit, setGlobalOptions } from 'firebase-functions/v2'
+import { setGlobalOptions } from 'firebase-functions/v2'
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 })
+
+if (getApps().length === 0) {
+  initializeApp()
+}
 
 const ALLOWED_ROLES = new Set([
   'SUPER_ADMINISTRADOR',
@@ -25,13 +29,14 @@ function technicianLoginEmail(dni: string): string {
 
 const callableOptions = {
   region: 'us-central1' as const,
-  cors: true,
+  cors: [
+    'http://localhost:5173',
+    'http://localhost:4173',
+    'https://consorcio-selva-mdd.web.app',
+    'https://consorcio-selva-mdd.firebaseapp.com',
+  ],
   invoker: 'public' as const,
 }
-
-onInit(() => {
-  initializeApp()
-})
 
 function actorRoleCodes(actor: Record<string, unknown> | undefined): string[] {
   const fromList = Array.isArray(actor?.roles)

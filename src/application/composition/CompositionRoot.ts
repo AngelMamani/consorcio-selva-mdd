@@ -53,11 +53,17 @@ import {
 } from '@/domain/usecases/tasks/TaskUseCases'
 import {
   ListAttendanceDayUseCase,
+  ListAttendancePeriodUseCase,
   GetAttendanceSettingsUseCase,
   SaveAttendanceSettingsUseCase,
   GetMyTodayAttendanceUseCase,
   MarkAttendanceUseCase,
   GrantAttendancePermissionUseCase,
+  RequestAttendancePermissionUseCase,
+  ListMyAttendancePermissionRequestsUseCase,
+  ListPendingAttendancePermissionRequestsUseCase,
+  ApproveAttendancePermissionRequestUseCase,
+  RejectAttendancePermissionRequestUseCase,
 } from '@/domain/usecases/attendance/AttendanceUseCases'
 import { ExportAttendanceDayToExcelUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToExcelUseCase'
 import { ExportAttendanceDayToPdfUseCase } from '@/domain/usecases/attendance/ExportAttendanceDayToPdfUseCase'
@@ -78,6 +84,7 @@ import {
   SearchSuppliesUseCase,
 } from '@/domain/usecases/supplies/SupplyUseCases'
 import { FirebaseAttendanceRepository } from '@/infrastructure/firestore/FirebaseAttendanceRepository'
+import { FirebaseAttendancePermissionRequestRepository } from '@/infrastructure/firestore/FirebaseAttendancePermissionRequestRepository'
 import { FirebaseSupplyRepository } from '@/infrastructure/firestore/FirebaseSupplyRepository'
 import { FirebaseMobileAppReleaseRepository } from '@/infrastructure/firestore/FirebaseMobileAppReleaseRepository'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
@@ -207,11 +214,17 @@ export interface AppDependencies {
   exportMeterChangeOrdersToPdfUseCase: ExportMeterChangeOrdersToPdfUseCase
   exportMeterChangeOrdersToExcelUseCase: ExportMeterChangeOrdersToExcelUseCase
   listAttendanceDayUseCase: ListAttendanceDayUseCase
+  listAttendancePeriodUseCase: ListAttendancePeriodUseCase
   getAttendanceSettingsUseCase: GetAttendanceSettingsUseCase
   saveAttendanceSettingsUseCase: SaveAttendanceSettingsUseCase
   getMyTodayAttendanceUseCase: GetMyTodayAttendanceUseCase
   markAttendanceUseCase: MarkAttendanceUseCase
   grantAttendancePermissionUseCase: GrantAttendancePermissionUseCase
+  requestAttendancePermissionUseCase: RequestAttendancePermissionUseCase
+  listMyAttendancePermissionRequestsUseCase: ListMyAttendancePermissionRequestsUseCase
+  listPendingAttendancePermissionRequestsUseCase: ListPendingAttendancePermissionRequestsUseCase
+  approveAttendancePermissionRequestUseCase: ApproveAttendancePermissionRequestUseCase
+  rejectAttendancePermissionRequestUseCase: RejectAttendancePermissionRequestUseCase
   exportAttendanceDayToExcelUseCase: ExportAttendanceDayToExcelUseCase
   exportAttendanceDayToPdfUseCase: ExportAttendanceDayToPdfUseCase
   getMobileAppReleaseUseCase: GetMobileAppReleaseUseCase
@@ -255,6 +268,8 @@ export function createAppDependencies(): AppDependencies {
   const imageRepository = new FirebaseFolderImageRepository()
   const folderDateRepository = new FirebaseFolderDateRepository()
   const attendanceRepository = new FirebaseAttendanceRepository()
+  const attendancePermissionRequestRepository =
+    new FirebaseAttendancePermissionRequestRepository()
   const areaRepository = new FirebaseAreaRepository()
   const taskRepository = new FirebaseTaskRepository()
   const cargoRepository = new FirebaseCatalogRepository('cargos')
@@ -278,6 +293,10 @@ export function createAppDependencies(): AppDependencies {
   const technicianLocationRepository = new FirebaseTechnicianLocationRepository()
   const supplyRepository = new FirebaseSupplyRepository()
   const listAttendanceDayUseCase = new ListAttendanceDayUseCase(
+    attendanceRepository,
+    userRepository,
+  )
+  const listAttendancePeriodUseCase = new ListAttendancePeriodUseCase(
     attendanceRepository,
     userRepository,
   )
@@ -495,6 +514,7 @@ export function createAppDependencies(): AppDependencies {
     exportMeterChangeOrdersToExcelUseCase:
       new ExportMeterChangeOrdersToExcelUseCase(meterChangeOrderExcelService),
     listAttendanceDayUseCase,
+    listAttendancePeriodUseCase,
     getAttendanceSettingsUseCase,
     saveAttendanceSettingsUseCase: new SaveAttendanceSettingsUseCase(
       attendanceRepository,
@@ -507,6 +527,26 @@ export function createAppDependencies(): AppDependencies {
       attendanceRepository,
       userRepository,
     ),
+    requestAttendancePermissionUseCase: new RequestAttendancePermissionUseCase(
+      attendancePermissionRequestRepository,
+    ),
+    listMyAttendancePermissionRequestsUseCase:
+      new ListMyAttendancePermissionRequestsUseCase(
+        attendancePermissionRequestRepository,
+      ),
+    listPendingAttendancePermissionRequestsUseCase:
+      new ListPendingAttendancePermissionRequestsUseCase(
+        attendancePermissionRequestRepository,
+      ),
+    approveAttendancePermissionRequestUseCase:
+      new ApproveAttendancePermissionRequestUseCase(
+        attendancePermissionRequestRepository,
+        attendanceRepository,
+      ),
+    rejectAttendancePermissionRequestUseCase:
+      new RejectAttendancePermissionRequestUseCase(
+        attendancePermissionRequestRepository,
+      ),
     exportAttendanceDayToExcelUseCase: new ExportAttendanceDayToExcelUseCase(
       listAttendanceDayUseCase,
       getAttendanceSettingsUseCase,

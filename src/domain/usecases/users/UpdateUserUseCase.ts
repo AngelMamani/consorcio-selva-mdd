@@ -85,11 +85,10 @@ export class UpdateUserUseCase {
         nextRole !== UserRole.Administrador &&
         nextRole !== UserRole.SuperAdministrador)
     ) {
-      const all = await this.userRepository.listAll()
-      const otherActiveAdmins = all.filter(
+      const privileged = await this.userRepository.listActivePrivileged()
+      const otherActiveAdmins = privileged.filter(
         (item) =>
           item.id !== existing.id &&
-          item.active &&
           (hasAssignedRole(item, UserRole.Administrador) ||
             hasAssignedRole(item, UserRole.SuperAdministrador)),
       )

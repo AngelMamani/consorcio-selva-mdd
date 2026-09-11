@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../domain/entities/support_ticket.dart';
 import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/support_ticket_repository.dart';
+import 'firestore_client.dart';
 
 class FirebaseSupportTicketRepository implements SupportTicketRepository {
   FirebaseSupportTicketRepository({FirebaseFirestore? firestore})
@@ -54,18 +55,20 @@ class FirebaseSupportTicketRepository implements SupportTicketRepository {
 
   @override
   Future<List<SupportTicket>> listMine(String userId) async {
-    final snapshot = await _tickets
-        .where('createdById', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
-        .limit(80)
-        .get();
+    final snapshot = await queryFast(
+      _tickets
+          .where('createdById', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .limit(40),
+    );
     return snapshot.docs.map((doc) => _map(doc.id, doc.data())).toList();
   }
 
   @override
   Future<List<SupportTicket>> listAll() async {
-    final snapshot =
-        await _tickets.orderBy('createdAt', descending: true).limit(200).get();
+    final snapshot = await queryFast(
+      _tickets.orderBy('createdAt', descending: true).limit(80),
+    );
     return snapshot.docs.map((doc) => _map(doc.id, doc.data())).toList();
   }
 

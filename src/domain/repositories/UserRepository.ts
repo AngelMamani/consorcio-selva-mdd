@@ -19,12 +19,16 @@ export interface UpdateUserInput {
   active?: boolean
   theme?: ThemePreference
   mustChangePassword?: boolean
+  /** Secreto de acceso para ops admin sin Cloud Functions (no mostrar en UI). */
+  loginSecret?: string
 }
 
 export interface UserRepository {
   getById(id: string): Promise<User | null>
   listAll(): Promise<User[]>
   listTechnicians(): Promise<User[]>
+  /** Admins/supers activos (acotado). Para last-admin checks. */
+  listActivePrivileged(limitPerRole?: number): Promise<User[]>
   listByDni(dni: string): Promise<User[]>
   findByDni(dni: string): Promise<User | null>
   findByEmail(email: string): Promise<User | null>

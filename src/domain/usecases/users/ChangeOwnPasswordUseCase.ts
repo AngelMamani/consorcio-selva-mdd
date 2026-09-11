@@ -53,6 +53,7 @@ export class ChangeOwnPasswordUseCase {
 
     return this.userRepository.update(actor.id, {
       mustChangePassword: false,
+      loginSecret: newPassword,
     })
   }
 }

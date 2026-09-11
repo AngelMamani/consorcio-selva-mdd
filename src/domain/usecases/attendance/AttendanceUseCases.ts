@@ -1,9 +1,18 @@
 import type { Attendance } from '@/domain/entities/Attendance'
 import {
   AttendanceOrigin,
+  addLimaDateKeys,
   isAttendanceOrigin,
   toLimaDateKey,
 } from '@/domain/entities/Attendance'
+import type { AttendancePermissionRequest } from '@/domain/entities/AttendancePermissionRequest'
+import {
+  AttendancePermissionRequestStatus,
+  MAX_LEAVE_DAYS,
+  MAX_PERMISSION_DESCRIPTION,
+  MIN_LEAVE_DAYS,
+  MIN_PERMISSION_DESCRIPTION,
+} from '@/domain/entities/AttendancePermissionRequest'
 import type { AttendanceSettings } from '@/domain/entities/AttendanceSettings'
 import {
   defaultAttendanceSettings,
@@ -21,6 +30,7 @@ import {
   assertUserCanManageUsers,
   uniqueUsersByAccessDni,
 } from '@/domain/entities/User'
+import type { AttendancePermissionRequestRepository } from '@/domain/repositories/AttendancePermissionRequestRepository'
 import type { AttendanceRepository } from '@/domain/repositories/AttendanceRepository'
 import type { UserRepository } from '@/domain/repositories/UserRepository'
 import type { GeoLocation } from '@/domain/value-objects/GeoLocation'
@@ -36,6 +46,11 @@ import {
 export interface AttendanceDayRow {
   person: User
   attendance: Attendance | null
+}
+
+export interface AttendancePeriodRow {
+  person: User
+  byDate: Record<string, Attendance | null>
 }
 
 const PERMISO_LOCATION: GeoLocation = { latitude: 0, longitude: 0 }
@@ -194,6 +209,71 @@ export class ListAttendanceDayUseCase {
   }
 }
 
+export class ListAttendancePeriodUseCase {
+  private readonly attendanceRepository: AttendanceRepository
+  private readonly userRepository: UserRepository
+
+  constructor(
+    attendanceRepository: AttendanceRepository,
+    userRepository: UserRepository,
+  ) {
+    this.attendanceRepository = attendanceRepository
+    this.userRepository = userRepository
+  }
+
+  async execute(
+    actor: User,
+    dateKeys: string[],
+  ): Promise<AttendancePeriodRow[]> {
+    if (!actor.active) {
+      throw new UnauthorizedError('Cuenta inactiva')
+    }
+    if (dateKeys.length === 0 || dateKeys.some((key) => !isDateKey(key))) {
+      throw new ValidationError('El rango de fechas no es válido')
+    }
+
+    const startDateKey = dateKeys[0] ?? ''
+    const endDateKey = dateKeys[dateKeys.length - 1] ?? startDateKey
+
+    if (
+      actor.role !== UserRole.Administrador &&
+      actor.role !== UserRole.SuperAdministrador
+    ) {
+      const ownMarks = await Promise.all(
+        dateKeys.map((key) =>
+          this.attendanceRepository.getByUserAndDate(actor.id, key),
+        ),
+      )
+      const byDate: Record<string, Attendance | null> = {}
+      dateKeys.forEach((key, index) => {
+        byDate[key] = ownMarks[index] ?? null
+      })
+      return [{ person: actor, byDate }]
+    }
+
+    const [people, attendances] = await Promise.all([
+      this.userRepository.listAll(),
+      this.attendanceRepository.listByDateRange(startDateKey, endDateKey),
+    ])
+
+    const byUserDate = new Map<string, Attendance>()
+    for (const item of attendances) {
+      byUserDate.set(`${item.userId}_${item.dateKey}`, item)
+    }
+
+    return uniqueUsersByAccessDni(people)
+      .filter((user) => user.active)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
+      .map((person) => {
+        const byDate: Record<string, Attendance | null> = {}
+        for (const key of dateKeys) {
+          byDate[key] = byUserDate.get(`${person.id}_${key}`) ?? null
+        }
+        return { person, byDate }
+      })
+  }
+}
+
 export class MarkAttendanceUseCase {
   private readonly attendanceRepository: AttendanceRepository
 
@@ -209,6 +289,7 @@ export class MarkAttendanceUseCase {
       permissionNote?: string
       environmentPhotoUrl?: string
       environmentPhotoPath?: string
+      evidenceFile?: { data: Blob; contentType: string }
     },
   ): Promise<Attendance> {
     if (!actor.active) {
@@ -218,8 +299,23 @@ export class MarkAttendanceUseCase {
       throw new ValidationError('El origen de asistencia no es válido')
     }
 
-    const environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
-    const environmentPhotoPath = request.environmentPhotoPath?.trim() ?? ''
+    let environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
+    let environmentPhotoPath = request.environmentPhotoPath?.trim() ?? ''
+
+    if (request.evidenceFile) {
+      if (request.evidenceFile.data.size <= 0 || request.evidenceFile.data.size > 10 * 1024 * 1024) {
+        throw new ValidationError('La foto debe pesar máximo 10 MB')
+      }
+      const uploaded = await this.attendanceRepository.uploadEvidencePhoto({
+        userId: actor.id,
+        dateKey: toLimaDateKey(),
+        data: request.evidenceFile.data,
+        contentType: request.evidenceFile.contentType || 'image/jpeg',
+      })
+      environmentPhotoUrl = uploaded.url
+      environmentPhotoPath = uploaded.path
+    }
+
     if (
       (environmentPhotoUrl && !environmentPhotoPath) ||
       (!environmentPhotoUrl && environmentPhotoPath)
@@ -229,6 +325,15 @@ export class MarkAttendanceUseCase {
     const hasPhoto = Boolean(environmentPhotoUrl && environmentPhotoPath)
     if (request.origin === AttendanceOrigin.Permiso && hasPhoto) {
       throw new ValidationError('El permiso no lleva foto')
+    }
+    if (
+      (request.origin === AttendanceOrigin.Oficina ||
+        request.origin === AttendanceOrigin.Zona) &&
+      !hasPhoto
+    ) {
+      throw new ValidationError(
+        'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto',
+      )
     }
 
     const dateKey = toLimaDateKey()
@@ -373,6 +478,249 @@ export class GrantAttendancePermissionUseCase {
       permissionNote: note || undefined,
       markedById: actor.id,
       markedByName: actor.displayName,
+    })
+  }
+}
+
+function trimPermissionRequestDescription(description: string): string {
+  return description.trim().slice(0, MAX_PERMISSION_DESCRIPTION)
+}
+
+export class RequestAttendancePermissionUseCase {
+  private readonly requestRepository: AttendancePermissionRequestRepository
+
+  constructor(requestRepository: AttendancePermissionRequestRepository) {
+    this.requestRepository = requestRepository
+  }
+
+  async execute(
+    actor: User,
+    request: {
+      description: string
+      evidencePhotoUrl?: string
+      evidencePhotoPath?: string
+      evidenceFile?: { data: Blob; contentType: string }
+    },
+  ): Promise<AttendancePermissionRequest> {
+    if (!actor.active) {
+      throw new UnauthorizedError('Cuenta inactiva')
+    }
+
+    const description = trimPermissionRequestDescription(request.description)
+    if (description.length < MIN_PERMISSION_DESCRIPTION) {
+      throw new ValidationError(
+        `Describe el motivo del permiso (mínimo ${MIN_PERMISSION_DESCRIPTION} caracteres)`,
+      )
+    }
+
+    let evidencePhotoUrl = request.evidencePhotoUrl?.trim() ?? ''
+    let evidencePhotoPath = request.evidencePhotoPath?.trim() ?? ''
+
+    if (request.evidenceFile) {
+      if (
+        request.evidenceFile.data.size <= 0 ||
+        request.evidenceFile.data.size > 10 * 1024 * 1024
+      ) {
+        throw new ValidationError('La foto debe pesar máximo 10 MB')
+      }
+      const fileId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}`
+      const uploaded = await this.requestRepository.uploadEvidencePhoto({
+        userId: actor.id,
+        fileId,
+        data: request.evidenceFile.data,
+        contentType: request.evidenceFile.contentType || 'image/jpeg',
+      })
+      evidencePhotoUrl = uploaded.url
+      evidencePhotoPath = uploaded.path
+    }
+
+    if (
+      (evidencePhotoUrl && !evidencePhotoPath) ||
+      (!evidencePhotoUrl && evidencePhotoPath)
+    ) {
+      throw new ValidationError('La foto adjunta está incompleta')
+    }
+
+    const pending = await this.requestRepository.listPendingByUser(actor.id)
+    if (pending.length > 0) {
+      throw new ValidationError(
+        'Ya tienes una solicitud de permiso pendiente. Espera la respuesta del administrador.',
+      )
+    }
+
+    return this.requestRepository.create({
+      userId: actor.id,
+      userName: actor.displayName,
+      description,
+      evidencePhotoUrl: evidencePhotoUrl || undefined,
+      evidencePhotoPath: evidencePhotoPath || undefined,
+    })
+  }
+}
+
+export class ListMyAttendancePermissionRequestsUseCase {
+  private readonly requestRepository: AttendancePermissionRequestRepository
+
+  constructor(requestRepository: AttendancePermissionRequestRepository) {
+    this.requestRepository = requestRepository
+  }
+
+  async execute(actor: User): Promise<AttendancePermissionRequest[]> {
+    if (!actor.active) {
+      throw new UnauthorizedError('Cuenta inactiva')
+    }
+    return this.requestRepository.listByUser(actor.id)
+  }
+}
+
+export class ListPendingAttendancePermissionRequestsUseCase {
+  private readonly requestRepository: AttendancePermissionRequestRepository
+
+  constructor(requestRepository: AttendancePermissionRequestRepository) {
+    this.requestRepository = requestRepository
+  }
+
+  async execute(actor: User): Promise<AttendancePermissionRequest[]> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError(
+        'Solo el administrador puede ver las solicitudes de permiso',
+      )
+    }
+    return this.requestRepository.listPending()
+  }
+}
+
+export class ApproveAttendancePermissionRequestUseCase {
+  private readonly requestRepository: AttendancePermissionRequestRepository
+  private readonly attendanceRepository: AttendanceRepository
+
+  constructor(
+    requestRepository: AttendancePermissionRequestRepository,
+    attendanceRepository: AttendanceRepository,
+  ) {
+    this.requestRepository = requestRepository
+    this.attendanceRepository = attendanceRepository
+  }
+
+  async execute(
+    actor: User,
+    input: {
+      requestId: string
+      leaveDays: number
+      startDateKey: string
+      adminNote?: string
+    },
+  ): Promise<AttendancePermissionRequest> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError(
+        'Solo el administrador puede aprobar solicitudes de permiso',
+      )
+    }
+
+    const leaveDays = Math.round(input.leaveDays)
+    if (
+      !Number.isFinite(leaveDays) ||
+      leaveDays < MIN_LEAVE_DAYS ||
+      leaveDays > MAX_LEAVE_DAYS
+    ) {
+      throw new ValidationError(
+        `Los días de permiso deben estar entre ${MIN_LEAVE_DAYS} y ${MAX_LEAVE_DAYS}`,
+      )
+    }
+    if (!isDateKey(input.startDateKey)) {
+      throw new ValidationError('La fecha de inicio no es válida')
+    }
+
+    const existing = await this.requestRepository.getById(input.requestId)
+    if (!existing) {
+      throw new ValidationError('La solicitud no existe')
+    }
+    if (existing.status !== AttendancePermissionRequestStatus.Pending) {
+      throw new ValidationError('Esta solicitud ya fue atendida')
+    }
+
+    const dateKeys = addLimaDateKeys(input.startDateKey, leaveDays)
+    const endDateKey = dateKeys[dateKeys.length - 1] ?? input.startDateKey
+
+    for (const dateKey of dateKeys) {
+      const attendance = await this.attendanceRepository.getByUserAndDate(
+        existing.userId,
+        dateKey,
+      )
+      if (attendance) {
+        throw new ValidationError(
+          `${existing.userName} ya tiene asistencia o permiso el ${dateKey}`,
+        )
+      }
+    }
+
+    const noteParts = [
+      existing.description,
+      input.adminNote?.trim() ? `Admin: ${input.adminNote.trim()}` : '',
+    ].filter(Boolean)
+    const permissionNote = noteParts.join(' · ').slice(0, 200)
+
+    for (const dateKey of dateKeys) {
+      await this.attendanceRepository.create({
+        userId: existing.userId,
+        userName: existing.userName,
+        dateKey,
+        origin: AttendanceOrigin.Permiso,
+        areaId: '',
+        areaName: '',
+        location: PERMISO_LOCATION,
+        officeValidated: false,
+        permissionNote: permissionNote || undefined,
+        markedById: actor.id,
+        markedByName: actor.displayName,
+      })
+    }
+
+    return this.requestRepository.approve({
+      requestId: existing.id,
+      leaveDays,
+      startDateKey: input.startDateKey,
+      endDateKey,
+      adminNote: input.adminNote?.trim().slice(0, 200) || undefined,
+      reviewedById: actor.id,
+      reviewedByName: actor.displayName,
+    })
+  }
+}
+
+export class RejectAttendancePermissionRequestUseCase {
+  private readonly requestRepository: AttendancePermissionRequestRepository
+
+  constructor(requestRepository: AttendancePermissionRequestRepository) {
+    this.requestRepository = requestRepository
+  }
+
+  async execute(
+    actor: User,
+    input: { requestId: string; adminNote?: string },
+  ): Promise<AttendancePermissionRequest> {
+    if (!assertUserCanManageUsers(actor)) {
+      throw new UnauthorizedError(
+        'Solo el administrador puede rechazar solicitudes de permiso',
+      )
+    }
+
+    const existing = await this.requestRepository.getById(input.requestId)
+    if (!existing) {
+      throw new ValidationError('La solicitud no existe')
+    }
+    if (existing.status !== AttendancePermissionRequestStatus.Pending) {
+      throw new ValidationError('Esta solicitud ya fue atendida')
+    }
+
+    return this.requestRepository.reject({
+      requestId: existing.id,
+      adminNote: input.adminNote?.trim().slice(0, 200) || undefined,
+      reviewedById: actor.id,
+      reviewedByName: actor.displayName,
     })
   }
 }

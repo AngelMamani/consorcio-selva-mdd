@@ -13,11 +13,15 @@ const _activeRoleKey = 'consorcio-active-role';
 
 class SessionController extends ChangeNotifier {
   SessionController(this._dependencies) {
-    _subscription = _dependencies.observeSessionUseCase.execute().listen((
-      nextUser,
-    ) {
-      unawaited(_onSession(nextUser));
-    });
+    _subscription = _dependencies.observeSessionUseCase.execute().listen(
+      (nextUser) {
+        unawaited(_onSession(nextUser));
+      },
+      onError: (Object error) {
+        unawaited(_onSessionError(error));
+      },
+      cancelOnError: false,
+    );
   }
 
   final AppDependencies _dependencies;
@@ -36,6 +40,29 @@ class SessionController extends ChangeNotifier {
   bool get mustChangePassword => user?.mustChangePassword == true;
 
   bool get isDarkTheme => ThemePreference.isDark(user?.theme);
+
+  Future<void> _onSessionError(Object error) async {
+    bootstrapping = false;
+    final message = error is DomainException
+        ? error.message
+        : 'Red lenta al leer tu perfil. Intenta de nuevo.';
+
+    // Si ya había sesión en memoria, la mantenemos y avisamos.
+    if (user != null) {
+      errorMessage = message;
+      notifyListeners();
+      return;
+    }
+
+    // Arranque en frío sin perfil usable: limpiar Auth para no quedar a medias.
+    errorMessage = message;
+    try {
+      await _dependencies.logoutUseCase.execute();
+    } catch (_) {}
+    user = null;
+    pendingRolePick = false;
+    notifyListeners();
+  }
 
   Future<void> _onSession(AppUser? nextUser) async {
     if (_loginInFlight) {

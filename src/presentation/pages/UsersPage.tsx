@@ -201,6 +201,8 @@ function avatarTone(name: string): string {
 export function UsersPage() {
   const { user } = useAuth()
   const {
+    listUsersUseCase,
+    listPersonalUseCase,
     updateUserUseCase,
     resetUserPasswordUseCase,
     deleteUserUseCase,
@@ -208,6 +210,7 @@ export function UsersPage() {
   } = useDependencies()
   const [users, setUsers] = useState<AccountRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [resettingUserId, setResettingUserId] = useState<string | null>(null)
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -226,8 +229,11 @@ export function UsersPage() {
     if (!user) return
     setLoading(true)
     try {
-      const result = await syncHrAccountsUseCase.execute(user)
-      setUsers(overlayHr(result.users, result.people))
+      const [accounts, people] = await Promise.all([
+        listUsersUseCase.execute(user),
+        listPersonalUseCase.execute(user),
+      ])
+      setUsers(overlayHr(accounts, people))
     } catch (err) {
       swalError(
         err instanceof DomainError
@@ -236,6 +242,24 @@ export function UsersPage() {
       )
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleSyncHr() {
+    if (!user || syncing) return
+    setSyncing(true)
+    try {
+      const result = await syncHrAccountsUseCase.execute(user)
+      setUsers(overlayHr(result.users, result.people))
+      swalSuccess('Cuentas sincronizadas con Recursos Humanos')
+    } catch (err) {
+      swalError(
+        err instanceof DomainError
+          ? err.message
+          : 'No se pudo sincronizar con RR.HH.',
+      )
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -269,7 +293,8 @@ export function UsersPage() {
 
   const activeCount = users.filter((item) => item.active).length
   const inactiveCount = users.length - activeCount
-  const busy = resettingUserId !== null || deletingUserId !== null
+  const busy =
+    resettingUserId !== null || deletingUserId !== null || syncing
 
   async function handleToggleActive(target: AccountRow) {
     if (!user || busy) return
@@ -620,11 +645,21 @@ export function UsersPage() {
           <h2>Cuentas</h2>
           <p>
             Las personas se registran en Recursos Humanos. Aquí hay una sola
-            cuenta de acceso por DNI, sincronizada con esa ficha. Al eliminar
-            una cuenta se quita el acceso y los roles de la ficha.
+            cuenta de acceso por DNI. Usa sincronizar si acabas de asignar roles
+            en RR.HH. o ves cuentas desactualizadas.
           </p>
         </div>
-        <SystemOrgNav />
+        <div className="users-page__header-actions">
+          <button
+            type="button"
+            className="btn btn--soft-primary"
+            onClick={() => void handleSyncHr()}
+            disabled={!user || loading || syncing}
+          >
+            {syncing ? 'Sincronizando...' : 'Sincronizar con RR.HH.'}
+          </button>
+          <SystemOrgNav />
+        </div>
       </div>
 
       <div className="users-summary" aria-label="Resumen de cuentas">

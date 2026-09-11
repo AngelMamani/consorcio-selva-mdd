@@ -7,6 +7,7 @@ import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/attendance_repository.dart';
 import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/value_objects/geo_location.dart';
+import 'firestore_client.dart';
 
 class FirebaseAttendanceRepository implements AttendanceRepository {
   FirebaseAttendanceRepository({
@@ -26,7 +27,12 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
 
   @override
   Future<AttendanceSettings> getSettings() async {
-    final snapshot = await _settings.get();
+    late final DocumentSnapshot<Map<String, dynamic>> snapshot;
+    try {
+      snapshot = await getFast(_settings);
+    } catch (_) {
+      return AttendanceSettings.defaults;
+    }
     if (!snapshot.exists || snapshot.data() == null) {
       return AttendanceSettings.defaults;
     }
@@ -85,8 +91,9 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
 
   @override
   Future<Attendance?> getByUserAndDate(String userId, String dateKey) async {
-    final snapshot =
-        await _attendances.doc(attendanceDocId(userId, dateKey)).get();
+    final snapshot = await getFast(
+      _attendances.doc(attendanceDocId(userId, dateKey)),
+    );
     if (!snapshot.exists || snapshot.data() == null) return null;
     return _map(snapshot.id, snapshot.data()!);
   }
@@ -115,7 +122,7 @@ class FirebaseAttendanceRepository implements AttendanceRepository {
     String? photoUrl;
     String? storagePath;
     if (environmentPhoto != null) {
-      storagePath = 'attendances/$userId/$dateKey/entorno.jpg';
+      storagePath = 'attendances/$userId/$dateKey/uniforme.jpg';
       final storageRef = _storage.ref(storagePath);
       try {
         await storageRef.putData(

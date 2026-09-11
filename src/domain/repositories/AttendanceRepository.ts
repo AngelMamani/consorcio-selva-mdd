@@ -41,6 +41,13 @@ export interface SaveAttendanceOfficeQrInput {
   createdById: string
 }
 
+export interface UploadAttendanceEvidenceInput {
+  userId: string
+  dateKey: string
+  data: Blob | ArrayBuffer | Uint8Array
+  contentType: string
+}
+
 export interface AttendanceRepository {
   getSettings(): Promise<AttendanceSettings | null>
   saveSettings(input: SaveAttendanceSettingsInput): Promise<AttendanceSettings>
@@ -48,5 +55,12 @@ export interface AttendanceRepository {
   saveOfficeQr(input: SaveAttendanceOfficeQrInput): Promise<AttendanceOfficeQr>
   getByUserAndDate(userId: string, dateKey: string): Promise<Attendance | null>
   listByDate(dateKey: string): Promise<Attendance[]>
+  listByDateRange(
+    startDateKey: string,
+    endDateKey: string,
+  ): Promise<Attendance[]>
   create(input: CreateAttendanceInput): Promise<Attendance>
+  uploadEvidencePhoto(
+    input: UploadAttendanceEvidenceInput,
+  ): Promise<{ url: string; path: string }>
 }

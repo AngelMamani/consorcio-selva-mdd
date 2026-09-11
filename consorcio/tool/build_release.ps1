@@ -26,9 +26,14 @@ Set-Content -Path $pubspec -Value $content -NoNewline
 
 Write-Host "Versión: $versionName+$oldCode → $versionName+$newCode"
 flutter pub get
+if ($LASTEXITCODE -ne 0) { throw "flutter pub get falló" }
 flutter build apk --release
+if ($LASTEXITCODE -ne 0) { throw "flutter build apk --release falló" }
 
 $apkSource = Join-Path $root 'build\app\outputs\flutter-apk\app-release.apk'
+if (-not (Test-Path $apkSource)) {
+  throw "No se generó el APK en $apkSource"
+}
 $releases = Join-Path (Split-Path -Parent $root) 'releases'
 New-Item -ItemType Directory -Force -Path $releases | Out-Null
 $apkTarget = Join-Path $releases "ConsorcioTecnico-$versionName+$newCode.apk"
@@ -37,3 +42,4 @@ Copy-Item -Force $apkSource $apkTarget
 Write-Host ""
 Write-Host "Listo: $apkTarget"
 Write-Host "En App móvil solo sube ese APK: versión y código se leen solos."
+Write-Host "Código de versión: $newCode (debe ser mayor que el publicado antes)."

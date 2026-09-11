@@ -5,6 +5,8 @@ import '../../domain/errors/domain_exception.dart';
 import '../../domain/repositories/supply_repository.dart';
 import '../../domain/services/geo_distance_service.dart';
 
+import 'firestore_client.dart';
+
 class FirebaseSupplyRepository implements SupplyRepository {
   FirebaseSupplyRepository({FirebaseFirestore? firestore})
       : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -16,9 +18,18 @@ class FirebaseSupplyRepository implements SupplyRepository {
 
   @override
   Future<Supply?> getByRouteCode(String routeCode) async {
-    final snapshot = await _supplies.doc(routeCode).get();
-    if (!snapshot.exists || snapshot.data() == null) return null;
-    return _map(snapshot.id, snapshot.data()!);
+    try {
+      final snapshot = await getFast(
+        _supplies.doc(routeCode),
+        timeout: const Duration(seconds: 6),
+      );
+      if (!snapshot.exists || snapshot.data() == null) return null;
+      return _map(snapshot.id, snapshot.data()!);
+    } on DomainException {
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

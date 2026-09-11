@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/entities/area.dart';
 import '../../domain/repositories/folder_image_repository.dart';
 
 class ImagePickerService {
@@ -31,16 +32,23 @@ class ImagePickerService {
     return _mapFiles([file]);
   }
 
-  Future<ImageFilePayload?> takePhoto() async {
+  Future<ImageFilePayload?> takePhoto({
+    int imageQuality = 70,
+    double maxWidth = 1280,
+  }) async {
     final file = await _picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 85,
-      maxWidth: 1920,
+      imageQuality: imageQuality,
+      maxWidth: maxWidth,
       preferredCameraDevice: CameraDevice.rear,
     );
     if (file == null) return null;
     final mapped = await _mapFiles([file]);
     return mapped.isEmpty ? null : mapped.first;
+  }
+
+  Future<ImageFilePayload?> takeAttendancePhoto() {
+    return takePhoto(imageQuality: 68, maxWidth: 1280);
   }
 
   Future<List<ImageFilePayload>> _mapFiles(List<XFile> files) async {
@@ -99,6 +107,113 @@ Future<String?> askOptionalPhotoNote(BuildContext context) {
       );
     },
   ).whenComplete(controller.dispose);
+}
+
+Future<Area?> pickActivityArea(
+  BuildContext context, {
+  required List<Area> areas,
+  String? preferredAreaId,
+  String title = '¿Qué actividad estás haciendo?',
+}) {
+  if (areas.isEmpty) {
+    return Future.value(null);
+  }
+  if (areas.length == 1) {
+    return Future.value(areas.first);
+  }
+
+  final preferred = preferredAreaId?.trim();
+
+  return showModalBottomSheet<Area>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) {
+      final sorted = [...areas]
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Las fotos se guardan en la carpeta del suministro de esa actividad, con la fecha de hoy.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: sorted.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                  itemBuilder: (context, index) {
+                    final area = sorted[index];
+                    final isPreferred =
+                        preferred != null && preferred.isNotEmpty && area.id == preferred;
+                    return ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(
+                          color: isPreferred
+                              ? const Color(0xFF1565C0)
+                              : Theme.of(context).dividerColor,
+                        ),
+                      ),
+                      leading: Icon(
+                        Icons.folder_special_rounded,
+                        color: isPreferred
+                            ? const Color(0xFF1565C0)
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                      title: Text(
+                        area.name,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: area.description.trim().isEmpty
+                          ? null
+                          : Text(area.description),
+                      trailing: isPreferred
+                          ? const Text(
+                              'De tu tarea',
+                              style: TextStyle(
+                                color: Color(0xFF1565C0),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            )
+                          : const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pop(context, area),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 Future<void> showPhotoSourceSheet({

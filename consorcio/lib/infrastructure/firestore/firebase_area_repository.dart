@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../domain/entities/area.dart';
 import '../../domain/repositories/area_repository.dart';
+import 'firestore_client.dart';
 
 class FirebaseAreaRepository implements AreaRepository {
   FirebaseAreaRepository({FirebaseFirestore? firestore})
@@ -14,8 +15,12 @@ class FirebaseAreaRepository implements AreaRepository {
 
   @override
   Future<List<Area>> listAll() async {
-    final snapshot = await _areas.orderBy('name').get();
-    return snapshot.docs.map((doc) => _map(doc.id, doc.data())).toList();
+    try {
+      final snapshot = await queryFast(_areas.orderBy('name'));
+      return snapshot.docs.map((doc) => _map(doc.id, doc.data())).toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   @override

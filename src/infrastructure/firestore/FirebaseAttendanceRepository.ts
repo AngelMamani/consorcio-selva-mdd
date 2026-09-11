@@ -9,6 +9,7 @@ import {
   where,
   Timestamp,
 } from 'firebase/firestore'
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import type { Attendance } from '@/domain/entities/Attendance'
 import {
   attendanceDocId,
@@ -26,9 +27,10 @@ import type {
   CreateAttendanceInput,
   SaveAttendanceOfficeQrInput,
   SaveAttendanceSettingsInput,
+  UploadAttendanceEvidenceInput,
 } from '@/domain/repositories/AttendanceRepository'
 import { UnauthorizedError, ValidationError } from '@/domain/errors/DomainError'
-import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
+import { firestoreDb, firebaseStorage } from '@/infrastructure/firebase/firebaseApp'
 
 interface AttendanceDoc {
   userId: string
@@ -228,6 +230,27 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
   }
 
+  async listByDateRange(
+    startDateKey: string,
+    endDateKey: string,
+  ): Promise<Attendance[]> {
+    const snapshot = await getDocs(
+      query(
+        this.collectionRef,
+        where('dateKey', '>=', startDateKey),
+        where('dateKey', '<=', endDateKey),
+      ),
+    )
+    return snapshot.docs
+      .map((item) => mapAttendance(item.id, item.data() as AttendanceDoc))
+      .filter((item): item is Attendance => item !== null)
+      .sort((a, b) => {
+        const byDate = a.dateKey.localeCompare(b.dateKey)
+        if (byDate !== 0) return byDate
+        return a.createdAt.getTime() - b.createdAt.getTime()
+      })
+  }
+
   async create(input: CreateAttendanceInput): Promise<Attendance> {
     const id = attendanceDocId(input.userId, input.dateKey)
     const ref = doc(this.collectionRef, id)
@@ -276,5 +299,21 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
       mapFirebaseWriteError(error, 'No se pudo marcar la asistencia')
     }
     return mapAttendance(id, payload) as Attendance
+  }
+
+  async uploadEvidencePhoto(
+    input: UploadAttendanceEvidenceInput,
+  ): Promise<{ url: string; path: string }> {
+    const path = `attendances/${input.userId}/${input.dateKey}/uniforme.jpg`
+    const storageRef = ref(firebaseStorage, path)
+    try {
+      await uploadBytes(storageRef, input.data, {
+        contentType: input.contentType || 'image/jpeg',
+      })
+      const url = await getDownloadURL(storageRef)
+      return { url, path }
+    } catch (error) {
+      mapFirebaseWriteError(error, 'No se pudo subir la foto de uniforme')
+    }
   }
 }

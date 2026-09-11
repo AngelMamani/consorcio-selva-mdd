@@ -46,6 +46,7 @@ class ChangeOwnPasswordUseCase {
     return _userRepository.updateMustChangePassword(
       userId: actor.id,
       mustChangePassword: false,
+      loginSecret: newPassword,
     );
   }
 }

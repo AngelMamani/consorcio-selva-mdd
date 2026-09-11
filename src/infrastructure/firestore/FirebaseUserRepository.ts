@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
   setDoc,
@@ -21,7 +22,11 @@ import type {
   UpdateUserInput,
   UserRepository,
 } from '@/domain/repositories/UserRepository'
-import { normalizeUserRoles, primaryUserRole } from '@/domain/value-objects/UserRole'
+import {
+  normalizeUserRoles,
+  primaryUserRole,
+  UserRole,
+} from '@/domain/value-objects/UserRole'
 import { ThemePreference, normalizeThemePreference } from '@/domain/value-objects/ThemePreference'
 import { DomainError, NotFoundError } from '@/domain/errors/DomainError'
 import { firestoreDb } from '@/infrastructure/firebase/firebaseApp'
@@ -34,6 +39,7 @@ interface UserDoc {
   roles?: string[]
   theme?: string
   mustChangePassword?: boolean
+  loginSecret?: string
   active: boolean
   createdAt: Timestamp
   updatedAt: Timestamp
@@ -64,6 +70,20 @@ function mapUser(id: string, data: UserDoc): User {
   }
 }
 
+function mergeUserDocs(
+  docs: Array<{ id: string; data: () => Record<string, unknown> }>,
+): User[] {
+  const byId = new Map<string, User>()
+  for (const item of docs) {
+    try {
+      byId.set(item.id, mapUser(item.id, item.data() as unknown as UserDoc))
+    } catch {
+      // Perfil mal formado.
+    }
+  }
+  return [...byId.values()]
+}
+
 export class FirebaseUserRepository implements UserRepository {
   private readonly collectionRef = collection(firestoreDb, 'users')
   private readonly loginAliasRef = collection(firestoreDb, 'loginByDni')
@@ -82,22 +102,43 @@ export class FirebaseUserRepository implements UserRepository {
   }
 
   async listTechnicians(): Promise<User[]> {
-    const [byRole, byArray] = await Promise.all([
-      getDocs(query(this.collectionRef, where('role', '==', 'TECNICO'))),
+    // Preferimos roles[]; mantenemos role== por legados sin array.
+    const [byArray, byRole] = await Promise.all([
       getDocs(
-        query(this.collectionRef, where('roles', 'array-contains', 'TECNICO')),
+        query(
+          this.collectionRef,
+          where('roles', 'array-contains', UserRole.Tecnico),
+        ),
       ),
+      getDocs(query(this.collectionRef, where('role', '==', UserRole.Tecnico))),
     ])
-    const byId = new Map<string, User>()
-    for (const item of [...byRole.docs, ...byArray.docs]) {
-      try {
-        byId.set(item.id, mapUser(item.id, item.data() as UserDoc))
-      } catch {
-        // Perfil mal formado: no entra al listado de campo.
-      }
-    }
-    return uniqueUsersByAccessDni([...byId.values()]).sort((a, b) =>
-      a.displayName.localeCompare(b.displayName, 'es'),
+    return uniqueUsersByAccessDni(
+      mergeUserDocs([...byArray.docs, ...byRole.docs]),
+    ).sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
+  }
+
+  async listActivePrivileged(limitPerRole = 12): Promise<User[]> {
+    const roles = [UserRole.Administrador, UserRole.SuperAdministrador] as const
+    const snaps = await Promise.all(
+      roles.flatMap((role) => [
+        getDocs(
+          query(
+            this.collectionRef,
+            where('roles', 'array-contains', role),
+            limit(limitPerRole),
+          ),
+        ),
+        getDocs(
+          query(
+            this.collectionRef,
+            where('role', '==', role),
+            limit(limitPerRole),
+          ),
+        ),
+      ]),
+    )
+    return mergeUserDocs(snaps.flatMap((snap) => snap.docs)).filter(
+      (user) => user.active,
     )
   }
 
@@ -151,6 +192,7 @@ export class FirebaseUserRepository implements UserRepository {
       throw new NotFoundError('Usuario no encontrado')
     }
 
+    const current = existing.data() as UserDoc
     const patch: Partial<UserDoc> = {
       updatedAt: Timestamp.now(),
     }
@@ -160,7 +202,7 @@ export class FirebaseUserRepository implements UserRepository {
     if (input.roles !== undefined) {
       const roles = normalizeUserRoles(input.roles)
       patch.roles = roles
-      patch.role = primaryUserRole(roles) ?? input.role ?? (existing.data() as UserDoc).role
+      patch.role = primaryUserRole(roles) ?? input.role ?? current.role
     }
     if (input.dni !== undefined) patch.dni = input.dni
     if (input.active !== undefined) patch.active = input.active
@@ -168,10 +210,10 @@ export class FirebaseUserRepository implements UserRepository {
     if (input.mustChangePassword !== undefined) {
       patch.mustChangePassword = input.mustChangePassword
     }
+    if (input.loginSecret !== undefined) patch.loginSecret = input.loginSecret
 
     await updateDoc(ref, patch)
     if (input.dni !== undefined) {
-      const current = existing.data() as UserDoc
       await this.syncLoginAlias(
         id,
         current.email,
@@ -179,8 +221,8 @@ export class FirebaseUserRepository implements UserRepository {
         input.dni,
       )
     }
-    const updated = await getDoc(ref)
-    return mapUser(id, updated.data() as UserDoc)
+
+    return mapUser(id, { ...current, ...patch })
   }
 
   private async syncLoginAlias(

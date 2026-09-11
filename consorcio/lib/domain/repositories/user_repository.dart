@@ -6,6 +6,7 @@ abstract class UserRepository {
   Future<AppUser> updateMustChangePassword({
     required String userId,
     required bool mustChangePassword,
+    String? loginSecret,
   });
   Future<AppUser> updateTheme({
     required String userId,

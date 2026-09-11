@@ -13,6 +13,7 @@ import type { UserRepository } from '@/domain/repositories/UserRepository'
 import { UnauthorizedError } from '@/domain/errors/DomainError'
 import type { ProvisionElectricistaTechniciansUseCase } from '@/domain/usecases/users/ProvisionElectricistaTechniciansUseCase'
 import type { UpdateUserUseCase } from '@/domain/usecases/users/UpdateUserUseCase'
+import { invalidateTechniciansCache } from '@/domain/usecases/users/ListTechniciansUseCase'
 import { DNI_PATTERN, digitsOnly } from '@/domain/value-objects/Dni'
 import {
   assignedUserRoles,
@@ -118,6 +119,7 @@ export class SyncHrAccountsUseCase {
 
     const nextUsers =
       pending.length > 0 ? await this.userRepository.listAll() : users
+    invalidateTechniciansCache()
     return {
       users: uniqueUsersByAccessDni(nextUsers),
       people,

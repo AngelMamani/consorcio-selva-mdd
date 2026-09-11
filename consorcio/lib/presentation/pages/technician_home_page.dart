@@ -24,6 +24,7 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
   String? _focusedTaskId;
   bool _checkingUpdate = false;
   bool _updateDialogOpen = false;
+  final Set<int> _visited = {0};
 
   @override
   void initState() {
@@ -82,32 +83,52 @@ class _TechnicianHomePageState extends State<TechnicianHomePage>
 
   @override
   Widget build(BuildContext context) {
+    // Crear widgets en cada build (no cachear instancias): Flutter conserva el
+    // State por posición/key. Cachear instancias rompe InheritedWidget/Provider.
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
-          TasksPage(
-            onOpenTaskMap: (taskId) {
-              setState(() {
-                _focusedTaskId = taskId;
-                _index = 1;
-              });
-            },
-          ),
-          TasksMapPage(
-            focusedTaskId: _focusedTaskId,
-            onClearTaskFocus: () {
-              setState(() => _focusedTaskId = null);
-            },
-          ),
-          const AreasPage(),
-          const AttendancePage(),
-          const SupportPage(),
+          _visited.contains(0)
+              ? TasksPage(
+                  key: const ValueKey('tab-tasks'),
+                  onOpenTaskMap: (taskId) {
+                    setState(() {
+                      _focusedTaskId = taskId;
+                      _visited.add(1);
+                      _index = 1;
+                    });
+                  },
+                )
+              : const SizedBox.shrink(),
+          _visited.contains(1)
+              ? TasksMapPage(
+                  key: ValueKey('tab-map-$_focusedTaskId'),
+                  focusedTaskId: _focusedTaskId,
+                  onClearTaskFocus: () {
+                    setState(() => _focusedTaskId = null);
+                  },
+                )
+              : const SizedBox.shrink(),
+          _visited.contains(2)
+              ? const AreasPage(key: ValueKey('tab-areas'))
+              : const SizedBox.shrink(),
+          _visited.contains(3)
+              ? const AttendancePage(key: ValueKey('tab-attendance'))
+              : const SizedBox.shrink(),
+          _visited.contains(4)
+              ? const SupportPage(key: ValueKey('tab-support'))
+              : const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            _visited.add(value);
+            _index = value;
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.checklist_outlined),

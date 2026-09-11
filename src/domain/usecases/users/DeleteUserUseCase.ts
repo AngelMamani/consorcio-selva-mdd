@@ -56,11 +56,10 @@ export class DeleteUserUseCase {
       hasAssignedRole(target, UserRole.Administrador) ||
       hasAssignedRole(target, UserRole.SuperAdministrador)
     if (privileged) {
-      const all = await this.userRepository.listAll()
-      const others = all.filter(
+      const privilegedUsers = await this.userRepository.listActivePrivileged()
+      const others = privilegedUsers.filter(
         (item) =>
           item.id !== target.id &&
-          item.active &&
           (hasAssignedRole(item, UserRole.Administrador) ||
             hasAssignedRole(item, UserRole.SuperAdministrador)),
       )

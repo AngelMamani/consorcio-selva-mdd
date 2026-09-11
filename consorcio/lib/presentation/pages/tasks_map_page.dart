@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/composition_root.dart';
+import '../../domain/entities/area.dart';
 import '../../domain/entities/field_task.dart';
 import '../../domain/entities/supply.dart';
 import '../../domain/errors/domain_exception.dart';
@@ -17,6 +18,7 @@ import '../../domain/usecases/search_supplies_use_case.dart';
 import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
+import '../services/location_share_controller.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import 'folder_date_detail_page.dart';
@@ -53,6 +55,7 @@ class _TasksMapPageState extends State<TasksMapPage> {
   String? _error;
   StreamSubscription<List<FieldTask>>? _tasksSub;
   int _tasksEpoch = 0;
+  List<FieldTask> _latestTasks = const [];
   final DateTime _openedAt = DateTime.now();
   final Set<String> _seenNoticeKeys = {};
   Timer? _suggestTimer;
@@ -140,73 +143,93 @@ class _TasksMapPageState extends State<TasksMapPage> {
       _gpsRequired = false;
     });
 
+    LocationShareController? share;
     try {
-      final location = await _locationService.getCurrentLocation(
-        purpose: 'mostrar tus tareas en el mapa',
+      share = context.read<LocationShareController>();
+    } catch (_) {}
+
+    var location = share?.lastGeoLocation ??
+        await _locationService.tryQuickLocation();
+    if (!mounted) return;
+    setState(() {
+      _location = location;
+      _loading = false;
+    });
+
+    await _tasksSub?.cancel();
+    _tasksSub = deps.listMyTasksUseCase.watch(user).listen((tasks) async {
+      final epoch = ++_tasksEpoch;
+      _latestTasks = tasks;
+      _notifyIfNeeded(user.id, tasks);
+      final ranked = await deps.rankMyTasksByProximityUseCase.execute(
+        tasks: tasks,
+        location: _location,
       );
-      if (!mounted) return;
-      setState(() {
-        _location = location;
-        _loading = false;
-      });
-      await _tasksSub?.cancel();
-      _tasksSub = deps.listMyTasksUseCase.watch(user).listen((tasks) async {
-        final epoch = ++_tasksEpoch;
-        _notifyIfNeeded(user.id, tasks);
-        final ranked = await deps.rankMyTasksByProximityUseCase.execute(
-          tasks: tasks,
-          location: location,
-        );
-        if (!mounted || epoch != _tasksEpoch) return;
-        final points = ranked
-            .where((item) {
-              if (!item.hasMapPoint) return false;
-              final focusedId = widget.focusedTaskId?.trim();
-              if (focusedId == null || focusedId.isEmpty) return true;
-              return item.task.id == focusedId;
-            })
-            .toList();
-        RankedFieldTask? selected;
-        if (_selected != null) {
-          for (final item in points) {
-            if (item.key == _selected!.key) {
-              selected = item;
-              break;
-            }
+      if (!mounted || epoch != _tasksEpoch) return;
+      final points = ranked
+          .where((item) {
+            if (!item.hasMapPoint) return false;
+            final focusedId = widget.focusedTaskId?.trim();
+            if (focusedId == null || focusedId.isEmpty) return true;
+            return item.task.id == focusedId;
+          })
+          .toList();
+      RankedFieldTask? selected;
+      if (_selected != null) {
+        for (final item in points) {
+          if (item.key == _selected!.key) {
+            selected = item;
+            break;
           }
         }
-        selected ??= points.isEmpty ? null : points.first;
-        setState(() {
-          _ranked = ranked;
-          _selected = selected;
-        });
-        if (_searchHit == null) {
-          _fitMap(location, points);
-        }
-      }, onError: (_) {
-        if (!mounted) return;
-        setState(() => _error = 'No se pudo actualizar el mapa de tareas');
-      });
-    } on DomainException catch (error) {
-      if (!mounted) return;
-      final needsGps = error.message.toLowerCase().contains('gps') ||
-          error.message.toLowerCase().contains('ubicación') ||
-          error.message.toLowerCase().contains('permiso');
+      }
+      selected ??= points.isEmpty ? null : points.first;
       setState(() {
-        _error = error.message;
-        _gpsRequired = needsGps;
-        _loading = false;
-        _ranked = [];
-        _location = null;
-        _selected = null;
+        _ranked = ranked;
+        _selected = selected;
       });
-    } catch (_) {
+      if (_searchHit == null && _location != null) {
+        _fitMap(_location!, points);
+      }
+    }, onError: (_) {
       if (!mounted) return;
+      setState(() => _error = 'No se pudo actualizar el mapa de tareas');
+    });
+
+    if (location == null) {
+      unawaited(_boostLocationWhenReady(share, deps));
+    }
+  }
+
+  Future<void> _boostLocationWhenReady(
+    LocationShareController? share,
+    AppDependencies deps,
+  ) async {
+    for (var i = 0; i < 8; i += 1) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      final loc = share?.lastGeoLocation;
+      if (loc == null) continue;
       setState(() {
-        _error = 'No se pudo cargar el mapa de tareas';
+        _location = loc;
         _gpsRequired = false;
-        _loading = false;
+        _error = null;
       });
+      if (_latestTasks.isEmpty) return;
+      final ranked = await deps.rankMyTasksByProximityUseCase.execute(
+        tasks: _latestTasks,
+        location: loc,
+      );
+      if (!mounted) return;
+      final points = ranked.where((item) => item.hasMapPoint).toList();
+      setState(() {
+        _ranked = ranked;
+        _selected ??= points.isEmpty ? null : points.first;
+      });
+      if (_searchHit == null) {
+        _fitMap(loc, points);
+      }
+      return;
     }
   }
 
@@ -621,6 +644,185 @@ class _TasksMapPageState extends State<TasksMapPage> {
     );
   }
 
+  Future<void> _addPhotosForSupply(
+    StationHit hit, {
+    RankedFieldTask? matchingTask,
+  }) async {
+    if (_uploading) return;
+    if (hit.isSed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Elige un suministro (no la SED) para mandar fotos',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null) return;
+
+    List<Area> areas;
+    try {
+      areas = await deps.listAreasUseCase.execute(user);
+    } on DomainException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudieron cargar las actividades')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    if (areas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay actividades. Pide al admin que cree una.'),
+        ),
+      );
+      return;
+    }
+
+    final preferredAreaId = matchingTask?.task.areaId.trim();
+    Area? area;
+    if (areas.length == 1) {
+      area = areas.first;
+    } else {
+      area = await pickActivityArea(
+        context,
+        areas: areas,
+        preferredAreaId: preferredAreaId,
+      );
+    }
+    if (area == null || !mounted) return;
+
+    final note = await askOptionalPhotoNote(context);
+    if (note == null || !mounted) return;
+
+    await showPhotoSourceSheet(
+      context: context,
+      onCamera: () async {
+        final photo = await _picker.takePhoto();
+        if (photo != null) {
+          await _uploadSupplyPhotos(
+            routeCode: hit.code,
+            area: area!,
+            files: [photo],
+            note: note,
+            matchingTask: matchingTask,
+          );
+        }
+      },
+      onGallery: () async {
+        final photos = await _picker.pickFromGallery(multiple: true);
+        await _uploadSupplyPhotos(
+          routeCode: hit.code,
+          area: area!,
+          files: photos,
+          note: note,
+          matchingTask: matchingTask,
+        );
+      },
+    );
+  }
+
+  Future<void> _uploadSupplyPhotos({
+    required String routeCode,
+    required Area area,
+    required List<ImageFilePayload> files,
+    String note = '',
+    RankedFieldTask? matchingTask,
+  }) async {
+    if (files.isEmpty) return;
+    final session = context.read<SessionController>();
+    final deps = context.read<AppDependencies>();
+    final user = session.user;
+    if (user == null || _uploading) return;
+
+    setState(() {
+      _uploading = true;
+      _uploadStatus = 'Preparando...';
+    });
+
+    try {
+      final result = await deps.uploadSupplyPhotosUseCase.execute(
+        user,
+        areaId: area.id,
+        areaName: area.name,
+        routeCode: routeCode,
+        files: files,
+        note: note,
+        location: _location,
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() => _uploadStatus = status);
+        },
+        onProgress: (current, total) {
+          if (!mounted) return;
+          setState(() => _uploadStatus = 'Subiendo $current de $total...');
+        },
+      );
+      if (!mounted) return;
+
+      if (matchingTask != null && matchingTask.isClaimedBy(user.id)) {
+        final updated = await deps.markMyTaskRoutePhotosUseCase.execute(
+          user,
+          taskId: matchingTask.task.id,
+          routeCode: matchingTask.routeCode,
+        );
+        if (mounted) _applyUpdatedTask(updated);
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${result.images.length} foto(s) en ${area.name} · carpeta de hoy',
+          ),
+          action: SnackBarAction(
+            label: 'Ver',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => FolderDateDetailPage(
+                    folderId: result.folder.id,
+                    dateId: result.folderDate.id,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } on DomainException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudieron subir las fotos')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploading = false;
+          _uploadStatus = '';
+        });
+      }
+    }
+  }
+
   void _applyUpdatedTask(FieldTask updated) {
     final ranked = applyUpdatedTaskToRanked(_ranked, updated);
     RankedFieldTask? selected;
@@ -1012,12 +1214,24 @@ class _TasksMapPageState extends State<TasksMapPage> {
                                           matchingTask: _taskForCode(
                                             _searchHit!.code,
                                           ),
+                                          uploading: _uploading,
                                           onClose: () {
                                             setState(() => _panelOpen = false);
                                           },
                                           onClear: _clearSearch,
                                           onNavigate: () =>
                                               _openSearchNavigation(_searchHit!),
+                                          onSendPhotos: () {
+                                            final matching = _taskForCode(
+                                              _searchHit!.code,
+                                            );
+                                            unawaited(
+                                              _addPhotosForSupply(
+                                                _searchHit!,
+                                                matchingTask: matching,
+                                              ),
+                                            );
+                                          },
                                           onPickNearby: (item) {
                                             _searchRoute(raw: item.routeCode);
                                           },
@@ -1413,9 +1627,11 @@ class _SearchHitPanel extends StatelessWidget {
     required this.hit,
     required this.nearby,
     required this.matchingTask,
+    required this.uploading,
     required this.onClose,
     required this.onClear,
     required this.onNavigate,
+    required this.onSendPhotos,
     required this.onPickNearby,
     required this.onOpenTask,
     required this.onCenterMe,
@@ -1424,9 +1640,11 @@ class _SearchHitPanel extends StatelessWidget {
   final StationHit hit;
   final List<NearbySupply> nearby;
   final RankedFieldTask? matchingTask;
+  final bool uploading;
   final VoidCallback onClose;
   final VoidCallback onClear;
   final VoidCallback onNavigate;
+  final VoidCallback onSendPhotos;
   final void Function(NearbySupply item) onPickNearby;
   final VoidCallback onOpenTask;
   final VoidCallback onCenterMe;
@@ -1516,6 +1734,12 @@ class _SearchHitPanel extends StatelessWidget {
                   icon: const Icon(Icons.directions_rounded),
                   label: const Text('Cómo llegar'),
                 ),
+                if (!hit.isSed)
+                  FilledButton.tonalIcon(
+                    onPressed: uploading ? null : onSendPhotos,
+                    icon: const Icon(Icons.photo_camera_rounded),
+                    label: Text(uploading ? 'Subiendo...' : 'Mandar fotos'),
+                  ),
                 if (matchingTask != null)
                   FilledButton.tonal(
                     onPressed: onOpenTask,

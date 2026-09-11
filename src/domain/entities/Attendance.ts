@@ -70,6 +70,88 @@ export function toLimaDateKey(date = new Date()): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' })
 }
 
+/** Genera `count` dateKeys consecutivos desde `startDateKey` (incluido). */
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+export function addLimaDateKeys(startDateKey: string, count: number): string[] {
+  const parts = startDateKey.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const day = parts[2] ?? 1
+  const keys: string[] = []
+  for (let i = 0; i < count; i += 1) {
+    const next = new Date(Date.UTC(year, month - 1, day + i))
+    keys.push(
+      `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}-${pad2(next.getUTCDate())}`,
+    )
+  }
+  return keys
+}
+
+/** Semana lunes–domingo que contiene `dateKey`. */
+export function limaWeekRange(dateKey: string): {
+  startDateKey: string
+  endDateKey: string
+  dateKeys: string[]
+} {
+  const parts = dateKey.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const day = parts[2] ?? 1
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  const offsetToMonday = weekday === 0 ? -6 : 1 - weekday
+  const monday = new Date(Date.UTC(year, month - 1, day + offsetToMonday))
+  const startDateKey = `${monday.getUTCFullYear()}-${pad2(monday.getUTCMonth() + 1)}-${pad2(monday.getUTCDate())}`
+  const dateKeys = addLimaDateKeys(startDateKey, 7)
+  return {
+    startDateKey,
+    endDateKey: dateKeys[6] ?? startDateKey,
+    dateKeys,
+  }
+}
+
+/** Mes calendario de `dateKey`. */
+export function limaMonthRange(dateKey: string): {
+  startDateKey: string
+  endDateKey: string
+  dateKeys: string[]
+} {
+  const parts = dateKey.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const startDateKey = `${year}-${pad2(month)}-01`
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const dateKeys = addLimaDateKeys(startDateKey, lastDay)
+  return {
+    startDateKey,
+    endDateKey: dateKeys[dateKeys.length - 1] ?? startDateKey,
+    dateKeys,
+  }
+}
+
+export function clipDateKeysToToday(
+  dateKeys: string[],
+  todayKey = toLimaDateKey(),
+): string[] {
+  return dateKeys.filter((key) => key <= todayKey)
+}
+
+export function formatAttendanceDayLabel(dateKey: string): string {
+  const parts = dateKey.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const day = parts[2] ?? 1
+  const date = new Date(Date.UTC(year, month - 1, day, 12))
+  return date.toLocaleDateString('es-PE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  })
+}
+
 export function formatAttendanceTime(date: Date): string {
   return date.toLocaleTimeString('es-PE', {
     timeZone: 'America/Lima',

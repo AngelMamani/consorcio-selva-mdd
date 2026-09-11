@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../domain/entities/app_user.dart';
 import '../../domain/usecases/publish_own_location_use_case.dart';
+import '../../domain/value_objects/geo_location.dart';
 
 class LocationShareController {
   LocationShareController(this._useCase);
@@ -19,10 +20,27 @@ class LocationShareController {
   Position? _lastPosition;
   Position? _lastTrailPosition;
 
-  static const _minTrailMeters = 12.0;
+  static const _minTrailMeters = 60.0;
+  static const _freshAge = Duration(seconds: 90);
+
+  bool get isGpsReady => _gpsReady;
 
   void attach(AppUser user) {
     _user = user;
+  }
+
+  /// Cached live position for attendance / ranking (null if stale).
+  GeoLocation? get lastGeoLocation {
+    final position = _lastPosition;
+    if (position == null) return null;
+    final age = DateTime.now().difference(position.timestamp);
+    if (age.isNegative || age > _freshAge) return null;
+    return GeoLocation(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: position.accuracy,
+      capturedAt: position.timestamp,
+    );
   }
 
   Future<void> setGpsReady(bool ready) async {
@@ -44,13 +62,13 @@ class LocationShareController {
     _positionSub = Geolocator.getPositionStream(
       locationSettings: Platform.isAndroid
           ? AndroidSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 5,
-              intervalDuration: const Duration(seconds: 8),
+              accuracy: LocationAccuracy.medium,
+              distanceFilter: 40,
+              intervalDuration: const Duration(seconds: 60),
             )
           : const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 5,
+              accuracy: LocationAccuracy.medium,
+              distanceFilter: 40,
             ),
     ).listen(
       (position) {
@@ -59,7 +77,7 @@ class LocationShareController {
       },
       onError: (_) {},
     );
-    _heartbeat = Timer.periodic(const Duration(seconds: 15), (_) {
+    _heartbeat = Timer.periodic(const Duration(seconds: 90), (_) {
       unawaited(_publishCurrent());
     });
   }
@@ -69,8 +87,8 @@ class LocationShareController {
       final position = _lastPosition ??
           await Geolocator.getCurrentPosition(
             locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              timeLimit: Duration(seconds: 12),
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 8),
             ),
           );
       _lastPosition = position;

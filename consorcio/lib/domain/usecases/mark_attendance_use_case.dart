@@ -25,6 +25,14 @@ class MarkAttendanceUseCase {
       throw DomainException('La foto debe pesar máximo 10 MB');
     }
 
+    if (origin == AttendanceOrigin.oficina || origin == AttendanceOrigin.zona) {
+      if (environmentPhoto == null) {
+        throw DomainException(
+          'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto',
+        );
+      }
+    }
+
     final dateKey = limaDateKey();
     final existing =
         await _attendanceRepository.getByUserAndDate(actor.id, dateKey);
@@ -34,7 +42,7 @@ class MarkAttendanceUseCase {
 
     if (origin == AttendanceOrigin.permiso) {
       throw DomainException(
-        'Solo un administrador puede registrar permisos. Contacta a tu supervisor.',
+        'Solo un administrador puede registrar permisos. Usa «Solicitar permiso».',
       );
     }
 
@@ -90,7 +98,7 @@ class MarkAttendanceUseCase {
       location: location,
       officeValidated: officeValidated,
       distanceToOfficeMeters: distanceToOffice,
-      environmentPhoto: origin == AttendanceOrigin.zona ? environmentPhoto : null,
+      environmentPhoto: environmentPhoto,
     );
   }
 }

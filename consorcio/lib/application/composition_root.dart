@@ -25,15 +25,18 @@ import '../infrastructure/firestore/firebase_supply_repository.dart';
 import '../infrastructure/firestore/firebase_support_ticket_repository.dart';
 import '../infrastructure/firestore/firebase_task_repository.dart';
 import '../domain/usecases/mark_attendance_use_case.dart';
+import '../domain/usecases/attendance_permission_request_use_cases.dart';
 import '../domain/usecases/observe_session_use_case.dart';
 import '../domain/usecases/update_folder_use_case.dart';
 import '../domain/usecases/update_own_theme_use_case.dart';
 import '../domain/usecases/upload_folder_images_use_case.dart';
+import '../domain/usecases/upload_supply_photos_use_case.dart';
 import '../domain/usecases/upload_task_photos_use_case.dart';
 import '../infrastructure/auth/firebase_auth_repository.dart';
 import '../infrastructure/firestore/firebase_installation_order_repository.dart';
 import '../infrastructure/firestore/firebase_area_repository.dart';
 import '../infrastructure/firestore/firebase_attendance_repository.dart';
+import '../infrastructure/firestore/firebase_attendance_permission_request_repository.dart';
 import '../infrastructure/firestore/firebase_mobile_app_release_repository.dart';
 import '../infrastructure/firestore/firebase_folder_date_repository.dart';
 import '../infrastructure/firestore/firebase_folder_image_repository.dart';
@@ -61,10 +64,13 @@ class AppDependencies {
     required this.ensureFolderDateUseCase,
     required this.getFolderDateDetailUseCase,
     required this.uploadFolderImagesUseCase,
+    required this.uploadSupplyPhotosUseCase,
     required this.uploadTaskPhotosUseCase,
     required this.getMyTodayAttendanceUseCase,
     required this.getAttendanceSettingsUseCase,
     required this.markAttendanceUseCase,
+    required this.requestAttendancePermissionUseCase,
+    required this.listMyAttendancePermissionRequestsUseCase,
     required this.getMobileAppReleaseUseCase,
     required this.getSupplyByRouteCodeUseCase,
     required this.searchSuppliesUseCase,
@@ -109,10 +115,14 @@ class AppDependencies {
   final EnsureFolderDateUseCase ensureFolderDateUseCase;
   final GetFolderDateDetailUseCase getFolderDateDetailUseCase;
   final UploadFolderImagesUseCase uploadFolderImagesUseCase;
+  final UploadSupplyPhotosUseCase uploadSupplyPhotosUseCase;
   final UploadTaskPhotosUseCase uploadTaskPhotosUseCase;
   final GetMyTodayAttendanceUseCase getMyTodayAttendanceUseCase;
   final GetAttendanceSettingsUseCase getAttendanceSettingsUseCase;
   final MarkAttendanceUseCase markAttendanceUseCase;
+  final RequestAttendancePermissionUseCase requestAttendancePermissionUseCase;
+  final ListMyAttendancePermissionRequestsUseCase
+      listMyAttendancePermissionRequestsUseCase;
   final GetMobileAppReleaseUseCase getMobileAppReleaseUseCase;
   final GetSupplyByRouteCodeUseCase getSupplyByRouteCodeUseCase;
   final SearchSuppliesUseCase searchSuppliesUseCase;
@@ -146,6 +156,8 @@ AppDependencies createAppDependencies() {
   final folderDateRepository = FirebaseFolderDateRepository();
   final areaRepository = FirebaseAreaRepository();
   final attendanceRepository = FirebaseAttendanceRepository();
+  final attendancePermissionRequestRepository =
+      FirebaseAttendancePermissionRequestRepository();
   final mobileAppReleaseRepository = FirebaseMobileAppReleaseRepository();
   final supplyRepository = FirebaseSupplyRepository();
   final taskRepository = FirebaseTaskRepository();
@@ -166,6 +178,11 @@ AppDependencies createAppDependencies() {
     folderRepository,
     folderDateRepository,
     imageRepository,
+  );
+  final uploadSupplyPhotosUseCase = UploadSupplyPhotosUseCase(
+    ensureSupplyFolderUseCase,
+    ensureFolderDateUseCase,
+    uploadFolderImagesUseCase,
   );
 
   return AppDependencies(
@@ -207,16 +224,22 @@ AppDependencies createAppDependencies() {
       imageRepository,
     ),
     uploadFolderImagesUseCase: uploadFolderImagesUseCase,
+    uploadSupplyPhotosUseCase: uploadSupplyPhotosUseCase,
     uploadTaskPhotosUseCase: UploadTaskPhotosUseCase(
-      ensureSupplyFolderUseCase,
-      ensureFolderDateUseCase,
-      uploadFolderImagesUseCase,
+      uploadSupplyPhotosUseCase,
     ),
     getMyTodayAttendanceUseCase:
         GetMyTodayAttendanceUseCase(attendanceRepository),
     getAttendanceSettingsUseCase:
         GetAttendanceSettingsUseCase(attendanceRepository),
     markAttendanceUseCase: MarkAttendanceUseCase(attendanceRepository),
+    requestAttendancePermissionUseCase: RequestAttendancePermissionUseCase(
+      attendancePermissionRequestRepository,
+    ),
+    listMyAttendancePermissionRequestsUseCase:
+        ListMyAttendancePermissionRequestsUseCase(
+      attendancePermissionRequestRepository,
+    ),
     getMobileAppReleaseUseCase:
         GetMobileAppReleaseUseCase(mobileAppReleaseRepository),
     getSupplyByRouteCodeUseCase: GetSupplyByRouteCodeUseCase(supplyRepository),

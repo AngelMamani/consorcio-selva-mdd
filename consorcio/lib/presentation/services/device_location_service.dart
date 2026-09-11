@@ -32,9 +32,9 @@ class DeviceLocationService {
     return permission;
   }
 
-  Future<GeoLocation> getCurrentLocation({
-    bool openSettingsIfDisabled = true,
-    String purpose = 'asignar la ubicación',
+  Future<void> _ensureGpsReady({
+    required bool openSettingsIfDisabled,
+    required String purpose,
   }) async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -63,21 +63,67 @@ class DeviceLocationService {
         'Permiso de ubicación bloqueado. Actívalo en Ajustes del celular.',
       );
     }
+  }
+
+  GeoLocation _fromPosition(Position position) {
+    return GeoLocation(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: position.accuracy,
+      capturedAt: position.timestamp,
+    );
+  }
+
+  /// Prefer last-known / medium accuracy so screens open quickly.
+  Future<GeoLocation?> tryQuickLocation({
+    Duration maxAge = const Duration(minutes: 2),
+  }) async {
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        final age = DateTime.now().difference(last.timestamp);
+        if (!age.isNegative && age <= maxAge) {
+          return _fromPosition(last);
+        }
+      }
+    } catch (_) {}
 
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 20),
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 6),
         ),
       );
+      return _fromPosition(position);
+    } catch (_) {
+      return null;
+    }
+  }
 
-      return GeoLocation(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracyMeters: position.accuracy,
-        capturedAt: DateTime.now(),
+  Future<GeoLocation> getCurrentLocation({
+    bool openSettingsIfDisabled = true,
+    String purpose = 'asignar la ubicación',
+    bool preferQuick = true,
+  }) async {
+    await _ensureGpsReady(
+      openSettingsIfDisabled: openSettingsIfDisabled,
+      purpose: purpose,
+    );
+
+    if (preferQuick) {
+      final quick = await tryQuickLocation();
+      if (quick != null) return quick;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 12),
+        ),
       );
+      return _fromPosition(position);
     } on DomainException {
       rethrow;
     } catch (_) {

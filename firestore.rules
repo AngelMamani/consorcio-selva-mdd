@@ -205,7 +205,8 @@ service cloud.firestore {
         && request.resource.data.officeValidated == true
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
-        && !('officeQrToken' in request.resource.data);
+        && !('officeQrToken' in request.resource.data)
+        && requiredEnvironmentPhoto();
     }
 
     function validZoneCreate() {
@@ -213,7 +214,8 @@ service cloud.firestore {
         && request.resource.data.officeValidated == false
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
-        && !('officeQrToken' in request.resource.data);
+        && !('officeQrToken' in request.resource.data)
+        && requiredEnvironmentPhoto();
     }
 
     function validPermisoCreate() {
@@ -224,6 +226,13 @@ service cloud.firestore {
         && !('officeQrToken' in request.resource.data)
         && !('environmentPhotoUrl' in request.resource.data)
         && !('environmentPhotoPath' in request.resource.data);
+    }
+
+    function requiredEnvironmentPhoto() {
+      return request.resource.data.environmentPhotoUrl is string
+        && request.resource.data.environmentPhotoUrl.size() > 12
+        && request.resource.data.environmentPhotoPath is string
+        && request.resource.data.environmentPhotoPath.size() > 8;
     }
 
     function optionalEnvironmentPhoto() {
@@ -288,8 +297,20 @@ service cloud.firestore {
           )
         ));
 
-      // Alta de usuarios solo vía Admin SDK / Cloud Functions.
-      allow create: if false;
+      // Alta / baja de cuentas: admin autenticado (sin Cloud Functions).
+      allow create: if isAdmin()
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 3
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.role is string
+        && request.resource.data.role in ['SUPER_ADMINISTRADOR', 'ADMINISTRADOR', 'TECNICO']
+        && request.resource.data.active is bool
+        && request.resource.data.mustChangePassword is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
 
       allow update: if isAdmin()
         || (
@@ -305,11 +326,20 @@ service cloud.firestore {
               && resource.data.mustChangePassword == true
               && request.resource.data.mustChangePassword == false
             )
+            || (
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['mustChangePassword', 'loginSecret', 'updatedAt'])
+              && resource.data.mustChangePassword == true
+              && request.resource.data.mustChangePassword == false
+              && request.resource.data.loginSecret is string
+              && request.resource.data.loginSecret.size() >= 6
+              && request.resource.data.loginSecret.size() <= 64
+            )
           )
-          && unchangedKeys(['email', 'role', 'roles', 'active', 'displayName', 'createdAt'])
+          && unchangedKeys(['email', 'role', 'roles', 'active', 'displayName', 'createdAt', 'dni'])
         );
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /loginByDni/{dni} {
@@ -1090,6 +1120,77 @@ service cloud.firestore {
             || request.resource.data.accuracyMeters is number);
         allow update, delete: if false;
       }
+    }
+
+    match /attendancePermissionRequests/{requestId} {
+      allow get: if isActiveUser() && (
+        isAdmin() || resource.data.userId == request.auth.uid
+      );
+      allow list: if isActiveUser() && (
+        isAdmin() || resource.data.userId == request.auth.uid
+      );
+      allow create: if isActiveUser()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userName is string
+        && request.resource.data.userName.size() > 0
+        && request.resource.data.userName.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 8
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.keys().hasOnly([
+          'userId', 'userName', 'description', 'status', 'createdAt',
+          'evidencePhotoUrl', 'evidencePhotoPath'
+        ])
+        && (
+          (!('evidencePhotoUrl' in request.resource.data)
+            && !('evidencePhotoPath' in request.resource.data))
+          || (
+            request.resource.data.evidencePhotoUrl is string
+            && request.resource.data.evidencePhotoUrl.size() > 12
+            && request.resource.data.evidencePhotoPath is string
+            && request.resource.data.evidencePhotoPath.size() > 8
+          )
+        );
+      allow update: if isAdmin()
+        && resource.data.status == 'PENDING'
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.userName == resource.data.userName
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['APPROVED', 'REJECTED']
+        && request.resource.data.reviewedById == request.auth.uid
+        && request.resource.data.reviewedByName is string
+        && request.resource.data.reviewedByName.size() > 0
+        && request.resource.data.reviewedByName.size() <= 120
+        && request.resource.data.reviewedAt is timestamp
+        && (!('adminNote' in request.resource.data)
+          || (request.resource.data.adminNote is string
+            && request.resource.data.adminNote.size() <= 200))
+        && (
+          request.resource.data.status == 'REJECTED'
+          || (
+            request.resource.data.leaveDays is int
+            && request.resource.data.leaveDays >= 1
+            && request.resource.data.leaveDays <= 30
+            && request.resource.data.startDateKey is string
+            && request.resource.data.startDateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && request.resource.data.endDateKey is string
+            && request.resource.data.endDateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          )
+        )
+        && (
+          (!('evidencePhotoUrl' in resource.data)
+            && !('evidencePhotoUrl' in request.resource.data))
+          || request.resource.data.evidencePhotoUrl == resource.data.evidencePhotoUrl
+        )
+        && (
+          (!('evidencePhotoPath' in resource.data)
+            && !('evidencePhotoPath' in request.resource.data))
+          || request.resource.data.evidencePhotoPath == resource.data.evidencePhotoPath
+        );
+      allow delete: if false;
     }
 
     match /supportTickets/{ticketId} {

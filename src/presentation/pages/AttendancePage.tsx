@@ -2,13 +2,24 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { saveAs } from 'file-saver'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import Swal from 'sweetalert2'
 import {
   AttendanceOrigin,
   attendanceHasGpsPin,
   attendanceOriginLabel,
+  clipDateKeysToToday,
+  formatAttendanceDayLabel,
   formatAttendanceTime,
+  limaMonthRange,
+  limaWeekRange,
   toLimaDateKey,
+  type Attendance,
 } from '@/domain/entities/Attendance'
+import type { AttendancePermissionRequest } from '@/domain/entities/AttendancePermissionRequest'
+import {
+  MAX_LEAVE_DAYS,
+  MIN_LEAVE_DAYS,
+} from '@/domain/entities/AttendancePermissionRequest'
 import {
   MAX_OFFICE_RADIUS_METERS,
   MIN_OFFICE_RADIUS_METERS,
@@ -18,7 +29,10 @@ import {
   type AttendanceOfficePoint,
   type AttendanceSettings,
 } from '@/domain/entities/AttendanceSettings'
-import type { AttendanceDayRow } from '@/domain/usecases/attendance/AttendanceUseCases'
+import type {
+  AttendanceDayRow,
+  AttendancePeriodRow,
+} from '@/domain/usecases/attendance/AttendanceUseCases'
 import { DomainError } from '@/domain/errors/DomainError'
 import { userAccessDni } from '@/domain/entities/User'
 import { canManageUsers, userRoleLabel } from '@/domain/value-objects/UserRole'
@@ -27,7 +41,6 @@ import { useAuth } from '@/presentation/providers/AuthProvider'
 import { useDependencies } from '@/presentation/providers/DependenciesProvider'
 import { AppModal } from '@/presentation/components/AppModal'
 import {
-  swalConfirm,
   swalError,
   swalPrompt,
   swalSuccess,
@@ -85,15 +98,6 @@ function pinIcon(color: string): L.DivIcon {
   })
 }
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('')
-}
-
 function readBrowserLocation(): Promise<GeoLocation> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -120,6 +124,8 @@ function readBrowserLocation(): Promise<GeoLocation> {
   })
 }
 
+type AttendancePeriod = 'day' | 'week' | 'month'
+
 function statusClass(
   attendance: AttendanceDayRow['attendance'],
 ): 'is-office' | 'is-zone' | 'is-permiso' | 'is-missing' {
@@ -129,32 +135,95 @@ function statusClass(
   return 'is-zone'
 }
 
+function periodDateKeys(
+  period: AttendancePeriod,
+  dateKey: string,
+  todayKey: string,
+): string[] {
+  if (period === 'week') {
+    return clipDateKeysToToday(limaWeekRange(dateKey).dateKeys, todayKey)
+  }
+  if (period === 'month') {
+    return clipDateKeysToToday(limaMonthRange(dateKey).dateKeys, todayKey)
+  }
+  return [dateKey]
+}
+
+function periodRangeLabel(
+  period: AttendancePeriod,
+  dateKeys: string[],
+): string {
+  const first = dateKeys[0]
+  const last = dateKeys[dateKeys.length - 1] ?? first
+  if (!first) return ''
+  if (period === 'day') return formatAttendanceDayLabel(first)
+  if (period === 'week') {
+    return `Lunes a domingo · ${formatAttendanceDayLabel(first)} – ${formatAttendanceDayLabel(last)}`
+  }
+  const parts = first.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const label = new Date(Date.UTC(year, month - 1, 1, 12)).toLocaleDateString(
+    'es-PE',
+    { month: 'long', year: 'numeric', timeZone: 'UTC' },
+  )
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function cellShortLabel(attendance: Attendance | null): string {
+  if (!attendance) return '—'
+  if (attendance.origin === AttendanceOrigin.Oficina) return 'Oficina'
+  if (attendance.origin === AttendanceOrigin.Permiso) return 'Permiso'
+  return 'Campo'
+}
+
+function dayHeaderParts(dateKey: string): { dow: string; day: string } {
+  const parts = dateKey.split('-').map(Number)
+  const year = parts[0] ?? 0
+  const month = parts[1] ?? 1
+  const day = parts[2] ?? 1
+  const date = new Date(Date.UTC(year, month - 1, day, 12))
+  return {
+    dow: date
+      .toLocaleDateString('es-PE', { weekday: 'short', timeZone: 'UTC' })
+      .replace('.', ''),
+    day: String(day).padStart(2, '0'),
+  }
+}
+
 export function AttendancePage() {
   const { user } = useAuth()
   const {
-    listAttendanceDayUseCase,
+    listAttendancePeriodUseCase,
     getAttendanceSettingsUseCase,
     saveAttendanceSettingsUseCase,
     markAttendanceUseCase,
-    grantAttendancePermissionUseCase,
+    listPendingAttendancePermissionRequestsUseCase,
+    approveAttendancePermissionRequestUseCase,
+    rejectAttendancePermissionRequestUseCase,
     exportAttendanceDayToExcelUseCase,
     exportAttendanceDayToPdfUseCase,
   } = useDependencies()
 
   const todayKey = toLimaDateKey()
   const [dateKey, setDateKey] = useState(todayKey)
-  const [rows, setRows] = useState<AttendanceDayRow[]>([])
+  const [period, setPeriod] = useState<AttendancePeriod>('day')
+  const [periodRows, setPeriodRows] = useState<AttendancePeriodRow[]>([])
   const [settings, setSettings] = useState<AttendanceSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [originFilter, setOriginFilter] = useState<
     'all' | 'oficina' | 'zona' | 'permiso' | 'sin'
   >('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'people' | 'map'>('people')
+  const [view, setView] = useState<'table' | 'map'>('table')
   const [showSettings, setShowSettings] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null)
-  const [marking, setMarking] = useState<'oficina' | 'zona' | 'permiso' | null>(
+  const [marking, setMarking] = useState<'oficina' | 'zona' | null>(null)
+  const [pendingRequests, setPendingRequests] = useState<
+    AttendancePermissionRequest[]
+  >([])
+  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(
     null,
   )
   const [officePointsForm, setOfficePointsForm] = useState<AttendanceOfficePoint[]>(
@@ -170,6 +239,18 @@ export function AttendancePage() {
   const settingsMarkerRef = useRef<L.Marker | null>(null)
   const settingsCircleRef = useRef<L.Circle | null>(null)
 
+  const periodKeys = useMemo(
+    () => periodDateKeys(period, dateKey, todayKey),
+    [period, dateKey, todayKey],
+  )
+  const rows: AttendanceDayRow[] = useMemo(
+    () =>
+      periodRows.map((row) => ({
+        person: row.person,
+        attendance: row.byDate[dateKey] ?? null,
+      })),
+    [periodRows, dateKey],
+  )
   const isAdmin = Boolean(user && canManageUsers(user.role))
   const isToday = dateKey === todayKey
   const ownRow = rows.find((row) => row.person.id === user?.id)
@@ -233,12 +314,17 @@ export function AttendancePage() {
     if (!user) return
     setLoading(true)
     try {
-      const [dayRows, nextSettings] = await Promise.all([
-        listAttendanceDayUseCase.execute(user, nextDate),
+      const keys = periodDateKeys(period, nextDate, todayKey)
+      const [nextPeriodRows, nextSettings, pending] = await Promise.all([
+        listAttendancePeriodUseCase.execute(user, keys),
         getAttendanceSettingsUseCase.execute(user),
+        canManageUsers(user.role)
+          ? listPendingAttendancePermissionRequestsUseCase.execute(user)
+          : Promise.resolve([] as AttendancePermissionRequest[]),
       ])
-      setRows(dayRows)
+      setPeriodRows(nextPeriodRows)
       setSettings(nextSettings)
+      setPendingRequests(pending)
       syncOfficePointsForm(resolveOfficePoints(nextSettings))
     } catch (err) {
       swalError(attendanceLoadMessage(err))
@@ -250,11 +336,11 @@ export function AttendancePage() {
   useEffect(() => {
     void loadDay(dateKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, dateKey])
+  }, [user?.id, dateKey, period])
 
-  const filteredRows = useMemo(() => {
+  const filteredPeriodRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return rows.filter(({ person, attendance }) => {
+    return periodRows.filter(({ person, byDate }) => {
       const dni = userAccessDni(person)
       const matchesSearch =
         !query ||
@@ -263,30 +349,51 @@ export function AttendancePage() {
         dni.includes(query) ||
         userRoleLabel(person.role).toLowerCase().includes(query)
       if (!matchesSearch) return false
+      const marks = periodKeys.map((key) => byDate[key] ?? null)
       if (originFilter === 'oficina') {
-        return attendance?.origin === AttendanceOrigin.Oficina
+        return marks.some((item) => item?.origin === AttendanceOrigin.Oficina)
       }
       if (originFilter === 'zona') {
-        return attendance?.origin === AttendanceOrigin.Zona
+        return marks.some((item) => item?.origin === AttendanceOrigin.Zona)
       }
       if (originFilter === 'permiso') {
-        return attendance?.origin === AttendanceOrigin.Permiso
+        return marks.some((item) => item?.origin === AttendanceOrigin.Permiso)
       }
-      if (originFilter === 'sin') return attendance == null
+      if (originFilter === 'sin') return marks.every((item) => item == null)
       return true
     })
-  }, [rows, search, originFilter])
+  }, [periodRows, periodKeys, search, originFilter])
 
-  const presentOffice = rows.filter(
-    (row) => row.attendance?.origin === AttendanceOrigin.Oficina,
-  ).length
-  const presentZone = rows.filter(
-    (row) => row.attendance?.origin === AttendanceOrigin.Zona,
-  ).length
-  const presentPermiso = rows.filter(
-    (row) => row.attendance?.origin === AttendanceOrigin.Permiso,
-  ).length
-  const missing = rows.filter((row) => row.attendance == null).length
+  const filteredRows = useMemo(
+    () =>
+      filteredPeriodRows.map((row) => ({
+        person: row.person,
+        attendance: row.byDate[dateKey] ?? null,
+      })),
+    [filteredPeriodRows, dateKey],
+  )
+
+  const { presentOffice, presentZone, presentPermiso, missing } = useMemo(() => {
+    let office = 0
+    let zone = 0
+    let permiso = 0
+    let absent = 0
+    for (const row of periodRows) {
+      for (const key of periodKeys) {
+        const mark = row.byDate[key] ?? null
+        if (mark?.origin === AttendanceOrigin.Oficina) office += 1
+        else if (mark?.origin === AttendanceOrigin.Zona) zone += 1
+        else if (mark?.origin === AttendanceOrigin.Permiso) permiso += 1
+        else absent += 1
+      }
+    }
+    return {
+      presentOffice: office,
+      presentZone: zone,
+      presentPermiso: permiso,
+      missing: absent,
+    }
+  }, [periodRows, periodKeys])
 
   useEffect(() => {
     const el = mapElRef.current
@@ -521,15 +628,36 @@ export function AttendancePage() {
 
   async function handleSelfMark(origin: 'oficina' | 'zona') {
     if (!user || marking) return
-    const confirmed = await swalConfirm({
+    const result = await Swal.fire({
+      icon: 'question',
       title: origin === 'oficina' ? '¿Marcar en oficina?' : '¿Marcar en campo?',
-      text:
-        origin === 'oficina'
-          ? 'Se usará tu GPS. Debes estar dentro del radio de un punto de oficina autorizado.'
-          : 'Se usará tu GPS para registrar que estás en campo.',
+      html:
+        'Se usará tu GPS. <strong>Obligatorio:</strong> foto de cuerpo completo con el uniforme completo y correcto.',
+      input: 'file',
+      inputAttributes: {
+        accept: 'image/*',
+        capture: 'environment',
+      },
+      showCancelButton: true,
+      focusCancel: true,
       confirmButtonText: 'Marcar ahora',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#1e88e5',
+      cancelButtonColor: '#6b7385',
+      reverseButtons: true,
+      animation: false,
+      preConfirm: (file) => {
+        if (!file) {
+          Swal.showValidationMessage(
+            'Debes adjuntar la foto de cuerpo completo con uniforme',
+          )
+          return false
+        }
+        return file as File
+      },
     })
-    if (!confirmed) return
+    if (!result.isConfirmed || !result.value) return
+    const file = result.value as File
     setMarking(origin)
     try {
       const location = await readBrowserLocation()
@@ -537,6 +665,10 @@ export function AttendancePage() {
         origin:
           origin === 'oficina' ? AttendanceOrigin.Oficina : AttendanceOrigin.Zona,
         location,
+        evidenceFile: {
+          data: file,
+          contentType: file.type || 'image/jpeg',
+        },
       })
       swalSuccess(
         origin === 'oficina' ? 'Asistencia de oficina marcada' : 'Asistencia de campo marcada',
@@ -551,29 +683,101 @@ export function AttendancePage() {
     }
   }
 
-  async function handleGrantPermiso(targetUserId: string, targetName: string) {
-    if (!user || marking) return
-    const note = await swalPrompt({
-      title: `Permiso para ${targetName}`,
-      text: 'Queda registrado para este día, sin GPS.',
-      inputLabel: 'Motivo (opcional)',
-      inputPlaceholder: 'Ej. Descanso médico, comisión',
-      confirmButtonText: 'Registrar permiso',
+  async function handleApproveRequest(item: AttendancePermissionRequest) {
+    if (!user || reviewingRequestId) return
+    const result = await Swal.fire({
+      title: `Aprobar permiso · ${item.userName}`,
+      html: `<p style="text-align:left;margin:0 0 10px">${escapeHtml(item.description)}</p>
+        <label style="display:block;text-align:left;font-size:13px;margin-bottom:4px">Días de permiso</label>
+        <input id="leave-days" type="number" min="${MIN_LEAVE_DAYS}" max="${MAX_LEAVE_DAYS}" value="1" class="swal2-input" style="margin:0 0 8px;width:100%" />
+        <label style="display:block;text-align:left;font-size:13px;margin-bottom:4px">Fecha de inicio</label>
+        <input id="leave-start" type="date" value="${todayKey}" class="swal2-input" style="margin:0;width:100%" />
+        <label style="display:block;text-align:left;font-size:13px;margin:8px 0 4px">Nota admin (opcional)</label>
+        <textarea id="leave-note" class="swal2-textarea" style="margin:0;width:100%" maxlength="200"></textarea>`,
+      showCancelButton: true,
+      focusCancel: true,
+      confirmButtonText: 'Aprobar y asignar días',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#2e7d32',
+      cancelButtonColor: '#6b7385',
+      reverseButtons: true,
+      animation: false,
+      preConfirm: () => {
+        const daysRaw = (
+          document.getElementById('leave-days') as HTMLInputElement | null
+        )?.value
+        const start = (
+          document.getElementById('leave-start') as HTMLInputElement | null
+        )?.value
+        const note = (
+          document.getElementById('leave-note') as HTMLTextAreaElement | null
+        )?.value
+        const leaveDays = Number(daysRaw)
+        if (
+          !Number.isFinite(leaveDays) ||
+          leaveDays < MIN_LEAVE_DAYS ||
+          leaveDays > MAX_LEAVE_DAYS
+        ) {
+          Swal.showValidationMessage(
+            `Los días deben estar entre ${MIN_LEAVE_DAYS} y ${MAX_LEAVE_DAYS}`,
+          )
+          return false
+        }
+        if (!start) {
+          Swal.showValidationMessage('Elige la fecha de inicio')
+          return false
+        }
+        return { leaveDays, startDateKey: start, adminNote: note ?? '' }
+      },
     })
-    if (note == null) return
-    setMarking('permiso')
+    if (!result.isConfirmed || !result.value) return
+    const value = result.value as {
+      leaveDays: number
+      startDateKey: string
+      adminNote: string
+    }
+    setReviewingRequestId(item.id)
     try {
-      await grantAttendancePermissionUseCase.execute(user, {
-        targetUserId,
-        dateKey,
-        note,
+      await approveAttendancePermissionRequestUseCase.execute(user, {
+        requestId: item.id,
+        leaveDays: value.leaveDays,
+        startDateKey: value.startDateKey,
+        adminNote: value.adminNote,
       })
-      swalSuccess('Permiso registrado')
+      swalSuccess('Permiso aprobado y días asignados')
       await loadDay(dateKey)
     } catch (err) {
-      swalError(err instanceof DomainError ? err.message : 'No se pudo registrar')
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo aprobar',
+      )
     } finally {
-      setMarking(null)
+      setReviewingRequestId(null)
+    }
+  }
+
+  async function handleRejectRequest(item: AttendancePermissionRequest) {
+    if (!user || reviewingRequestId) return
+    const note = await swalPrompt({
+      title: `Rechazar solicitud · ${item.userName}`,
+      text: item.description,
+      inputLabel: 'Motivo (opcional)',
+      confirmButtonText: 'Rechazar',
+    })
+    if (note == null) return
+    setReviewingRequestId(item.id)
+    try {
+      await rejectAttendancePermissionRequestUseCase.execute(user, {
+        requestId: item.id,
+        adminNote: note,
+      })
+      swalSuccess('Solicitud rechazada')
+      await loadDay(dateKey)
+    } catch (err) {
+      swalError(
+        err instanceof DomainError ? err.message : 'No se pudo rechazar',
+      )
+    } finally {
+      setReviewingRequestId(null)
     }
   }
 
@@ -581,16 +785,46 @@ export function AttendancePage() {
     <section className="attendance-page">
       <header className="attendance-page__header">
         <div>
-          <p className="attendance-page__eyebrow">Control diario</p>
+          <p className="attendance-page__eyebrow">
+            {period === 'week'
+              ? 'Control semanal'
+              : period === 'month'
+                ? 'Control mensual'
+                : 'Control diario'}
+          </p>
           <h2>Asistencias</h2>
           <p>
-            Oficina con GPS en puntos autorizados. Campo con GPS. Los permisos
-            solo los registra un administrador.
+            Oficina o campo con GPS y foto de cuerpo completo (uniforme). Las
+            solicitudes de permiso se hacen en el aplicativo; aquí solo se
+            aceptan.
+          </p>
+          <p className="attendance-page__period-label">
+            {periodRangeLabel(period, periodKeys)}
           </p>
         </div>
         <div className="attendance-page__toolbar">
+          <div className="attendance-period" role="group" aria-label="Periodo">
+            {(
+              [
+                ['day', 'Diario'],
+                ['week', 'Semanal (lun–dom)'],
+                ['month', 'Mensual'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={period === id ? 'is-active' : ''}
+                onClick={() => setPeriod(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <label className="attendance-date">
-            <span>Día</span>
+            <span>
+              {period === 'week' ? 'Semana' : period === 'month' ? 'Mes' : 'Día'}
+            </span>
             <input
               type="date"
               value={dateKey}
@@ -634,11 +868,11 @@ export function AttendancePage() {
       <div className="attendance-kpis">
         <article className="attendance-kpi attendance-kpi--office">
           <strong>{presentOffice}</strong>
-          <span>En oficina</span>
+          <span>{period === 'day' ? 'En oficina' : 'Marcas oficina'}</span>
         </article>
         <article className="attendance-kpi attendance-kpi--zone">
           <strong>{presentZone}</strong>
-          <span>En campo</span>
+          <span>{period === 'day' ? 'En campo' : 'Marcas campo'}</span>
         </article>
         <article className="attendance-kpi attendance-kpi--permiso">
           <strong>{presentPermiso}</strong>
@@ -646,10 +880,10 @@ export function AttendancePage() {
         </article>
         <article className="attendance-kpi attendance-kpi--missing">
           <strong>{missing}</strong>
-          <span>Sin marcar</span>
+          <span>{period === 'day' ? 'Sin marcar' : 'Días sin marca'}</span>
         </article>
         <article className="attendance-kpi">
-          <strong>{rows.length}</strong>
+          <strong>{periodRows.length}</strong>
           <span>Personas</span>
         </article>
       </div>
@@ -658,7 +892,10 @@ export function AttendancePage() {
         <div className="attendance-self">
           <div>
             <strong>Tu marca de hoy</strong>
-            <p>Elige oficina o campo. Una sola vez al día. Para permiso, contacta a un administrador.</p>
+            <p>
+              Oficina o campo con GPS. Foto obligatoria de cuerpo completo con
+              uniforme completo y correcto.
+            </p>
           </div>
           <div className="attendance-self__actions">
             <button
@@ -667,7 +904,7 @@ export function AttendancePage() {
               disabled={marking !== null}
               onClick={() => void handleSelfMark('oficina')}
             >
-              {marking === 'oficina' ? 'Leyendo GPS...' : 'Estoy en oficina'}
+              {marking === 'oficina' ? 'Registrando...' : 'Estoy en oficina'}
             </button>
             <button
               type="button"
@@ -675,9 +912,52 @@ export function AttendancePage() {
               disabled={marking !== null}
               onClick={() => void handleSelfMark('zona')}
             >
-              {marking === 'zona' ? 'Leyendo GPS...' : 'Estoy en campo'}
+              {marking === 'zona' ? 'Registrando...' : 'Estoy en campo'}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {isAdmin && pendingRequests.length > 0 ? (
+        <div className="attendance-permission-inbox">
+          <strong>Solicitudes de permiso pendientes</strong>
+          <ul>
+            {pendingRequests.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.userName}</strong>
+                  <p>{item.description}</p>
+                  {item.evidencePhotoUrl ? (
+                    <a
+                      href={item.evidencePhotoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver foto
+                    </a>
+                  ) : null}
+                </div>
+                <div className="attendance-permission-inbox__actions">
+                  <button
+                    type="button"
+                    className="btn btn--soft-teal"
+                    disabled={reviewingRequestId !== null}
+                    onClick={() => void handleApproveRequest(item)}
+                  >
+                    Aceptar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--soft-muted"
+                    disabled={reviewingRequestId !== null}
+                    onClick={() => void handleRejectRequest(item)}
+                  >
+                    Rechazar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
@@ -711,103 +991,135 @@ export function AttendancePage() {
               </button>
             ))}
           </div>
-          <div className="attendance-view-toggle" role="group" aria-label="Vista">
-            <button
-              type="button"
-              className={view === 'people' ? 'is-active' : ''}
-              onClick={() => setView('people')}
-            >
-              Personas
-            </button>
-            <button
-              type="button"
-              className={view === 'map' ? 'is-active' : ''}
-              onClick={() => setView('map')}
-            >
-              Mapa
-            </button>
-          </div>
+          {period === 'day' ? (
+            <div className="attendance-view-toggle" role="group" aria-label="Vista">
+              <button
+                type="button"
+                className={view === 'table' ? 'is-active' : ''}
+                onClick={() => setView('table')}
+              >
+                Tabla
+              </button>
+              <button
+                type="button"
+                className={view === 'map' ? 'is-active' : ''}
+                onClick={() => setView('map')}
+              >
+                Mapa
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        <div
-          className={`attendance-people-wrap${view === 'people' ? ' is-visible' : ''}`}
-        >
-            {loading ? (
-              <p className="attendance-empty">Cargando asistencia...</p>
-            ) : filteredRows.length === 0 ? (
-              <p className="attendance-empty">No hay personas con ese filtro.</p>
-            ) : (
-              <ul className="attendance-people">
-                {filteredRows.map(({ person, attendance }) => {
+        {view === 'table' || period !== 'day' ? (
+          <>
+        <p className="attendance-table-caption">
+          Tabla de asistencias
+          {period === 'week'
+            ? ' de lunes a domingo'
+            : period === 'month'
+              ? ' del mes'
+              : ' del día'}
+          .
+          {period !== 'day'
+            ? ' Toca una celda para ver ese día. El Excel y el PDF exportan el día del calendario.'
+            : ''}
+        </p>
+        <div className="attendance-table-wrap">
+          {loading ? (
+            <p className="attendance-empty">Cargando asistencia...</p>
+          ) : filteredPeriodRows.length === 0 ? (
+            <p className="attendance-empty">No hay personas con ese filtro.</p>
+          ) : (
+            <table
+              className={`attendance-table${period === 'month' ? ' attendance-table--month' : ''}`}
+            >
+              <thead>
+                <tr>
+                  <th className="attendance-table__person">Persona</th>
+                  {periodKeys.map((key) => {
+                    const header = dayHeaderParts(key)
+                    return (
+                      <th
+                        key={key}
+                        className={key === todayKey ? 'is-today' : undefined}
+                      >
+                        <span className="attendance-table__dow">{header.dow}</span>
+                        <span className="attendance-table__num">{header.day}</span>
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPeriodRows.map(({ person, byDate }) => {
                   const dni = userAccessDni(person)
                   return (
-                    <li key={person.id} className="attendance-card">
-                      <div className="attendance-card__top">
-                        <div className="attendance-row__avatar" aria-hidden="true">
-                          {initials(person.displayName)}
-                        </div>
-                        <div className="attendance-card__copy">
-                          <strong>{person.displayName}</strong>
-                          <span>
-                            {userRoleLabel(person.role)}
-                            {dni ? ` · DNI ${dni}` : ''}
-                          </span>
-                        </div>
-                        <em className={statusClass(attendance)}>
-                          {attendance
-                            ? attendanceOriginLabel(attendance.origin)
-                            : 'Sin marcar'}
-                        </em>
-                      </div>
-                      <div className="attendance-card__meta">
-                        {attendance ? (
-                          <>
-                            <span>
-                              {attendance.origin === AttendanceOrigin.Permiso
-                                ? 'Registrado'
-                                : 'Marcó'}{' '}
-                              a las {formatAttendanceTime(attendance.createdAt)}
-                            </span>
-                            {attendance.origin === AttendanceOrigin.Oficina &&
-                            attendance.areaName ? (
-                              <span>{attendance.areaName}</span>
-                            ) : null}
-                            {attendance.permissionNote ? (
-                              <span>{attendance.permissionNote}</span>
-                            ) : null}
-                            {attendance.environmentPhotoUrl ? (
-                              <a
-                                href={attendance.environmentPhotoUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Ver foto
-                              </a>
-                            ) : null}
-                          </>
-                        ) : isAdmin ? (
-                          <button
-                            type="button"
-                            className="attendance-card__permiso"
-                            disabled={marking !== null}
-                            onClick={() =>
-                              void handleGrantPermiso(person.id, person.displayName)
-                            }
+                    <tr key={person.id}>
+                      <th scope="row" className="attendance-table__person">
+                        <strong>{person.displayName}</strong>
+                        <span>
+                          {userRoleLabel(person.role)}
+                          {dni ? ` · ${dni}` : ''}
+                        </span>
+                      </th>
+                      {periodKeys.map((key) => {
+                        const attendance = byDate[key] ?? null
+                        const cellClass = statusClass(attendance)
+                        return (
+                          <td
+                            key={key}
+                            className={key === todayKey ? 'is-today' : undefined}
                           >
-                            Dar permiso
-                          </button>
-                        ) : (
-                          <span>Aún no marca</span>
-                        )}
-                      </div>
-                    </li>
+                            <button
+                              type="button"
+                              className={`attendance-table__cell ${cellClass}`}
+                              title={
+                                attendance
+                                  ? `${attendanceOriginLabel(attendance.origin)} · ${formatAttendanceTime(attendance.createdAt)}`
+                                  : 'Sin marcar'
+                              }
+                              onClick={() => {
+                                if (period !== 'day') {
+                                  setDateKey(key)
+                                  setPeriod('day')
+                                  setView('table')
+                                }
+                              }}
+                            >
+                              {cellShortLabel(attendance)}
+                            </button>
+                            {period === 'day' && attendance ? (
+                              <div className="attendance-table__meta">
+                                <span>{formatAttendanceTime(attendance.createdAt)}</span>
+                                {attendance.areaName ? (
+                                  <span>{attendance.areaName}</span>
+                                ) : null}
+                                {attendance.environmentPhotoUrl ? (
+                                  <a
+                                    href={attendance.environmentPhotoUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Foto
+                                  </a>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </td>
+                        )
+                      })}
+                    </tr>
                   )
                 })}
-              </ul>
-            )}
-          </div>
+              </tbody>
+            </table>
+          )}
+        </div>
+          </>
+        ) : null}
         <div
-          className={`attendance-map-panel${view === 'map' ? ' is-visible' : ''}`}
+          className={`attendance-map-panel${period === 'day' && view === 'map' ? ' is-visible' : ''}`}
         >
           <p className="attendance-map-caption">
             Círculos: puntos de oficina autorizados. Verde: marcas en campo.

@@ -13,6 +13,7 @@ import '../../domain/usecases/rank_my_tasks_by_proximity_use_case.dart';
 import '../../domain/value_objects/geo_location.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
+import '../services/location_share_controller.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import 'folder_date_detail_page.dart';
@@ -43,6 +44,7 @@ class _TasksPageState extends State<TasksPage> {
   StreamSubscription<List<FieldTask>>? _tasksSub;
   StreamSubscription<List<InstallationOrder>>? _ordersSub;
   List<InstallationOrder> _orders = [];
+  List<FieldTask> _latestTasks = const [];
   int _tasksEpoch = 0;
   final DateTime _openedAt = DateTime.now();
   final Set<String> _seenNoticeKeys = {};
@@ -123,48 +125,64 @@ class _TasksPageState extends State<TasksPage> {
       _gpsRequired = false;
     });
 
+    LocationShareController? share;
     try {
-      final location = await _locationService.getCurrentLocation(
-        purpose: 'ordenar tus tareas por el suministro más cercano',
+      share = context.read<LocationShareController>();
+    } catch (_) {}
+
+    // No bloquear la lista con GPS duro: caché / last-known / quick.
+    final location = share?.lastGeoLocation ??
+        await _locationService.tryQuickLocation();
+    if (!mounted) return;
+    setState(() {
+      _location = location;
+      _loading = false;
+    });
+
+    await _tasksSub?.cancel();
+    _tasksSub = deps.listMyTasksUseCase.watch(user).listen((tasks) async {
+      final epoch = ++_tasksEpoch;
+      _latestTasks = tasks;
+      _notifyIfNeeded(user.id, tasks);
+      final ranked = await deps.rankMyTasksByProximityUseCase.execute(
+        tasks: tasks,
+        location: _location,
+      );
+      if (!mounted || epoch != _tasksEpoch) return;
+      setState(() => _ranked = ranked);
+    }, onError: (_) {
+      if (!mounted) return;
+      setState(() => _error = 'No se pudieron actualizar las tareas');
+    });
+
+    if (location == null) {
+      unawaited(_boostLocationWhenReady(share, deps));
+    }
+  }
+
+  /// Cuando LocationShare calienta el GPS, reordena sin pedir GPS otra vez.
+  Future<void> _boostLocationWhenReady(
+    LocationShareController? share,
+    AppDependencies deps,
+  ) async {
+    for (var i = 0; i < 8; i += 1) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      final loc = share?.lastGeoLocation;
+      if (loc == null) continue;
+      setState(() {
+        _location = loc;
+        _gpsRequired = false;
+        _error = null;
+      });
+      if (_latestTasks.isEmpty) return;
+      final ranked = await deps.rankMyTasksByProximityUseCase.execute(
+        tasks: _latestTasks,
+        location: loc,
       );
       if (!mounted) return;
-      setState(() {
-        _location = location;
-        _loading = false;
-      });
-      await _tasksSub?.cancel();
-      _tasksSub = deps.listMyTasksUseCase.watch(user).listen((tasks) async {
-        final epoch = ++_tasksEpoch;
-        _notifyIfNeeded(user.id, tasks);
-        final ranked = await deps.rankMyTasksByProximityUseCase.execute(
-          tasks: tasks,
-          location: location,
-        );
-        if (!mounted || epoch != _tasksEpoch) return;
-        setState(() => _ranked = ranked);
-      }, onError: (_) {
-        if (!mounted) return;
-        setState(() => _error = 'No se pudieron actualizar las tareas');
-      });
-    } on DomainException catch (error) {
-      if (!mounted) return;
-      final needsGps = error.message.toLowerCase().contains('gps') ||
-          error.message.toLowerCase().contains('ubicación') ||
-          error.message.toLowerCase().contains('permiso');
-      setState(() {
-        _error = error.message;
-        _gpsRequired = needsGps;
-        _loading = false;
-        _ranked = [];
-        _location = null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'No se pudieron cargar tus tareas';
-        _gpsRequired = false;
-        _loading = false;
-      });
+      setState(() => _ranked = ranked);
+      return;
     }
   }
 
