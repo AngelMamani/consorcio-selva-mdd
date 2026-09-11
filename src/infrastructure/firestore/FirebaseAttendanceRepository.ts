@@ -7,6 +7,7 @@ import {
   query,
   setDoc,
   where,
+  writeBatch,
   Timestamp,
 } from 'firebase/firestore'
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
@@ -299,6 +300,98 @@ export class FirebaseAttendanceRepository implements AttendanceRepository {
       mapFirebaseWriteError(error, 'No se pudo marcar la asistencia')
     }
     return mapAttendance(id, payload) as Attendance
+  }
+
+  async createManyAndApproveRequest(
+    attendances: CreateAttendanceInput[],
+    approval: {
+      requestId: string
+      leaveDays: number
+      startDateKey: string
+      endDateKey: string
+      adminNote?: string
+      reviewedById: string
+      reviewedByName: string
+    },
+  ): Promise<Attendance[]> {
+    if (attendances.length === 0) {
+      throw new ValidationError('No hay días de permiso para asignar')
+    }
+    if (attendances.length > 30) {
+      throw new ValidationError('Demasiados días de permiso en una sola aprobación')
+    }
+
+    for (const input of attendances) {
+      const id = attendanceDocId(input.userId, input.dateKey)
+      const existing = await getDoc(doc(this.collectionRef, id))
+      if (existing.exists()) {
+        throw new ValidationError(
+          `Ya existe asistencia o permiso el ${input.dateKey}`,
+        )
+      }
+    }
+
+    const now = Timestamp.now()
+    const batch = writeBatch(firestoreDb)
+    const created: Attendance[] = []
+
+    for (const input of attendances) {
+      const id = attendanceDocId(input.userId, input.dateKey)
+      const refDoc = doc(this.collectionRef, id)
+      const payload: AttendanceDoc = {
+        userId: input.userId,
+        userName: input.userName,
+        dateKey: input.dateKey,
+        origin: input.origin,
+        areaId: input.areaId,
+        areaName: input.areaName,
+        latitude: input.location.latitude,
+        longitude: input.location.longitude,
+        officeValidated: input.officeValidated,
+        createdAt: now,
+      }
+      if (typeof input.location.accuracyMeters === 'number') {
+        payload.locationAccuracy = input.location.accuracyMeters
+      }
+      if (typeof input.distanceToOfficeMeters === 'number') {
+        payload.distanceToOfficeMeters = input.distanceToOfficeMeters
+      }
+      if (input.permissionNote) {
+        payload.permissionNote = input.permissionNote
+      }
+      if (input.markedById && input.markedByName) {
+        payload.markedById = input.markedById
+        payload.markedByName = input.markedByName
+      }
+      batch.set(refDoc, payload)
+      created.push(mapAttendance(id, payload) as Attendance)
+    }
+
+    const requestRef = doc(
+      firestoreDb,
+      'attendancePermissionRequests',
+      approval.requestId,
+    )
+    batch.update(requestRef, {
+      status: 'APPROVED',
+      leaveDays: approval.leaveDays,
+      startDateKey: approval.startDateKey,
+      endDateKey: approval.endDateKey,
+      adminNote: approval.adminNote ?? '',
+      reviewedById: approval.reviewedById,
+      reviewedByName: approval.reviewedByName,
+      reviewedAt: now,
+    })
+
+    try {
+      await batch.commit()
+    } catch (error) {
+      mapFirebaseWriteError(
+        error,
+        'No se pudo aprobar el permiso y asignar los días',
+      )
+    }
+    return created
   }
 
   async uploadEvidencePhoto(

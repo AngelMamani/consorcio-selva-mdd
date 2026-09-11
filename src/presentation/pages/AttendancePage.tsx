@@ -632,32 +632,39 @@ export function AttendancePage() {
       icon: 'question',
       title: origin === 'oficina' ? '¿Marcar en oficina?' : '¿Marcar en campo?',
       html:
-        'Se usará tu GPS. <strong>Obligatorio:</strong> foto de cuerpo completo con el uniforme completo y correcto.',
+        'Se usará tu GPS. <strong>La foto de uniforme es opcional</strong> (cuerpo completo).',
       input: 'file',
       inputAttributes: {
         accept: 'image/*',
         capture: 'environment',
       },
       showCancelButton: true,
+      showDenyButton: true,
       focusCancel: true,
-      confirmButtonText: 'Marcar ahora',
+      confirmButtonText: 'Marcar con foto',
+      denyButtonText: 'Marcar sin foto',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#1e88e5',
+      denyButtonColor: '#2e7d32',
       cancelButtonColor: '#6b7385',
       reverseButtons: true,
       animation: false,
       preConfirm: (file) => {
         if (!file) {
           Swal.showValidationMessage(
-            'Debes adjuntar la foto de cuerpo completo con uniforme',
+            'Adjunta la foto o usa «Marcar sin foto»',
           )
           return false
         }
         return file as File
       },
     })
-    if (!result.isConfirmed || !result.value) return
-    const file = result.value as File
+    if (result.isDismissed) return
+    const file =
+      result.isConfirmed && result.value instanceof File
+        ? (result.value as File)
+        : null
+    if (result.isConfirmed && !file) return
     setMarking(origin)
     try {
       const location = await readBrowserLocation()
@@ -665,13 +672,21 @@ export function AttendancePage() {
         origin:
           origin === 'oficina' ? AttendanceOrigin.Oficina : AttendanceOrigin.Zona,
         location,
-        evidenceFile: {
-          data: file,
-          contentType: file.type || 'image/jpeg',
-        },
+        evidenceFile: file
+          ? {
+              data: file,
+              contentType: file.type || 'image/jpeg',
+            }
+          : undefined,
       })
       swalSuccess(
-        origin === 'oficina' ? 'Asistencia de oficina marcada' : 'Asistencia de campo marcada',
+        origin === 'oficina'
+          ? file
+            ? 'Asistencia de oficina marcada'
+            : 'Asistencia de oficina marcada (sin foto)'
+          : file
+            ? 'Asistencia de campo marcada'
+            : 'Asistencia de campo marcada (sin foto)',
       )
       await loadDay(dateKey)
     } catch (err) {
@@ -794,9 +809,8 @@ export function AttendancePage() {
           </p>
           <h2>Asistencias</h2>
           <p>
-            Oficina o campo con GPS y foto de cuerpo completo (uniforme). Las
-            solicitudes de permiso se hacen en el aplicativo; aquí solo se
-            aceptan.
+            Oficina o campo con GPS. Foto de uniforme opcional. Las solicitudes
+            de permiso se hacen en el aplicativo; aquí solo se aceptan.
           </p>
           <p className="attendance-page__period-label">
             {periodRangeLabel(period, periodKeys)}
@@ -893,8 +907,7 @@ export function AttendancePage() {
           <div>
             <strong>Tu marca de hoy</strong>
             <p>
-              Oficina o campo con GPS. Foto obligatoria de cuerpo completo con
-              uniforme completo y correcto.
+              Oficina o campo con GPS. Foto de uniforme opcional.
             </p>
           </div>
           <div className="attendance-self__actions">

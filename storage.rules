@@ -30,7 +30,7 @@ service firebase.storage {
       allow write: if isSignedIn()
         && request.auth.uid == userId
         && isAllowedImage();
-      allow delete: if isSignedIn();
+      allow delete: if isSignedIn() && request.auth.uid == userId;
     }
 
     function isAllowedApk() {

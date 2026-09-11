@@ -25,14 +25,6 @@ class MarkAttendanceUseCase {
       throw DomainException('La foto debe pesar máximo 10 MB');
     }
 
-    if (origin == AttendanceOrigin.oficina || origin == AttendanceOrigin.zona) {
-      if (environmentPhoto == null) {
-        throw DomainException(
-          'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto',
-        );
-      }
-    }
-
     final dateKey = limaDateKey();
     final existing =
         await _attendanceRepository.getByUserAndDate(actor.id, dateKey);

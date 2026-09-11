@@ -60,6 +60,19 @@ export interface AttendanceRepository {
     endDateKey: string,
   ): Promise<Attendance[]>
   create(input: CreateAttendanceInput): Promise<Attendance>
+  /** Crea varios PERMISO y aprueba la solicitud en un solo batch (atómico). */
+  createManyAndApproveRequest(
+    attendances: CreateAttendanceInput[],
+    approval: {
+      requestId: string
+      leaveDays: number
+      startDateKey: string
+      endDateKey: string
+      adminNote?: string
+      reviewedById: string
+      reviewedByName: string
+    },
+  ): Promise<Attendance[]>
   uploadEvidencePhoto(
     input: UploadAttendanceEvidenceInput,
   ): Promise<{ url: string; path: string }>

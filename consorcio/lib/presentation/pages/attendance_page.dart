@@ -12,10 +12,11 @@ import '../../domain/repositories/folder_image_repository.dart';
 import '../../domain/usecases/attendance_permission_request_use_cases.dart';
 import '../services/device_location_service.dart';
 import '../services/image_picker_service.dart';
-import '../services/location_share_controller.dart';
 import '../state/session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/technician_alert.dart';
+
+enum _MarkPhotoChoice { withPhoto, withoutPhoto }
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -122,20 +123,20 @@ class _AttendancePageState extends State<AttendancePage> {
     final user = session.user;
     if (user == null) return;
 
+    if (!mounted) return;
+    final confirm = await _confirmMark(origin);
+    if (confirm == null || !mounted) return;
+
     setState(() {
       _marking = true;
       _markingLabel = 'Obteniendo GPS...';
     });
     try {
-      LocationShareController? share;
-      try {
-        share = context.read<LocationShareController>();
-      } catch (_) {}
-
-      final location = share?.lastGeoLocation ??
-          await _locationService.getCurrentLocation(
-            purpose: 'marcar asistencia',
-          );
+      // GPS fresco al confirmar (no usar ubicación vieja del share).
+      final location = await _locationService.getCurrentLocation(
+        purpose: 'marcar asistencia',
+        preferQuick: false,
+      );
 
       if (origin == AttendanceOrigin.oficina) {
         final settings = _settings ?? AttendanceSettings.defaults;
@@ -149,28 +150,19 @@ class _AttendancePageState extends State<AttendancePage> {
 
       if (!mounted) return;
 
-      setState(() => _marking = false);
-      final confirmed = await _confirmMark(origin);
-      if (!confirmed || !mounted) return;
-
-      setState(() {
-        _marking = true;
-        _markingLabel = 'Tomando foto de uniforme...';
-      });
-      final photo = await _photoService.takeAttendancePhoto();
-      if (!mounted) return;
-      if (photo == null) {
-        setState(() => _marking = false);
-        await _showAlert(
-          TechnicianAlertKind.error,
-          'Foto requerida',
-          'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto.',
-        );
-        return;
+      ImageFilePayload? photo;
+      if (confirm == _MarkPhotoChoice.withPhoto) {
+        setState(() {
+          _markingLabel = 'Tomando foto de uniforme...';
+        });
+        photo = await _photoService.takeAttendancePhoto();
+        if (!mounted) return;
       }
 
       setState(() {
-        _markingLabel = 'Subiendo foto y asistencia...';
+        _markingLabel = photo != null
+            ? 'Subiendo foto y asistencia...'
+            : 'Registrando asistencia...';
       });
 
       final attendance = await deps.markAttendanceUseCase.execute(
@@ -189,10 +181,12 @@ class _AttendancePageState extends State<AttendancePage> {
               ? 'en ${attendance.areaName}'
               : 'en oficina')
           : 'en campo';
+      final photoNote =
+          photo != null ? ' con foto de uniforme' : ' (sin foto)';
       await _showAlert(
         TechnicianAlertKind.success,
         'Asistencia marcada',
-        'Quedó $place a las ${_formatTime(attendance.createdAt)} con foto de uniforme. '
+        'Quedó $place a las ${_formatTime(attendance.createdAt)}$photoNote. '
         'Ya no puedes volver a marcar hoy.',
       );
     } on DomainException catch (error) {
@@ -214,9 +208,9 @@ class _AttendancePageState extends State<AttendancePage> {
     }
   }
 
-  Future<bool> _confirmMark(AttendanceOrigin origin) async {
+  Future<_MarkPhotoChoice?> _confirmMark(AttendanceOrigin origin) async {
     final isField = origin == AttendanceOrigin.zona;
-    final result = await showModalBottomSheet<bool>(
+    return showModalBottomSheet<_MarkPhotoChoice>(
       context: context,
       showDragHandle: true,
       builder: (context) {
@@ -238,18 +232,26 @@ class _AttendancePageState extends State<AttendancePage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Debes tomar una foto de cuerpo completo para verificar '
-                  'uniforme completo y correcto.',
+                  'La foto de uniforme es opcional. Puedes marcar solo con GPS '
+                  'o agregar una foto de cuerpo completo.',
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () =>
+                      Navigator.pop(context, _MarkPhotoChoice.withPhoto),
                   icon: const Icon(Icons.photo_camera_rounded),
                   label: const Text('Tomar foto y marcar'),
                 ),
                 const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      Navigator.pop(context, _MarkPhotoChoice.withoutPhoto),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Marcar sin foto'),
+                ),
+                const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Cancelar'),
                 ),
               ],
@@ -258,7 +260,6 @@ class _AttendancePageState extends State<AttendancePage> {
         );
       },
     );
-    return result == true;
   }
 
   Future<void> _requestPermission() async {
@@ -485,7 +486,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       const SizedBox(height: 6),
                       Text(
                         '${settings.resolvedOfficePoints.map((point) => point.name).join(' · ')} · '
-                        'Oficina o campo con GPS y foto de uniforme. Puedes solicitar permiso.',
+                        'Oficina o campo con GPS. Foto de uniforme opcional. Puedes solicitar permiso.',
                         style: const TextStyle(color: Colors.white70, height: 1.35),
                       ),
                     ],
@@ -515,8 +516,7 @@ class _AttendancePageState extends State<AttendancePage> {
                           : const Color(0xFF1565C0),
                       icon: Icons.apartment_rounded,
                       title: 'Estoy en oficina',
-                      subtitle:
-                          'GPS + foto de cuerpo completo con uniforme.',
+                      subtitle: 'GPS requerido. Foto de uniforme opcional.',
                       onTap: _marking || _requesting ? null : _markOffice,
                     ),
                     const SizedBox(height: 12),
@@ -526,8 +526,7 @@ class _AttendancePageState extends State<AttendancePage> {
                           : const Color(0xFF2E7D32),
                       icon: Icons.terrain_rounded,
                       title: 'Estoy en campo',
-                      subtitle:
-                          'GPS + foto de cuerpo completo con uniforme.',
+                      subtitle: 'GPS requerido. Foto de uniforme opcional.',
                       onTap: _marking || _requesting ? null : _markZone,
                     ),
                   ],

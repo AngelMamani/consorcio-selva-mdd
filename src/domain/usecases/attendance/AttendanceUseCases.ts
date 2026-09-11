@@ -298,41 +298,9 @@ export class MarkAttendanceUseCase {
     if (!isAttendanceOrigin(request.origin)) {
       throw new ValidationError('El origen de asistencia no es válido')
     }
-
-    let environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
-    let environmentPhotoPath = request.environmentPhotoPath?.trim() ?? ''
-
-    if (request.evidenceFile) {
-      if (request.evidenceFile.data.size <= 0 || request.evidenceFile.data.size > 10 * 1024 * 1024) {
-        throw new ValidationError('La foto debe pesar máximo 10 MB')
-      }
-      const uploaded = await this.attendanceRepository.uploadEvidencePhoto({
-        userId: actor.id,
-        dateKey: toLimaDateKey(),
-        data: request.evidenceFile.data,
-        contentType: request.evidenceFile.contentType || 'image/jpeg',
-      })
-      environmentPhotoUrl = uploaded.url
-      environmentPhotoPath = uploaded.path
-    }
-
-    if (
-      (environmentPhotoUrl && !environmentPhotoPath) ||
-      (!environmentPhotoUrl && environmentPhotoPath)
-    ) {
-      throw new ValidationError('La foto de evidencia está incompleta')
-    }
-    const hasPhoto = Boolean(environmentPhotoUrl && environmentPhotoPath)
-    if (request.origin === AttendanceOrigin.Permiso && hasPhoto) {
-      throw new ValidationError('El permiso no lleva foto')
-    }
-    if (
-      (request.origin === AttendanceOrigin.Oficina ||
-        request.origin === AttendanceOrigin.Zona) &&
-      !hasPhoto
-    ) {
+    if (request.origin === AttendanceOrigin.Permiso) {
       throw new ValidationError(
-        'Debes tomar una foto de cuerpo completo con el uniforme completo y correcto',
+        'Solo un administrador puede registrar permisos. Contacta a tu supervisor.',
       )
     }
 
@@ -343,12 +311,6 @@ export class MarkAttendanceUseCase {
     )
     if (existing) {
       throw new ValidationError('Ya tienes asistencia registrada hoy')
-    }
-
-    if (request.origin === AttendanceOrigin.Permiso) {
-      throw new ValidationError(
-        'Solo un administrador puede registrar permisos. Contacta a tu supervisor.',
-      )
     }
 
     const location = request.location
@@ -401,6 +363,34 @@ export class MarkAttendanceUseCase {
       areaId = match.point.id
       areaName = match.point.name
     }
+
+    let environmentPhotoUrl = request.environmentPhotoUrl?.trim() ?? ''
+    let environmentPhotoPath = request.environmentPhotoPath?.trim() ?? ''
+
+    if (request.evidenceFile) {
+      if (
+        request.evidenceFile.data.size <= 0 ||
+        request.evidenceFile.data.size > 10 * 1024 * 1024
+      ) {
+        throw new ValidationError('La foto debe pesar máximo 10 MB')
+      }
+      const uploaded = await this.attendanceRepository.uploadEvidencePhoto({
+        userId: actor.id,
+        dateKey,
+        data: request.evidenceFile.data,
+        contentType: request.evidenceFile.contentType || 'image/jpeg',
+      })
+      environmentPhotoUrl = uploaded.url
+      environmentPhotoPath = uploaded.path
+    }
+
+    if (
+      (environmentPhotoUrl && !environmentPhotoPath) ||
+      (!environmentPhotoUrl && environmentPhotoPath)
+    ) {
+      throw new ValidationError('La foto de evidencia está incompleta')
+    }
+    const hasPhoto = Boolean(environmentPhotoUrl && environmentPhotoPath)
 
     return this.attendanceRepository.create({
       userId: actor.id,
@@ -663,23 +653,21 @@ export class ApproveAttendancePermissionRequestUseCase {
     ].filter(Boolean)
     const permissionNote = noteParts.join(' · ').slice(0, 200)
 
-    for (const dateKey of dateKeys) {
-      await this.attendanceRepository.create({
-        userId: existing.userId,
-        userName: existing.userName,
-        dateKey,
-        origin: AttendanceOrigin.Permiso,
-        areaId: '',
-        areaName: '',
-        location: PERMISO_LOCATION,
-        officeValidated: false,
-        permissionNote: permissionNote || undefined,
-        markedById: actor.id,
-        markedByName: actor.displayName,
-      })
-    }
+    const attendances = dateKeys.map((dateKey) => ({
+      userId: existing.userId,
+      userName: existing.userName,
+      dateKey,
+      origin: AttendanceOrigin.Permiso,
+      areaId: '',
+      areaName: '',
+      location: PERMISO_LOCATION,
+      officeValidated: false,
+      permissionNote: permissionNote || undefined,
+      markedById: actor.id,
+      markedByName: actor.displayName,
+    }))
 
-    return this.requestRepository.approve({
+    await this.attendanceRepository.createManyAndApproveRequest(attendances, {
       requestId: existing.id,
       leaveDays,
       startDateKey: input.startDateKey,
@@ -688,6 +676,12 @@ export class ApproveAttendancePermissionRequestUseCase {
       reviewedById: actor.id,
       reviewedByName: actor.displayName,
     })
+
+    const approved = await this.requestRepository.getById(existing.id)
+    if (!approved) {
+      throw new ValidationError('No se pudo confirmar la aprobación del permiso')
+    }
+    return approved
   }
 }
 

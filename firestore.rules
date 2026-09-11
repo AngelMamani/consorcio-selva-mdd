@@ -206,7 +206,7 @@ service cloud.firestore {
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
         && !('officeQrToken' in request.resource.data)
-        && requiredEnvironmentPhoto();
+        && optionalEnvironmentPhoto();
     }
 
     function validZoneCreate() {
@@ -215,7 +215,7 @@ service cloud.firestore {
         && request.resource.data.areaId is string
         && request.resource.data.areaName is string
         && !('officeQrToken' in request.resource.data)
-        && requiredEnvironmentPhoto();
+        && optionalEnvironmentPhoto();
     }
 
     function validPermisoCreate() {
@@ -226,13 +226,6 @@ service cloud.firestore {
         && !('officeQrToken' in request.resource.data)
         && !('environmentPhotoUrl' in request.resource.data)
         && !('environmentPhotoPath' in request.resource.data);
-    }
-
-    function requiredEnvironmentPhoto() {
-      return request.resource.data.environmentPhotoUrl is string
-        && request.resource.data.environmentPhotoUrl.size() > 12
-        && request.resource.data.environmentPhotoPath is string
-        && request.resource.data.environmentPhotoPath.size() > 8;
     }
 
     function optionalEnvironmentPhoto() {

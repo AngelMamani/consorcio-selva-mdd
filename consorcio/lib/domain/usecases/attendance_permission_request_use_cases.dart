@@ -33,6 +33,14 @@ class RequestAttendancePermissionUseCase {
       throw DomainException('La foto debe pesar máximo 10 MB');
     }
 
+    final pending = await _repository.listPendingByUser(actor.id);
+    if (pending.isNotEmpty) {
+      throw DomainException(
+        'Ya tienes una solicitud de permiso pendiente. '
+        'Espera la respuesta del administrador.',
+      );
+    }
+
     return _repository.create(
       userId: actor.id,
       userName: actor.displayName.trim().isEmpty
