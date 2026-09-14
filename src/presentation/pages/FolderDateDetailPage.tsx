@@ -1,10 +1,11 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { FolderDate } from '@/domain/entities/FolderDate'
 import { formatDateKey } from '@/domain/entities/FolderDate'
 import type { FolderImage } from '@/domain/entities/FolderImage'
 import { DomainError } from '@/domain/errors/DomainError'
+import type { FolderImagesMergeOrder } from '@/domain/usecases/folders/ExportFolderImagesAndMergePdfUseCase'
 import { canManageUsers } from '@/domain/value-objects/UserRole'
 import { sanitizePdfFileName } from '@/domain/services/PdfFileNameService'
 import { formatRouteCode } from '@/domain/services/SupplySearchService'
@@ -18,6 +19,8 @@ import {
   swalSuccess,
 } from '@/presentation/utils/appSwal'
 import './FolderDetailPage.css'
+
+type PdfToolId = 'convert' | 'merge' | 'combo'
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`
@@ -157,6 +160,8 @@ export function FolderDateDetailPage() {
     uploadFolderImageUseCase,
     deleteFolderImageUseCase,
     exportFolderImagesToPdfUseCase,
+    mergePdfsUseCase,
+    exportFolderImagesAndMergePdfUseCase,
   } = useDependencies()
 
   const [folder, setFolder] = useState<ImageFolder | null>(null)
@@ -167,9 +172,16 @@ export function FolderDateDetailPage() {
   const [uploadProgress, setUploadProgress] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [showPdfModal, setShowPdfModal] = useState(false)
+  const [pdfTool, setPdfTool] = useState<PdfToolId>('convert')
   const [pdfName, setPdfName] = useState('')
   const [exportingPdf, setExportingPdf] = useState(false)
   const [pdfStatus, setPdfStatus] = useState('')
+  const [mergePdfA, setMergePdfA] = useState<File | null>(null)
+  const [mergePdfB, setMergePdfB] = useState<File | null>(null)
+  const [mergeOrderSwapped, setMergeOrderSwapped] = useState(false)
+  const [comboPdf, setComboPdf] = useState<File | null>(null)
+  const [comboOrder, setComboOrder] =
+    useState<FolderImagesMergeOrder>('photosFirst')
 
   const isAdmin = Boolean(user && canManageUsers(user.role))
   const reviewTechnician = Boolean(technicianId)
@@ -220,28 +232,91 @@ export function FolderDateDetailPage() {
     setPdfName(
       [techName, routeLabel, folderDate.dateKey].filter(Boolean).join(' '),
     )
+    setPdfTool(images.length > 0 ? 'convert' : 'merge')
+    setMergePdfA(null)
+    setMergePdfB(null)
+    setMergeOrderSwapped(false)
+    setComboPdf(null)
+    setComboOrder('photosFirst')
+    setPdfStatus('')
     setShowPdfModal(true)
   }
 
-  async function handleExportPdf(event: FormEvent<HTMLFormElement>) {
+  function closePdfModal() {
+    if (exportingPdf) return
+    setShowPdfModal(false)
+    setPdfStatus('')
+  }
+
+  const previewPdfName = useMemo(
+    () => sanitizePdfFileName(pdfName || 'documento'),
+    [pdfName],
+  )
+
+  const orderedMergeFiles = useMemo(() => {
+    if (!mergePdfA || !mergePdfB) return [] as File[]
+    return mergeOrderSwapped ? [mergePdfB, mergePdfA] : [mergePdfA, mergePdfB]
+  }, [mergePdfA, mergePdfB, mergeOrderSwapped])
+
+  const canSubmitPdfTool = useMemo(() => {
+    if (!pdfName.trim() || exportingPdf) return false
+    if (pdfTool === 'convert') return images.length > 0
+    if (pdfTool === 'merge') return Boolean(mergePdfA && mergePdfB)
+    return images.length > 0 && Boolean(comboPdf)
+  }, [
+    pdfName,
+    exportingPdf,
+    pdfTool,
+    images.length,
+    mergePdfA,
+    mergePdfB,
+    comboPdf,
+  ])
+
+  async function handlePdfToolSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!user || !folderId || !dateId) return
+    if (!user || !folderId || !dateId || !canSubmitPdfTool) return
 
     setExportingPdf(true)
-    setPdfStatus('Preparando PDF...')
-
     try {
-      setPdfStatus('Convirtiendo imágenes...')
-      const result = await exportFolderImagesToPdfUseCase.execute(
+      if (pdfTool === 'convert') {
+        setPdfStatus('Convirtiendo imágenes...')
+        const result = await exportFolderImagesToPdfUseCase.execute(
+          user,
+          folderId,
+          pdfName,
+          dateId,
+          technicianId || undefined,
+        )
+        downloadBlob(result.blob, result.fileName)
+        setShowPdfModal(false)
+        swalSuccess('PDF de imágenes descargado')
+        return
+      }
+
+      if (pdfTool === 'merge') {
+        setPdfStatus('Uniendo PDFs...')
+        const result = await mergePdfsUseCase.execute(pdfName, orderedMergeFiles)
+        downloadBlob(result.blob, result.fileName)
+        setShowPdfModal(false)
+        swalSuccess('PDF unido descargado')
+        return
+      }
+
+      if (!comboPdf) return
+      setPdfStatus('Convirtiendo fotos y uniendo PDF...')
+      const result = await exportFolderImagesAndMergePdfUseCase.execute(
         user,
         folderId,
         pdfName,
+        comboPdf,
+        comboOrder,
         dateId,
         technicianId || undefined,
       )
       downloadBlob(result.blob, result.fileName)
       setShowPdfModal(false)
-      swalSuccess('PDF exportado')
+      swalSuccess('PDF combinado descargado')
     } catch (err) {
       swalError(
         err instanceof DomainError ? err.message : 'No se pudo generar el PDF',
@@ -356,7 +431,6 @@ export function FolderDateDetailPage() {
   const routeLabel = folder.routeCode
     ? formatRouteCode(folder.routeCode)
     : folder.name
-  const previewPdfName = sanitizePdfFileName(pdfName || folder.name)
   const totalBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0)
 
   return (
@@ -409,10 +483,10 @@ export function FolderDateDetailPage() {
               type="button"
               className="btn btn--soft-teal"
               onClick={openPdfModal}
-              disabled={images.length === 0 || uploading || exportingPdf}
+              disabled={uploading || exportingPdf}
             >
               <IconPdf />
-              Convertir a PDF
+              Herramientas PDF
             </button>
           ) : null}
           {reviewTechnician ? null : (
@@ -508,54 +582,190 @@ export function FolderDateDetailPage() {
 
       <AppModal
         open={showPdfModal}
-        title="Convertir a PDF"
-        description="Elige el nombre del archivo antes de descargarlo."
-        onClose={() => {
-          if (!exportingPdf) setShowPdfModal(false)
-        }}
+        title="Herramientas PDF"
+        description="Convierte fotos, une 2 PDFs o combina ambos en un solo archivo."
+        onClose={closePdfModal}
         footer={
           <>
             <button
               type="button"
               className="btn btn--soft-muted"
-              onClick={() => setShowPdfModal(false)}
+              onClick={closePdfModal}
               disabled={exportingPdf}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              form="pdf-export-form"
+              form="pdf-tools-form"
               className="btn btn--soft-primary"
-              disabled={exportingPdf || !pdfName.trim()}
+              disabled={!canSubmitPdfTool}
             >
               <IconPdf />
-              {exportingPdf ? pdfStatus || 'Generando...' : 'Generar y descargar'}
+              {exportingPdf
+                ? pdfStatus || 'Generando...'
+                : pdfTool === 'merge'
+                  ? 'Unir y descargar'
+                  : pdfTool === 'combo'
+                    ? 'Combinar y descargar'
+                    : 'Generar y descargar'}
             </button>
           </>
         }
       >
         <form
-          id="pdf-export-form"
-          className="login-form"
-          onSubmit={handleExportPdf}
+          id="pdf-tools-form"
+          className="login-form pdf-tools"
+          onSubmit={(event) => void handlePdfToolSubmit(event)}
         >
+          <div className="pdf-tools__tabs" role="tablist" aria-label="Herramienta">
+            <button
+              type="button"
+              role="tab"
+              className={pdfTool === 'convert' ? 'is-active' : ''}
+              aria-selected={pdfTool === 'convert'}
+              disabled={exportingPdf || images.length === 0}
+              onClick={() => setPdfTool('convert')}
+            >
+              Imágenes → PDF
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={pdfTool === 'merge' ? 'is-active' : ''}
+              aria-selected={pdfTool === 'merge'}
+              disabled={exportingPdf}
+              onClick={() => setPdfTool('merge')}
+            >
+              Unir 2 PDFs
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={pdfTool === 'combo' ? 'is-active' : ''}
+              aria-selected={pdfTool === 'combo'}
+              disabled={exportingPdf || images.length === 0}
+              onClick={() => setPdfTool('combo')}
+            >
+              Fotos + PDF
+            </button>
+          </div>
+
           <label className="field">
-            <span>Nombre del PDF</span>
+            <span>Nombre del PDF final</span>
             <input
               value={pdfName}
               onChange={(event) => setPdfName(event.target.value)}
-              placeholder="Ej: Informe campo 17-08-2026"
+              placeholder="Ej: Informe deuda 17-08-2026"
               required
               disabled={exportingPdf}
             />
           </label>
           <p className="pdf-name-hint">
-            Se guardará como: <strong>{previewPdfName}</strong>
+            Se descargará como: <strong>{previewPdfName}</strong>
           </p>
-          <p className="pdf-name-hint">
-            Incluye {images.length} imagen(es) de esta fecha.
-          </p>
+
+          {pdfTool === 'convert' ? (
+            <p className="pdf-name-hint">
+              Incluye {images.length} imagen(es) de esta fecha.
+            </p>
+          ) : null}
+
+          {pdfTool === 'merge' ? (
+            <div className="pdf-tools__panel">
+              <label className="field">
+                <span>PDF 1</span>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={exportingPdf}
+                  onChange={(event) => {
+                    setMergePdfA(event.target.files?.[0] ?? null)
+                    event.target.value = ''
+                  }}
+                />
+                {mergePdfA ? (
+                  <small className="pdf-tools__file">{mergePdfA.name}</small>
+                ) : null}
+              </label>
+              <label className="field">
+                <span>PDF 2</span>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={exportingPdf}
+                  onChange={(event) => {
+                    setMergePdfB(event.target.files?.[0] ?? null)
+                    event.target.value = ''
+                  }}
+                />
+                {mergePdfB ? (
+                  <small className="pdf-tools__file">{mergePdfB.name}</small>
+                ) : null}
+              </label>
+              <button
+                type="button"
+                className="btn btn--soft-muted btn--small"
+                disabled={exportingPdf || !mergePdfA || !mergePdfB}
+                onClick={() => setMergeOrderSwapped((value) => !value)}
+              >
+                Invertir orden
+              </button>
+              {orderedMergeFiles.length === 2 ? (
+                <ol className="pdf-tools__order">
+                  <li>1.º {orderedMergeFiles[0].name}</li>
+                  <li>2.º {orderedMergeFiles[1].name}</li>
+                </ol>
+              ) : (
+                <p className="pdf-name-hint">Sube exactamente 2 PDFs (máx. 25 MB c/u).</p>
+              )}
+            </div>
+          ) : null}
+
+          {pdfTool === 'combo' ? (
+            <div className="pdf-tools__panel">
+              <p className="pdf-name-hint">
+                Se generará un PDF con {images.length} foto(s) y se unirá con el
+                PDF que adjuntes.
+              </p>
+              <label className="field">
+                <span>PDF adjunto</span>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={exportingPdf}
+                  onChange={(event) => {
+                    setComboPdf(event.target.files?.[0] ?? null)
+                    event.target.value = ''
+                  }}
+                />
+                {comboPdf ? (
+                  <small className="pdf-tools__file">{comboPdf.name}</small>
+                ) : null}
+              </label>
+              <fieldset className="pdf-tools__order-choice" disabled={exportingPdf}>
+                <legend>Orden del PDF final</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="combo-order"
+                    checked={comboOrder === 'photosFirst'}
+                    onChange={() => setComboOrder('photosFirst')}
+                  />
+                  Primero fotos, después el PDF adjunto
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="combo-order"
+                    checked={comboOrder === 'attachFirst'}
+                    onChange={() => setComboOrder('attachFirst')}
+                  />
+                  Primero el PDF adjunto, después las fotos
+                </label>
+              </fieldset>
+            </div>
+          ) : null}
         </form>
       </AppModal>
     </section>

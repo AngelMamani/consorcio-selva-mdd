@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
+import { isAdminManagedFolderArea } from '@/domain/entities/Area'
 import type { ActivityTechnicianFolder } from '@/domain/entities/TechnicianActivityWork'
 import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
@@ -123,10 +124,16 @@ export function ActivityTechniciansPage() {
     setLoading(true)
     void (async () => {
       try {
-        const [nextArea, result] = await Promise.all([
-          getAreaUseCase.execute(user, areaId),
-          listActivityPublishedWorkUseCase.execute(user, areaId),
-        ])
+        const nextArea = await getAreaUseCase.execute(user, areaId)
+        if (cancelled) return
+        if (isAdminManagedFolderArea(nextArea)) {
+          navigate(`/areas/${areaId}/herramientas-pdf`, { replace: true })
+          return
+        }
+        const result = await listActivityPublishedWorkUseCase.execute(
+          user,
+          areaId,
+        )
         if (cancelled) return
         setArea(nextArea)
         setTechnicians(result.technicians)
@@ -145,7 +152,13 @@ export function ActivityTechniciansPage() {
     return () => {
       cancelled = true
     }
-  }, [user, areaId, getAreaUseCase, listActivityPublishedWorkUseCase])
+  }, [
+    user,
+    areaId,
+    getAreaUseCase,
+    listActivityPublishedWorkUseCase,
+    navigate,
+  ])
 
   if (!user) return null
 

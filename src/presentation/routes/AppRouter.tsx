@@ -13,6 +13,7 @@ import { TechnicianWorkPage } from '@/presentation/pages/TechnicianWorkPage'
 import { FoldersPage } from '@/presentation/pages/FoldersPage'
 import { FolderDetailPage } from '@/presentation/pages/FolderDetailPage'
 import { FolderDateDetailPage } from '@/presentation/pages/FolderDateDetailPage'
+import { LocalFolderPdfPage } from '@/presentation/pages/LocalFolderPdfPage'
 import { AttendancePage } from '@/presentation/pages/AttendancePage'
 import { MapPage } from '@/presentation/pages/MapPage'
 import { StationsPage } from '@/presentation/pages/StationsPage'
@@ -58,6 +59,10 @@ export function AppRouter() {
               element={<TechnicianWorkPage />}
             />
             <Route path="/areas/:areaId/carpetas" element={<FoldersPage />} />
+            <Route
+              path="/areas/:areaId/herramientas-pdf"
+              element={<LocalFolderPdfPage />}
+            />
             <Route path="/tareas" element={<TasksPage />} />
             <Route path="/seguimiento" element={<TrackingPage />} />
             <Route path="/carpetas/:folderId" element={<FolderDetailPage />} />

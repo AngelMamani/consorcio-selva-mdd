@@ -1,8 +1,10 @@
 import { jsPDF } from 'jspdf'
+import { PDFDocument } from 'pdf-lib'
 import type {
   PdfExportResult,
   PdfExportService,
   PdfImageSource,
+  PdfLocalImageSource,
 } from '@/domain/repositories/PdfExportService'
 import { DomainError } from '@/domain/errors/DomainError'
 import { downloadStorageBlob } from '@/infrastructure/storage/downloadStorageBlob'
@@ -37,58 +39,124 @@ function canvasFromImage(image: HTMLImageElement): HTMLCanvasElement {
   return canvas
 }
 
+async function buildImagesPdf(
+  fileName: string,
+  images: Array<{ title: string; blob: Blob }>,
+): Promise<PdfExportResult> {
+  if (images.length === 0) {
+    throw new DomainError('No hay imágenes para exportar')
+  }
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  })
+
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = pdf.internal.pageSize.getHeight()
+  const margin = 10
+  const usableWidth = pageWidth - margin * 2
+  const usableHeight = pageHeight - margin * 2
+
+  for (let index = 0; index < images.length; index += 1) {
+    if (index > 0) {
+      pdf.addPage()
+    }
+
+    const source = images[index]
+    const image = await loadImageFromBlob(source.blob)
+    const canvas = canvasFromImage(image)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+
+    const ratio = Math.min(
+      usableWidth / canvas.width,
+      usableHeight / canvas.height,
+    )
+    const drawWidth = canvas.width * ratio
+    const drawHeight = canvas.height * ratio
+    const offsetX = margin + (usableWidth - drawWidth) / 2
+    const offsetY = margin + (usableHeight - drawHeight) / 2
+
+    pdf.addImage(dataUrl, 'JPEG', offsetX, offsetY, drawWidth, drawHeight)
+  }
+
+  return {
+    blob: pdf.output('blob'),
+    fileName,
+  }
+}
+
 export class JsPdfExportService implements PdfExportService {
   async createImagesDocument(
     fileName: string,
     images: PdfImageSource[],
   ): Promise<PdfExportResult> {
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    })
-
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 10
-    const usableWidth = pageWidth - margin * 2
-    const usableHeight = pageHeight - margin * 2
-
-    for (let index = 0; index < images.length; index += 1) {
-      if (index > 0) {
-        pdf.addPage()
-      }
-
-      const source = images[index]
-
-      let blob: Blob
+    const local: Array<{ title: string; blob: Blob }> = []
+    for (const source of images) {
       try {
-        blob = await downloadStorageBlob(source.storagePath)
+        const blob = await downloadStorageBlob(source.storagePath)
+        local.push({ title: source.title, blob })
       } catch {
         throw new DomainError(
           `No se pudo leer la imagen "${source.title}" desde Storage`,
         )
       }
+    }
+    return buildImagesPdf(fileName, local)
+  }
 
-      const image = await loadImageFromBlob(blob)
-      const canvas = canvasFromImage(image)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+  async createLocalImagesDocument(
+    fileName: string,
+    images: PdfLocalImageSource[],
+  ): Promise<PdfExportResult> {
+    return buildImagesPdf(
+      fileName,
+      images.map((image) => ({ title: image.title, blob: image.data })),
+    )
+  }
 
-      const ratio = Math.min(
-        usableWidth / canvas.width,
-        usableHeight / canvas.height,
-      )
-      const drawWidth = canvas.width * ratio
-      const drawHeight = canvas.height * ratio
-      const offsetX = margin + (usableWidth - drawWidth) / 2
-      const offsetY = margin + (usableHeight - drawHeight) / 2
-
-      pdf.addImage(dataUrl, 'JPEG', offsetX, offsetY, drawWidth, drawHeight)
+  async mergeDocuments(
+    fileName: string,
+    documents: ArrayBuffer[],
+  ): Promise<PdfExportResult> {
+    if (documents.length < 2) {
+      throw new DomainError('Se necesitan al menos 2 PDFs para unir')
     }
 
-    return {
-      blob: pdf.output('blob'),
-      fileName,
+    try {
+      const merged = await PDFDocument.create()
+      for (let index = 0; index < documents.length; index += 1) {
+        const bytes = documents[index]
+        if (!bytes || bytes.byteLength === 0) {
+          throw new DomainError(`El PDF #${index + 1} está vacío o no es válido`)
+        }
+        let source: PDFDocument
+        try {
+          source = await PDFDocument.load(bytes, { ignoreEncryption: true })
+        } catch {
+          throw new DomainError(
+            `No se pudo leer el PDF #${index + 1}. Verifica que no esté dañado o protegido.`,
+          )
+        }
+        if (source.getPageCount() === 0) {
+          throw new DomainError(`El PDF #${index + 1} no tiene páginas`)
+        }
+        const pages = await merged.copyPages(source, source.getPageIndices())
+        for (const page of pages) {
+          merged.addPage(page)
+        }
+      }
+
+      const output = await merged.save()
+      const outBytes = new Uint8Array(output)
+      return {
+        blob: new Blob([outBytes], { type: 'application/pdf' }),
+        fileName,
+      }
+    } catch (error) {
+      if (error instanceof DomainError) throw error
+      throw new DomainError('No se pudieron unir los PDFs')
     }
   }
 }

@@ -2,6 +2,7 @@ import {
   AreaAssignmentMode,
   defaultReportCode,
   inferAreaAssignmentMode,
+  looksLikeAdminManagedFolderActivity,
   looksLikeMeterChangeActivity,
   type AreaAssignmentMode as AssignmentMode,
 } from '@/domain/value-objects/AreaAssignmentMode'
@@ -48,4 +49,13 @@ export function isInstallationArea(
   area: Pick<Area, 'name' | 'assignmentMode' | 'reportCode'>,
 ): boolean {
   return isWorkOrderArea(area) && !isMeterChangeArea(area)
+}
+
+/** Deuda / notificaciones: el admin trabaja en carpetas (sin vista por técnico). */
+export function isAdminManagedFolderArea(
+  area: Pick<Area, 'name' | 'assignmentMode'>,
+): boolean {
+  return (
+    !isWorkOrderArea(area) && looksLikeAdminManagedFolderActivity(area.name)
+  )
 }

@@ -11,6 +11,7 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { ImageFolder } from '@/domain/entities/ImageFolder'
 import type { Area } from '@/domain/entities/Area'
+import { isAdminManagedFolderArea } from '@/domain/entities/Area'
 import type { User } from '@/domain/entities/User'
 import type { Supply } from '@/domain/entities/Supply'
 import { formatFolderAssignees } from '@/domain/entities/User'
@@ -636,6 +637,10 @@ export function FoldersPage() {
     setError(null)
     try {
       const nextArea = await getAreaUseCase.execute(user, areaId)
+      if (isAdminManagedFolderArea(nextArea)) {
+        navigate(`/areas/${areaId}/herramientas-pdf`, { replace: true })
+        return
+      }
       setArea(nextArea)
       setLoading(false)
       const [result, status] = await Promise.all([

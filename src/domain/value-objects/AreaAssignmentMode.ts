@@ -29,6 +29,17 @@ export function looksLikeWorkOrderActivity(name: string): boolean {
   return looksLikeInstallationActivity(name) || looksLikeMeterChangeActivity(name)
 }
 
+/** Deuda / notificaciones: las trabaja el admin en carpetas, no por técnico. */
+export function looksLikeAdminManagedFolderActivity(name: string): boolean {
+  const key = activityNameKey(name)
+  return (
+    /\bdeuda\b/.test(key) ||
+    /notificacion/.test(key) ||
+    key === 'area de notificaciones' ||
+    key.startsWith('area de notificaciones')
+  )
+}
+
 export function activityNameKey(name: string): string {
   return name
     .normalize('NFD')

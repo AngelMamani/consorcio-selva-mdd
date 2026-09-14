@@ -26,6 +26,12 @@ import { UploadFolderImageUseCase } from '@/domain/usecases/folders/UploadFolder
 import { ListFolderImagesUseCase } from '@/domain/usecases/folders/ListFolderImagesUseCase'
 import { DeleteFolderImageUseCase } from '@/domain/usecases/folders/DeleteFolderImageUseCase'
 import { ExportFolderImagesToPdfUseCase } from '@/domain/usecases/folders/ExportFolderImagesToPdfUseCase'
+import { ExportFolderImagesAndMergePdfUseCase } from '@/domain/usecases/folders/ExportFolderImagesAndMergePdfUseCase'
+import {
+  ConvertLocalImagesAndMergePdfUseCase,
+  ConvertLocalImagesToPdfUseCase,
+} from '@/domain/usecases/folders/ConvertLocalImagesToPdfUseCase'
+import { MergePdfsUseCase } from '@/domain/usecases/folders/MergePdfsUseCase'
 import { ListActivityPublishedWorkUseCase } from '@/domain/usecases/folders/ListActivityPublishedWorkUseCase'
 import {
   ListFolderDatesUseCase,
@@ -177,6 +183,10 @@ export interface AppDependencies {
   listFolderImagesUseCase: ListFolderImagesUseCase
   deleteFolderImageUseCase: DeleteFolderImageUseCase
   exportFolderImagesToPdfUseCase: ExportFolderImagesToPdfUseCase
+  mergePdfsUseCase: MergePdfsUseCase
+  exportFolderImagesAndMergePdfUseCase: ExportFolderImagesAndMergePdfUseCase
+  convertLocalImagesToPdfUseCase: ConvertLocalImagesToPdfUseCase
+  convertLocalImagesAndMergePdfUseCase: ConvertLocalImagesAndMergePdfUseCase
   listActivityPublishedWorkUseCase: ListActivityPublishedWorkUseCase
   listFolderDatesUseCase: ListFolderDatesUseCase
   getFolderDateUseCase: GetFolderDateUseCase
@@ -277,6 +287,25 @@ export function createAppDependencies(): AppDependencies {
   const personalRepository = new FirebasePersonalRepository()
   const operationalRoleRepository = new FirebaseOperationalRoleRepository()
   const pdfExportService = new JsPdfExportService()
+  const exportFolderImagesToPdfUseCase = new ExportFolderImagesToPdfUseCase(
+    folderRepository,
+    imageRepository,
+    pdfExportService,
+  )
+  const mergePdfsUseCase = new MergePdfsUseCase(pdfExportService)
+  const exportFolderImagesAndMergePdfUseCase =
+    new ExportFolderImagesAndMergePdfUseCase(
+      exportFolderImagesToPdfUseCase,
+      pdfExportService,
+    )
+  const convertLocalImagesToPdfUseCase = new ConvertLocalImagesToPdfUseCase(
+    pdfExportService,
+  )
+  const convertLocalImagesAndMergePdfUseCase =
+    new ConvertLocalImagesAndMergePdfUseCase(
+      convertLocalImagesToPdfUseCase,
+      pdfExportService,
+    )
   const attendanceExcelService = new XlsxAttendanceExcelService()
   const stationCatalogExcelExportService = new XlsxStationCatalogExcelService()
   const attendancePdfService = new JsPdfAttendanceExportService()
@@ -403,11 +432,11 @@ export function createAppDependencies(): AppDependencies {
       folderDateRepository,
       imageRepository,
     ),
-    exportFolderImagesToPdfUseCase: new ExportFolderImagesToPdfUseCase(
-      folderRepository,
-      imageRepository,
-      pdfExportService,
-    ),
+    exportFolderImagesToPdfUseCase,
+    mergePdfsUseCase,
+    exportFolderImagesAndMergePdfUseCase,
+    convertLocalImagesToPdfUseCase,
+    convertLocalImagesAndMergePdfUseCase,
     listActivityPublishedWorkUseCase: new ListActivityPublishedWorkUseCase(
       areaRepository,
       folderRepository,

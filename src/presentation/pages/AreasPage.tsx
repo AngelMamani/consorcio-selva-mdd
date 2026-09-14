@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
-import { isWorkOrderArea } from '@/domain/entities/Area'
+import { isAdminManagedFolderArea, isWorkOrderArea } from '@/domain/entities/Area'
 import {
   AreaAssignmentMode,
   inferAreaAssignmentMode,
@@ -291,11 +291,16 @@ export function AreasPage() {
   }
 
   function openArea(area: Area) {
-    navigate(
-      isWorkOrderArea(area)
-        ? `/areas/${area.id}/ordenes`
-        : `/areas/${area.id}/tecnicos`,
-    )
+    if (isWorkOrderArea(area)) {
+      navigate(`/areas/${area.id}/ordenes`)
+      return
+    }
+    // Deuda / notificaciones: admin elige carpeta del PC (no técnicos ni carpetas Firebase).
+    if (isAdminManagedFolderArea(area)) {
+      navigate(`/areas/${area.id}/herramientas-pdf`)
+      return
+    }
+    navigate(`/areas/${area.id}/tecnicos`)
   }
 
   async function handleSave(event: FormEvent) {
@@ -581,7 +586,11 @@ export function AreasPage() {
               </div>
               <div className="areas-tile__footer">
                 <span>
-                  {isWorkOrderArea(area) ? 'Órdenes de trabajo' : 'Rutas'}
+                  {isWorkOrderArea(area)
+                    ? 'Órdenes de trabajo'
+                    : isAdminManagedFolderArea(area)
+                      ? 'Admin · carpeta PC'
+                      : 'Rutas'}
                   {' · '}
                   Actualizada {formatDate(area.updatedAt)}
                 </span>
@@ -634,7 +643,11 @@ export function AreasPage() {
                     </span>
                   </td>
                   <td>
-                    {isWorkOrderArea(area) ? 'Órdenes' : 'Rutas'}
+                    {isWorkOrderArea(area)
+                      ? 'Órdenes'
+                      : isAdminManagedFolderArea(area)
+                        ? 'Admin · carpeta PC'
+                        : 'Rutas'}
                   </td>
                   <td>{formatDate(area.updatedAt)}</td>
                   <td>
