@@ -40,6 +40,16 @@ export function looksLikeAdminManagedFolderActivity(name: string): boolean {
   )
 }
 
+/** Mejoramiento de suministro: admin edita fotos locales (sello de fecha). */
+export function looksLikeSupplyImprovementActivity(name: string): boolean {
+  const key = activityNameKey(name)
+  return (
+    /mejoramiento\s+de\s+suministro/.test(key) ||
+    /mejoramiento\s+suministro/.test(key) ||
+    /\bmejoramiento\b/.test(key)
+  )
+}
+
 export function activityNameKey(name: string): string {
   return name
     .normalize('NFD')

@@ -14,6 +14,7 @@ import { FoldersPage } from '@/presentation/pages/FoldersPage'
 import { FolderDetailPage } from '@/presentation/pages/FolderDetailPage'
 import { FolderDateDetailPage } from '@/presentation/pages/FolderDateDetailPage'
 import { LocalFolderPdfPage } from '@/presentation/pages/LocalFolderPdfPage'
+import { LocalFolderPhotoEditPage } from '@/presentation/pages/LocalFolderPhotoEditPage'
 import { AttendancePage } from '@/presentation/pages/AttendancePage'
 import { MapPage } from '@/presentation/pages/MapPage'
 import { StationsPage } from '@/presentation/pages/StationsPage'
@@ -62,6 +63,10 @@ export function AppRouter() {
             <Route
               path="/areas/:areaId/herramientas-pdf"
               element={<LocalFolderPdfPage />}
+            />
+            <Route
+              path="/areas/:areaId/herramientas-fotos"
+              element={<LocalFolderPhotoEditPage />}
             />
             <Route path="/tareas" element={<TasksPage />} />
             <Route path="/seguimiento" element={<TrackingPage />} />

@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
-import { isAdminManagedFolderArea } from '@/domain/entities/Area'
+import { isAdminManagedFolderArea, isSupplyImprovementArea } from '@/domain/entities/Area'
 import type { ActivityTechnicianFolder } from '@/domain/entities/TechnicianActivityWork'
 import { DomainError } from '@/domain/errors/DomainError'
 import { useAuth } from '@/presentation/providers/AuthProvider'
@@ -128,6 +128,10 @@ export function ActivityTechniciansPage() {
         if (cancelled) return
         if (isAdminManagedFolderArea(nextArea)) {
           navigate(`/areas/${areaId}/herramientas-pdf`, { replace: true })
+          return
+        }
+        if (isSupplyImprovementArea(nextArea)) {
+          navigate(`/areas/${areaId}/herramientas-fotos`, { replace: true })
           return
         }
         const result = await listActivityPublishedWorkUseCase.execute(

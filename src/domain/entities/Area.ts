@@ -4,6 +4,7 @@ import {
   inferAreaAssignmentMode,
   looksLikeAdminManagedFolderActivity,
   looksLikeMeterChangeActivity,
+  looksLikeSupplyImprovementActivity,
   type AreaAssignmentMode as AssignmentMode,
 } from '@/domain/value-objects/AreaAssignmentMode'
 
@@ -57,5 +58,14 @@ export function isAdminManagedFolderArea(
 ): boolean {
   return (
     !isWorkOrderArea(area) && looksLikeAdminManagedFolderActivity(area.name)
+  )
+}
+
+/** Mejoramiento de suministro: admin edita fotos locales (sin vista por técnico). */
+export function isSupplyImprovementArea(
+  area: Pick<Area, 'name' | 'assignmentMode'>,
+): boolean {
+  return (
+    !isWorkOrderArea(area) && looksLikeSupplyImprovementActivity(area.name)
   )
 }

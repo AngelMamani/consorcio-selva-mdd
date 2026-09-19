@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
-import { isAdminManagedFolderArea, isWorkOrderArea } from '@/domain/entities/Area'
+import { isAdminManagedFolderArea, isSupplyImprovementArea, isWorkOrderArea } from '@/domain/entities/Area'
 import {
   AreaAssignmentMode,
   inferAreaAssignmentMode,
@@ -298,6 +298,11 @@ export function AreasPage() {
     // Deuda / notificaciones: admin elige carpeta del PC (no técnicos ni carpetas Firebase).
     if (isAdminManagedFolderArea(area)) {
       navigate(`/areas/${area.id}/herramientas-pdf`)
+      return
+    }
+    // Mejoramiento de suministro: editar fecha del sello en fotos locales.
+    if (isSupplyImprovementArea(area)) {
+      navigate(`/areas/${area.id}/herramientas-fotos`)
       return
     }
     navigate(`/areas/${area.id}/tecnicos`)
@@ -590,7 +595,9 @@ export function AreasPage() {
                     ? 'Órdenes de trabajo'
                     : isAdminManagedFolderArea(area)
                       ? 'Admin · carpeta PC'
-                      : 'Rutas'}
+                      : isSupplyImprovementArea(area)
+                        ? 'Admin · editar fotos'
+                        : 'Rutas'}
                   {' · '}
                   Actualizada {formatDate(area.updatedAt)}
                 </span>
@@ -647,7 +654,9 @@ export function AreasPage() {
                       ? 'Órdenes'
                       : isAdminManagedFolderArea(area)
                         ? 'Admin · carpeta PC'
-                        : 'Rutas'}
+                        : isSupplyImprovementArea(area)
+                          ? 'Admin · editar fotos'
+                          : 'Rutas'}
                   </td>
                   <td>{formatDate(area.updatedAt)}</td>
                   <td>
