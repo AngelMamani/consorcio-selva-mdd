@@ -78,6 +78,10 @@ import {
   PublishMobileAppReleaseUseCase,
 } from '@/domain/usecases/mobile-app/MobileAppReleaseUseCases'
 import {
+  GetOfficeDeviceSettingsUseCase,
+  SaveOfficeDeviceSettingsUseCase,
+} from '@/domain/usecases/devices/OfficeDeviceSettingsUseCases'
+import {
   ExportStationCatalogToExcelUseCase,
   GetStationByCodeUseCase,
   GetSupplyByRouteCodeUseCase,
@@ -93,6 +97,7 @@ import { FirebaseAttendanceRepository } from '@/infrastructure/firestore/Firebas
 import { FirebaseAttendancePermissionRequestRepository } from '@/infrastructure/firestore/FirebaseAttendancePermissionRequestRepository'
 import { FirebaseSupplyRepository } from '@/infrastructure/firestore/FirebaseSupplyRepository'
 import { FirebaseMobileAppReleaseRepository } from '@/infrastructure/firestore/FirebaseMobileAppReleaseRepository'
+import { FirebaseOfficeDeviceSettingsRepository } from '@/infrastructure/firestore/FirebaseOfficeDeviceSettingsRepository'
 import { JsPdfExportService } from '@/infrastructure/pdf/JsPdfExportService'
 import { FirebaseAreaRepository } from '@/infrastructure/firestore/FirebaseAreaRepository'
 import { FirebaseTaskRepository } from '@/infrastructure/firestore/FirebaseTaskRepository'
@@ -239,6 +244,8 @@ export interface AppDependencies {
   exportAttendanceDayToPdfUseCase: ExportAttendanceDayToPdfUseCase
   getMobileAppReleaseUseCase: GetMobileAppReleaseUseCase
   publishMobileAppReleaseUseCase: PublishMobileAppReleaseUseCase
+  getOfficeDeviceSettingsUseCase: GetOfficeDeviceSettingsUseCase
+  saveOfficeDeviceSettingsUseCase: SaveOfficeDeviceSettingsUseCase
   listSupportTicketsUseCase: ListSupportTicketsUseCase
   resolveSupportTicketUseCase: ResolveSupportTicketUseCase
   watchTechnicianLocationsUseCase: WatchTechnicianLocationsUseCase
@@ -318,6 +325,8 @@ export function createAppDependencies(): AppDependencies {
   const meterChangeOrderExcelService = new XlsxMeterChangeOrderExcelService()
   const meterChangeOrderPdfService = new JsPdfMeterChangeOrderExportService()
   const mobileAppReleaseRepository = new FirebaseMobileAppReleaseRepository()
+  const officeDeviceSettingsRepository =
+    new FirebaseOfficeDeviceSettingsRepository()
   const supportTicketRepository = new FirebaseSupportTicketRepository()
   const technicianLocationRepository = new FirebaseTechnicianLocationRepository()
   const supplyRepository = new FirebaseSupplyRepository()
@@ -591,6 +600,12 @@ export function createAppDependencies(): AppDependencies {
     ),
     publishMobileAppReleaseUseCase: new PublishMobileAppReleaseUseCase(
       mobileAppReleaseRepository,
+    ),
+    getOfficeDeviceSettingsUseCase: new GetOfficeDeviceSettingsUseCase(
+      officeDeviceSettingsRepository,
+    ),
+    saveOfficeDeviceSettingsUseCase: new SaveOfficeDeviceSettingsUseCase(
+      officeDeviceSettingsRepository,
     ),
     listSupportTicketsUseCase: new ListSupportTicketsUseCase(
       supportTicketRepository,

@@ -86,6 +86,12 @@
   color: #5b6577;
 }
 
+.scan-split-device__cloud {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.8rem;
+  color: #5b6577;
+}
+
 .scan-split-config--device {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

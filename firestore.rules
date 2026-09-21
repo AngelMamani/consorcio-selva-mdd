@@ -1003,12 +1003,35 @@ service cloud.firestore {
         && request.resource.data.updatedByName.size() <= 120;
     }
 
+    function validOfficeDevicesSettings() {
+      return request.resource.data.bridgeBaseUrl is string
+        && request.resource.data.bridgeBaseUrl.size() > 7
+        && request.resource.data.bridgeBaseUrl.size() <= 200
+        && request.resource.data.printerIp is string
+        && request.resource.data.printerIp.size() > 0
+        && request.resource.data.printerIp.size() <= 64
+        && request.resource.data.printerPort is int
+        && request.resource.data.printerPort >= 1
+        && request.resource.data.printerPort <= 65535
+        && request.resource.data.twainDriverName is string
+        && request.resource.data.twainDriverName.size() > 0
+        && request.resource.data.twainDriverName.size() <= 120
+        && request.resource.data.scanDriver in ['wia', 'twain']
+        && request.resource.data.scanSource in ['feeder', 'glass', 'duplex']
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedById == request.auth.uid
+        && request.resource.data.updatedByName is string
+        && request.resource.data.updatedByName.size() > 0
+        && request.resource.data.updatedByName.size() <= 120;
+    }
+
     match /settings/{docId} {
       allow read: if isActiveUser();
       allow create, update: if isAdmin() && (
         (docId == 'attendance' && validAttendanceSettings())
         || (docId == 'mobileApp' && validMobileAppSettings())
         || (docId == 'suppliesCatalog' && validSuppliesCatalog())
+        || (docId == 'officeDevices' && validOfficeDevicesSettings())
       );
       allow delete: if false;
     }

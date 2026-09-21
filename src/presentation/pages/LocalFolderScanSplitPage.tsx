@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Area } from '@/domain/entities/Area'
+import {
+  officeDeviceSettingsToLocalConfig,
+} from '@/domain/entities/OfficeDeviceSettings'
+import { assertUserCanManageUsers } from '@/domain/entities/User'
 import { DomainError } from '@/domain/errors/DomainError'
 import { sanitizePdfFileName } from '@/domain/services/PdfFileNameService'
 import {
@@ -85,7 +89,11 @@ export function LocalFolderScanSplitPage() {
   const { areaId = '' } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { getAreaUseCase } = useDependencies()
+  const {
+    getAreaUseCase,
+    getOfficeDeviceSettingsUseCase,
+    saveOfficeDeviceSettingsUseCase,
+  } = useDependencies()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [area, setArea] = useState<Area | null>(null)
@@ -107,8 +115,13 @@ export function LocalFolderScanSplitPage() {
   const [deviceConfig, setDeviceConfig] = useState<LocalDeviceConfig>(() =>
     loadLocalDeviceConfig(),
   )
+  const [cloudConfigLabel, setCloudConfigLabel] = useState(
+    'Cargando config de oficina...',
+  )
   const [bridgeStatus, setBridgeStatus] = useState<string>('Sin comprobar')
   const [scanPageCount, setScanPageCount] = useState(3)
+
+  const canEditOfficeConfig = Boolean(user && assertUserCanManageUsers(user))
 
   const previewUrls = useMemo(() => {
     const map = new Map<string, string>()
@@ -136,6 +149,34 @@ export function LocalFolderScanSplitPage() {
   useEffect(() => {
     saveLocalDeviceConfig(deviceConfig)
   }, [deviceConfig])
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const settings = await getOfficeDeviceSettingsUseCase.execute(user)
+        if (cancelled) return
+        const next = officeDeviceSettingsToLocalConfig(settings)
+        setDeviceConfig(next)
+        saveLocalDeviceConfig(next)
+        if (settings.updatedAt && settings.updatedByName) {
+          setCloudConfigLabel(
+            `Oficina · ${settings.updatedByName} · ${settings.updatedAt.toLocaleString('es-PE')}`,
+          )
+        } else {
+          setCloudConfigLabel('Oficina · valores por defecto (aún no guardados)')
+        }
+      } catch {
+        if (!cancelled) {
+          setCloudConfigLabel('Oficina · usando caché local (sin nube)')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user, getOfficeDeviceSettingsUseCase])
 
   useEffect(() => {
     if (!user || !areaId) return
@@ -241,6 +282,42 @@ export function LocalFolderScanSplitPage() {
         error instanceof DomainError
           ? error.message
           : 'No se pudo conectar al bridge',
+      )
+    } finally {
+      setBusy(false)
+      setStatus('')
+    }
+  }
+
+  async function saveOfficeConfigToCloud() {
+    if (!user) return
+    if (!canEditOfficeConfig) {
+      swalError('Solo el administrador puede guardar la config de oficina')
+      return
+    }
+    setBusy(true)
+    setStatus('Guardando config de oficina...')
+    try {
+      const saved = await saveOfficeDeviceSettingsUseCase.execute(user, {
+        bridgeBaseUrl: deviceConfig.bridgeBaseUrl,
+        printerIp: deviceConfig.printerIp,
+        printerPort: deviceConfig.printerPort,
+        twainDriverName: deviceConfig.twainDriverName,
+        scanDriver: deviceConfig.scanDriver,
+        scanSource: deviceConfig.scanSource,
+      })
+      const next = officeDeviceSettingsToLocalConfig(saved)
+      setDeviceConfig(next)
+      saveLocalDeviceConfig(next)
+      setCloudConfigLabel(
+        `Oficina · ${saved.updatedByName || user.displayName} · ${(saved.updatedAt ?? new Date()).toLocaleString('es-PE')}`,
+      )
+      swalSuccess('Config de oficina guardada en la nube. Todos la verán.')
+    } catch (error) {
+      swalError(
+        error instanceof DomainError
+          ? error.message
+          : 'No se pudo guardar la config de oficina',
       )
     } finally {
       setBusy(false)
@@ -465,15 +542,16 @@ export function LocalFolderScanSplitPage() {
 
       <div className="scan-split-device panel">
         <div className="scan-split-device__head">
-          <strong>Equipo local (Canon)</strong>
+          <strong>Equipo de oficina (Canon · nube)</strong>
           <span>{bridgeStatus}</span>
         </div>
+        <p className="scan-split-device__cloud">{cloudConfigLabel}</p>
         <div className="scan-split-config scan-split-config--device">
           <label className="field">
-            <span>URL bridge</span>
+            <span>URL bridge (este PC)</span>
             <input
               value={deviceConfig.bridgeBaseUrl}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) =>
                 setDeviceConfig((current) => ({
                   ...current,
@@ -486,7 +564,7 @@ export function LocalFolderScanSplitPage() {
             <span>IP impresora/escáner</span>
             <input
               value={deviceConfig.printerIp}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) =>
                 setDeviceConfig((current) => ({
                   ...current,
@@ -500,7 +578,7 @@ export function LocalFolderScanSplitPage() {
             <input
               type="number"
               value={deviceConfig.printerPort}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) =>
                 setDeviceConfig((current) => ({
                   ...current,
@@ -513,7 +591,7 @@ export function LocalFolderScanSplitPage() {
             <span>Escáner (como Windows)</span>
             <input
               value={deviceConfig.twainDriverName}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) =>
                 setDeviceConfig((current) => ({
                   ...current,
@@ -526,7 +604,7 @@ export function LocalFolderScanSplitPage() {
             <span>Modo (WIA = app Escáner)</span>
             <select
               value={deviceConfig.scanDriver}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) =>
                 setDeviceConfig((current) => ({
                   ...current,
@@ -542,7 +620,7 @@ export function LocalFolderScanSplitPage() {
             <span>Origen del papel</span>
             <select
               value={deviceConfig.scanSource}
-              disabled={busy}
+              disabled={busy || !canEditOfficeConfig}
               onChange={(event) => {
                 const value = event.target.value
                 setDeviceConfig((current) => ({
@@ -581,12 +659,25 @@ export function LocalFolderScanSplitPage() {
             >
               Probar bridge
             </button>
+            {canEditOfficeConfig ? (
+              <button
+                type="button"
+                className="btn btn--soft-primary btn--small"
+                disabled={busy}
+                onClick={() => void saveOfficeConfigToCloud()}
+              >
+                Guardar config de oficina
+              </button>
+            ) : null}
           </div>
         </div>
         <p className="scan-split-hint">
-          Igual que la app Escáner de Windows: WIA + Alimentador + “Color Network
-          ScanGear 2”. Pon las hojas en el ADF, deja el bridge abierto (
-          <code>Iniciar-Bridge-Consorcio.cmd</code>) y pulsa Escanear con Canon.
+          La IP de la Canon y el driver se comparten en la nube. El bridge debe
+          estar abierto en <strong>este PC</strong> (
+          <code>http://localhost:5000</code> ·{' '}
+          <code>Iniciar-Bridge-Consorcio.cmd</code>). En Chrome, permite el
+          acceso a red local cuando Vercel lo pida. Luego: hojas en el ADF →
+          Escanear con Canon.
         </p>
       </div>
 
