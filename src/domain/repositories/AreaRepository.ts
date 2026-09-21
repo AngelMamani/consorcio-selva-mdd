@@ -10,6 +10,7 @@ export interface AreaRepository {
     description: string
     assignmentMode: AreaAssignmentMode
     reportCode: string
+    scanSplitEnabled?: boolean
     createdById: string
     createdByName: string
   }): Promise<Area>
@@ -20,6 +21,7 @@ export interface AreaRepository {
       description: string
       assignmentMode: AreaAssignmentMode
       reportCode: string
+      scanSplitEnabled?: boolean
     },
   ): Promise<Area>
   delete(id: string): Promise<void>

@@ -116,6 +116,17 @@ function IconList() {
   )
 }
 
+function IconPdfScan() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="btn-icon">
+      <path
+        fill="currentColor"
+        d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m-7 14H7v-2h5zm5-4H7v-2h10zm0-4H7V7h10z"
+      />
+    </svg>
+  )
+}
+
 function formatDate(date: Date): string {
   return date.toLocaleDateString('es-PE', {
     day: '2-digit',
@@ -151,6 +162,7 @@ export function AreasPage() {
     AreaAssignmentMode.Routes,
   )
   const [reportCode, setReportCode] = useState('')
+  const [scanSplitEnabled, setScanSplitEnabled] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const cancelledTempIds = useRef(new Set<string>())
   const deletedIds = useRef(new Set<string>())
@@ -241,6 +253,7 @@ export function AreasPage() {
     setDescription('')
     setAssignmentMode(AreaAssignmentMode.Routes)
     setReportCode('')
+    setScanSplitEnabled(false)
     setModalOpen(true)
   }
 
@@ -252,6 +265,7 @@ export function AreasPage() {
     setDescription(area.description)
     setAssignmentMode(area.assignmentMode)
     setReportCode(area.reportCode)
+    setScanSplitEnabled(Boolean(area.scanSplitEnabled))
     setModalOpen(true)
   }
 
@@ -321,6 +335,7 @@ export function AreasPage() {
           description: description.trim(),
           assignmentMode,
           reportCode: reportCode.trim().toUpperCase(),
+          scanSplitEnabled,
           updatedAt: new Date(),
         }
         setAreas((current) =>
@@ -335,6 +350,7 @@ export function AreasPage() {
           description,
           assignmentMode,
           reportCode,
+          scanSplitEnabled,
         })
         setAreas((current) =>
           current
@@ -348,6 +364,7 @@ export function AreasPage() {
           description: description.trim(),
           assignmentMode,
           reportCode: reportCode.trim().toUpperCase(),
+          scanSplitEnabled,
           createdById: user.id,
           createdByName: user.displayName,
           createdAt: new Date(),
@@ -365,6 +382,7 @@ export function AreasPage() {
           description,
           assignmentMode,
           reportCode,
+          scanSplitEnabled,
         })
         if (cancelledTempIds.current.has(optimistic.id)) {
           cancelledTempIds.current.delete(optimistic.id)
@@ -397,6 +415,21 @@ export function AreasPage() {
         className="areas-item__actions"
         onClick={(event) => event.stopPropagation()}
       >
+        {area.scanSplitEnabled ? (
+          <button
+            type="button"
+            className="btn btn--icon-only btn--soft-teal"
+            title="Escanear y separar PDFs"
+            aria-label={`Escanear ${area.name}`}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              navigate(`/areas/${area.id}/herramientas-escaneo`)
+            }}
+          >
+            <IconPdfScan />
+          </button>
+        ) : null}
         <button
           type="button"
           className="btn btn--icon-only btn--soft-blue"
@@ -597,7 +630,9 @@ export function AreasPage() {
                       ? 'Admin · carpeta PC'
                       : isSupplyImprovementArea(area)
                         ? 'Admin · editar fotos'
-                        : 'Rutas'}
+                        : area.scanSplitEnabled
+                          ? 'Rutas · escaneo PDF'
+                          : 'Rutas'}
                   {' · '}
                   Actualizada {formatDate(area.updatedAt)}
                 </span>
@@ -767,6 +802,22 @@ export function AreasPage() {
                 </small>
               </label>
             ) : null}
+            <label className="field areas-form__scan">
+              <span className="areas-form__scan-row">
+                <input
+                  type="checkbox"
+                  checked={scanSplitEnabled}
+                  onChange={(event) =>
+                    setScanSplitEnabled(event.target.checked)
+                  }
+                />
+                Activar escaneo y separación de PDFs
+              </span>
+              <small style={{ display: 'block', marginTop: 6, opacity: 0.75 }}>
+                Permite cargar varias hojas escaneadas y guardarlas en una
+                carpeta del PC (ej. 3 páginas por PDF). No usa Firebase.
+              </small>
+            </label>
           </div>
         </form>
       </AppModal>

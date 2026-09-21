@@ -181,12 +181,22 @@ export function ActivityTechniciansPage() {
             (ruta + fecha) y las fotos para exportar a PDF.
           </p>
         </div>
-        <Link
-          to={`/areas/${areaId}/carpetas`}
-          className="activity-work-catalog-link"
-        >
-          Catálogo de suministros
-        </Link>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {area?.scanSplitEnabled ? (
+            <Link
+              to={`/areas/${areaId}/herramientas-escaneo`}
+              className="btn btn--soft-teal"
+            >
+              Escanear y separar PDFs
+            </Link>
+          ) : null}
+          <Link
+            to={`/areas/${areaId}/carpetas`}
+            className="activity-work-catalog-link"
+          >
+            Catálogo de suministros
+          </Link>
+        </div>
       </div>
 
       {!loading && technicians.length > 0 ? (

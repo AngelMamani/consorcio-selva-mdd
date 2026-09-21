@@ -111,6 +111,7 @@ export class CreateAreaUseCase {
       description: string
       assignmentMode?: string
       reportCode?: string
+      scanSplitEnabled?: boolean
     },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
@@ -147,6 +148,7 @@ export class CreateAreaUseCase {
       description: normalizeDescription(input.description),
       assignmentMode: assignment.assignmentMode,
       reportCode: assignment.reportCode,
+      scanSplitEnabled: Boolean(input.scanSplitEnabled),
       createdById: actor.id,
       createdByName: actor.displayName,
     })
@@ -176,6 +178,7 @@ export class UpdateAreaUseCase {
       description: string
       assignmentMode?: string
       reportCode?: string
+      scanSplitEnabled?: boolean
     },
   ): Promise<Area> {
     if (!assertUserCanManageUsers(actor)) {
@@ -208,6 +211,10 @@ export class UpdateAreaUseCase {
       description: normalizeDescription(input.description),
       assignmentMode: assignment.assignmentMode,
       reportCode: assignment.reportCode,
+      scanSplitEnabled:
+        input.scanSplitEnabled !== undefined
+          ? Boolean(input.scanSplitEnabled)
+          : area.scanSplitEnabled,
     })
 
     if (name !== area.name) {

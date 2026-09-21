@@ -25,6 +25,7 @@ interface AreaDoc {
   description: string
   assignmentMode?: string
   reportCode?: string
+  scanSplitEnabled?: boolean
   createdById: string
   createdByName: string
   createdAt: Timestamp
@@ -41,6 +42,7 @@ function mapArea(id: string, data: AreaDoc): Area {
     reportCode:
       (data.reportCode ?? '').trim().toUpperCase() ||
       defaultReportCode(assignmentMode, data.name),
+    scanSplitEnabled: Boolean(data.scanSplitEnabled),
     createdById: data.createdById,
     createdByName: data.createdByName,
     createdAt: data.createdAt.toDate(),
@@ -77,6 +79,7 @@ export class FirebaseAreaRepository implements AreaRepository {
     description: string
     assignmentMode: AreaAssignmentMode
     reportCode: string
+    scanSplitEnabled?: boolean
     createdById: string
     createdByName: string
   }): Promise<Area> {
@@ -87,6 +90,7 @@ export class FirebaseAreaRepository implements AreaRepository {
       description: input.description,
       assignmentMode: input.assignmentMode,
       reportCode: input.reportCode,
+      scanSplitEnabled: Boolean(input.scanSplitEnabled),
       createdById: input.createdById,
       createdByName: input.createdByName,
       createdAt: now,
@@ -103,6 +107,7 @@ export class FirebaseAreaRepository implements AreaRepository {
       description: string
       assignmentMode: AreaAssignmentMode
       reportCode: string
+      scanSplitEnabled?: boolean
     },
   ): Promise<Area> {
     const refDoc = doc(this.collectionRef, id)
@@ -117,6 +122,7 @@ export class FirebaseAreaRepository implements AreaRepository {
       description: input.description,
       assignmentMode: input.assignmentMode,
       reportCode: input.reportCode,
+      scanSplitEnabled: Boolean(input.scanSplitEnabled),
       updatedAt: Timestamp.now(),
     }
     await setDoc(refDoc, payload)

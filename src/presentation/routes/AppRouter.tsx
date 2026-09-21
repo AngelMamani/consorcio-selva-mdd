@@ -15,6 +15,7 @@ import { FolderDetailPage } from '@/presentation/pages/FolderDetailPage'
 import { FolderDateDetailPage } from '@/presentation/pages/FolderDateDetailPage'
 import { LocalFolderPdfPage } from '@/presentation/pages/LocalFolderPdfPage'
 import { LocalFolderPhotoEditPage } from '@/presentation/pages/LocalFolderPhotoEditPage'
+import { LocalFolderScanSplitPage } from '@/presentation/pages/LocalFolderScanSplitPage'
 import { AttendancePage } from '@/presentation/pages/AttendancePage'
 import { MapPage } from '@/presentation/pages/MapPage'
 import { StationsPage } from '@/presentation/pages/StationsPage'
@@ -67,6 +68,10 @@ export function AppRouter() {
             <Route
               path="/areas/:areaId/herramientas-fotos"
               element={<LocalFolderPhotoEditPage />}
+            />
+            <Route
+              path="/areas/:areaId/herramientas-escaneo"
+              element={<LocalFolderScanSplitPage />}
             />
             <Route path="/tareas" element={<TasksPage />} />
             <Route path="/seguimiento" element={<TrackingPage />} />

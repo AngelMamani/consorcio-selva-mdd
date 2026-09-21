@@ -14,6 +14,8 @@ export interface Area {
   description: string
   assignmentMode: AssignmentMode
   reportCode: string
+  /** Herramienta local: separar escaneos en PDFs de N páginas. */
+  scanSplitEnabled: boolean
   createdById: string
   createdByName: string
   createdAt: Date

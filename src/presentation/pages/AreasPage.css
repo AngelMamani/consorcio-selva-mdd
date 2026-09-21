@@ -493,3 +493,10 @@
     justify-content: center;
   }
 }
+
+.areas-form__scan-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+}

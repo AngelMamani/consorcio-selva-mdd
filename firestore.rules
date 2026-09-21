@@ -435,7 +435,9 @@ service cloud.firestore {
           || request.resource.data.assignmentMode in ['routes', 'work_orders'])
         && (!('reportCode' in request.resource.data)
           || (request.resource.data.reportCode is string
-            && request.resource.data.reportCode.size() <= 8));
+            && request.resource.data.reportCode.size() <= 8))
+        && (!('scanSplitEnabled' in request.resource.data)
+          || request.resource.data.scanSplitEnabled is bool);
       allow update: if isAdmin()
         && unchangedKeys(['createdById', 'createdByName', 'createdAt'])
         && request.resource.data.name is string
@@ -447,7 +449,9 @@ service cloud.firestore {
           || request.resource.data.assignmentMode in ['routes', 'work_orders'])
         && (!('reportCode' in request.resource.data)
           || (request.resource.data.reportCode is string
-            && request.resource.data.reportCode.size() <= 8));
+            && request.resource.data.reportCode.size() <= 8))
+        && (!('scanSplitEnabled' in request.resource.data)
+          || request.resource.data.scanSplitEnabled is bool);
       allow delete: if isAdmin();
     }
 
