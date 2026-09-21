@@ -150,7 +150,6 @@ export function LocalFolderScanSplitPage() {
           return
         }
         setArea(next)
-        setSubfolderName(`${next.name}-escaneos`)
       } catch (error) {
         if (!cancelled) {
           swalError(
@@ -341,17 +340,16 @@ export function LocalFolderScanSplitPage() {
     setBusy(true)
     try {
       if (canSaveScanPdfsToFolder()) {
-        let directory = outputDir
-        if (!directory) {
-          try {
-            directory = await pickOutputDirectory()
-            setOutputDir(directory)
-          } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
-              return
-            }
-            throw error
+        // Siempre pedir carpeta: el usuario elige cualquier ruta del PC.
+        let directory: FileSystemDirectoryHandle
+        try {
+          directory = await pickOutputDirectory()
+          setOutputDir(directory)
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            return
           }
+          throw error
         }
         const saved = await saveSplitPdfsToDirectory(
           docs,
@@ -359,8 +357,11 @@ export function LocalFolderScanSplitPage() {
           subfolderName.trim() || null,
           setStatus,
         )
+        const where = subfolderName.trim()
+          ? `${directory.name}/${saved.folderName}`
+          : directory.name
         swalSuccess(
-          `${saved.count} PDF(s) guardados en “${saved.folderName}”`,
+          `${saved.count} PDF(s) guardados en “${where}”`,
         )
         return
       }
@@ -370,7 +371,9 @@ export function LocalFolderScanSplitPage() {
         subfolderName.trim() || `${area?.name || 'escaneos'}-pdf`,
       )
       downloadBlob(zip.blob, zip.fileName)
-      swalSuccess(`ZIP con ${docs.length} PDF(s) descargado`)
+      swalSuccess(
+        `ZIP con ${docs.length} PDF(s) descargado. Usa Chrome/Edge para guardar directo en cualquier carpeta.`,
+      )
     } catch (error) {
       swalError(
         error instanceof DomainError
@@ -417,8 +420,8 @@ export function LocalFolderScanSplitPage() {
           <h2>{area.name}</h2>
           <p>
             Escanea con la Canon (bridge local) o carga archivos. Separa en PDFs
-            de <strong>{pagesPerPdf} página(s)</strong> y guarda en una carpeta
-            del PC (sin Firebase).
+            de <strong>{pagesPerPdf} página(s)</strong> y al guardar eliges{' '}
+            <strong>cualquier carpeta</strong> del PC (sin Firebase).
           </p>
         </div>
         <div className="scan-split-hero__actions">
@@ -450,11 +453,12 @@ export function LocalFolderScanSplitPage() {
             className="btn btn--soft-muted"
             disabled={busy}
             onClick={() => void chooseOutputFolder()}
+            title="Opcional: preselecciona la carpeta. Al guardar también podrás elegirla."
           >
             <IconFolder />
             {outputDir
-              ? `Guardar en: ${outputDir.name}`
-              : 'Elegir carpeta de guardado'}
+              ? `Carpeta: ${outputDir.name}`
+              : 'Elegir carpeta (cualquier ruta)'}
           </button>
         </div>
       </header>
@@ -612,12 +616,12 @@ export function LocalFolderScanSplitPage() {
           />
         </label>
         <label className="field">
-          <span>Subcarpeta (dentro de la elegida)</span>
+          <span>Subcarpeta (opcional)</span>
           <input
             value={subfolderName}
             disabled={busy}
             onChange={(event) => setSubfolderName(event.target.value)}
-            placeholder="MiActividad-escaneos"
+            placeholder="Vacío = guardar directo en la carpeta elegida"
           />
         </label>
       </div>
@@ -665,9 +669,12 @@ export function LocalFolderScanSplitPage() {
               className="btn btn--soft-primary"
               disabled={busy || docs.length === 0}
               onClick={() => void savePreparedDocs()}
+              title="Abre el selector para guardar en cualquier carpeta del PC"
             >
               <IconFolder />
-              Guardar PDF(s)
+              {busy && status.startsWith('Guardando')
+                ? status
+                : `Guardar en carpeta (${docs.length})`}
             </button>
           </div>
         </div>
@@ -695,8 +702,8 @@ export function LocalFolderScanSplitPage() {
             <div>
               <h3>Previsualizador · {activeDoc.fileName}</h3>
               <p>
-                Elige cada PDF, cambia el nombre y cuando estén listos pulsa
-                Guardar PDF(s).
+                Elige cada PDF, cambia el nombre y pulsa Guardar: eliges
+                cualquier carpeta del PC.
               </p>
             </div>
             <label className="field scan-split-preview__name">
